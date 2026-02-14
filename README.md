@@ -17,7 +17,7 @@
   <a href="https://github.com/matt1398/claude-devtools/releases/latest"><img src="https://img.shields.io/github/v/release/matt1398/claude-devtools?style=flat-square&label=version&color=blue" alt="Latest Release" /></a>&nbsp;
   <a href="https://github.com/matt1398/claude-devtools/actions/workflows/ci.yml"><img src="https://github.com/matt1398/claude-devtools/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>&nbsp;
   <a href="https://github.com/matt1398/claude-devtools/releases"><img src="https://img.shields.io/github/downloads/matt1398/claude-devtools/total?style=flat-square&color=green" alt="Downloads" /></a>&nbsp;
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon%20%2B%20Intel)%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square" alt="Platform" />
 </p>
 
 <br />
@@ -28,6 +28,9 @@
   </a>&nbsp;&nbsp;
   <a href="https://github.com/matt1398/claude-devtools/releases/latest">
     <img src="https://img.shields.io/badge/macOS-Download-black?logo=apple&logoColor=white&style=flat" alt="Download for macOS" height="30" />
+  </a>&nbsp;&nbsp;
+  <a href="https://github.com/matt1398/claude-devtools/releases/latest">
+    <img src="https://img.shields.io/badge/Linux-Download-FCC624?logo=linux&logoColor=black&style=flat" alt="Download for Linux" height="30" />
   </a>&nbsp;&nbsp;
   <a href="https://github.com/matt1398/claude-devtools/releases/latest">
     <img src="https://img.shields.io/badge/Windows-Download-0078D4?logo=windows&logoColor=white&style=flat" alt="Download for Windows" height="30" />
@@ -54,6 +57,7 @@
 |----------|----------|-------|
 | **macOS** (Apple Silicon) | [`.dmg`](https://github.com/matt1398/claude-devtools/releases/latest) | Download the `arm64` asset. Drag to Applications. On first launch: right-click → Open |
 | **macOS** (Intel) | [`.dmg`](https://github.com/matt1398/claude-devtools/releases/latest) | Download the `x64` asset. Drag to Applications. On first launch: right-click → Open |
+| **Linux** | [`.AppImage` / `.deb` / `.rpm` / `.pacman`](https://github.com/matt1398/claude-devtools/releases/latest) | Choose the package format for your distro (portable AppImage or native package manager format). |
 | **Windows** | [`.exe`](https://github.com/matt1398/claude-devtools/releases/latest) | Standard installer. May trigger SmartScreen — click "More info" → "Run anyway" |
 
 The app reads session logs from `~/.claude/` — the data is already on your machine. No setup, no API keys, no login.
@@ -204,8 +208,9 @@ The app auto-discovers your Claude Code projects from `~/.claude/`.
 ```bash
 pnpm dist:mac:arm64  # macOS Apple Silicon (.dmg)
 pnpm dist:mac:x64    # macOS Intel (.dmg)
-pnpm dist:win     # Windows (.exe)
-pnpm dist         # Both platforms
+pnpm dist:win        # Windows (.exe)
+pnpm dist:linux      # Linux (AppImage/.deb/.rpm/.pacman)
+pnpm dist            # macOS + Windows + Linux
 ```
 
 #### Scripts
