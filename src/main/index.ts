@@ -28,7 +28,10 @@ const getWindowIconPath = (): string | undefined => {
   const isDev = process.env.NODE_ENV === 'development';
   const candidates = isDev
     ? [join(process.cwd(), 'resources/icon.png')]
-    : [join(process.resourcesPath, 'resources/icon.png'), join(__dirname, '../../resources/icon.png')];
+    : [
+        join(process.resourcesPath, 'resources/icon.png'),
+        join(__dirname, '../../resources/icon.png'),
+      ];
 
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
@@ -363,6 +366,7 @@ function syncTrafficLightPosition(win: BrowserWindow): void {
  */
 function createWindow(): void {
   const isMac = process.platform === 'darwin';
+  const isLinux = process.platform === 'linux';
   const iconPath = isMac ? undefined : getWindowIconPath();
   mainWindow = new BrowserWindow({
     width: DEFAULT_WINDOW_WIDTH,
@@ -374,7 +378,7 @@ function createWindow(): void {
       contextIsolation: true,
     },
     backgroundColor: '#1a1a1a',
-    titleBarStyle: 'hidden',
+    ...(isLinux ? {} : { titleBarStyle: 'hidden' as const }),
     ...(isMac && { trafficLightPosition: getTrafficLightPositionForZoom(1) }),
     title: 'claude-devtools',
   });

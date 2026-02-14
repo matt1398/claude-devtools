@@ -17,9 +17,10 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "dist": "electron-builder --mac --win",
+    "dist": "electron-builder --mac --win --linux",
     "dist:mac": "electron-builder --mac --publish always",
     "dist:win": "electron-builder --win --publish always",
+    "dist:linux": "electron-builder --linux --publish always",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
@@ -149,6 +150,13 @@
         "nsis"
       ],
       "icon": "resources/icons/win/icon.ico"
+    },
+    "linux": {
+      "target": [
+        "pacman"
+      ],
+      "icon": "resources/icons/png",
+      "category": "Development"
     },
     "nsis": {
       "oneClick": false,
