@@ -214,6 +214,7 @@ function aggregateToolOutputs(
         toolName: displayName,
         tokenCount: toolTokenCount,
         isError: linkedTool.result?.isError ?? false,
+        toolUseId: linkedTool.id,
       });
       totalTokens += toolTokenCount;
     }

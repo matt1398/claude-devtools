@@ -30,6 +30,7 @@ import {
 import { extractToolCalls, extractToolResults } from './toolExtraction';
 
 import type { FileSystemProvider } from '../services/infrastructure/FileSystemProvider';
+import type { PhaseTokenBreakdown } from '../types/domain';
 
 const logger = createLogger('Util:jsonl');
 
@@ -300,6 +301,12 @@ export interface SessionFileMetadata {
   messageCount: number;
   isOngoing: boolean;
   gitBranch: string | null;
+  /** Total context consumed (compaction-aware) */
+  contextConsumption?: number;
+  /** Number of compaction events */
+  compactionCount?: number;
+  /** Per-phase token breakdown */
+  phaseBreakdown?: PhaseTokenBreakdown[];
 }
 
 /**
@@ -328,6 +335,8 @@ export async function analyzeSessionFileMetadata(
   let firstUserMessage: { text: string; timestamp: string } | null = null;
   let firstCommandMessage: { text: string; timestamp: string } | null = null;
   let messageCount = 0;
+  // After a UserGroup, await the first main-thread assistant message to count the AIGroup
+  let awaitingAIGroup = false;
   let gitBranch: string | null = null;
 
   let activityIndex = 0;
@@ -336,6 +345,13 @@ export async function analyzeSessionFileMetadata(
   let hasActivityAfterLastEnding = false;
   // Track tool_use IDs that are shutdown responses so their tool_results are also ending events
   const shutdownToolIds = new Set<string>();
+
+  // Context consumption tracking
+
+  let lastMainAssistantInputTokens = 0;
+  const compactionPhases: { pre: number; post: number }[] = [];
+
+  let awaitingPostCompaction = false;
 
   for await (const line of rl) {
     const trimmed = line.trim();
@@ -357,6 +373,15 @@ export async function analyzeSessionFileMetadata(
 
     if (isParsedUserChunkMessage(parsed)) {
       messageCount++;
+      awaitingAIGroup = true;
+    } else if (
+      awaitingAIGroup &&
+      parsed.type === 'assistant' &&
+      parsed.model !== '<synthetic>' &&
+      !parsed.isSidechain
+    ) {
+      messageCount++;
+      awaitingAIGroup = false;
     }
 
     if (!gitBranch && 'gitBranch' in entry && entry.gitBranch) {
@@ -472,6 +497,86 @@ export async function analyzeSessionFileMetadata(
         }
       }
     }
+
+    // Context consumption: track main-thread assistant input tokens
+    if (parsed.type === 'assistant' && !parsed.isSidechain && parsed.model !== '<synthetic>') {
+      const inputTokens =
+        (parsed.usage?.input_tokens ?? 0) +
+        (parsed.usage?.cache_read_input_tokens ?? 0) +
+        (parsed.usage?.cache_creation_input_tokens ?? 0);
+      if (inputTokens > 0) {
+        if (awaitingPostCompaction && compactionPhases.length > 0) {
+          compactionPhases[compactionPhases.length - 1].post = inputTokens;
+          awaitingPostCompaction = false;
+        }
+        lastMainAssistantInputTokens = inputTokens;
+      }
+    }
+
+    // Context consumption: detect compaction events
+    if (parsed.isCompactSummary) {
+      compactionPhases.push({ pre: lastMainAssistantInputTokens, post: 0 });
+      awaitingPostCompaction = true;
+    }
+  }
+
+  // Compute context consumption from tracked phases
+  let contextConsumption: number | undefined;
+  let phaseBreakdown: PhaseTokenBreakdown[] | undefined;
+
+  if (lastMainAssistantInputTokens > 0) {
+    if (compactionPhases.length === 0) {
+      // No compaction: just the final input tokens
+      contextConsumption = lastMainAssistantInputTokens;
+      phaseBreakdown = [
+        {
+          phaseNumber: 1,
+          contribution: lastMainAssistantInputTokens,
+          peakTokens: lastMainAssistantInputTokens,
+        },
+      ];
+    } else {
+      phaseBreakdown = [];
+      let total = 0;
+
+      // Phase 1: tokens up to first compaction
+      const phase1Contribution = compactionPhases[0].pre;
+      total += phase1Contribution;
+      phaseBreakdown.push({
+        phaseNumber: 1,
+        contribution: phase1Contribution,
+        peakTokens: compactionPhases[0].pre,
+        postCompaction: compactionPhases[0].post,
+      });
+
+      // Middle phases: contribution = pre[i] - post[i-1]
+      for (let i = 1; i < compactionPhases.length; i++) {
+        const contribution = compactionPhases[i].pre - compactionPhases[i - 1].post;
+        total += contribution;
+        phaseBreakdown.push({
+          phaseNumber: i + 1,
+          contribution,
+          peakTokens: compactionPhases[i].pre,
+          postCompaction: compactionPhases[i].post,
+        });
+      }
+
+      // Last phase: final tokens - last post-compaction
+      // Guard: if the last compaction had no subsequent assistant message, post is 0.
+      // In that case, skip the final phase to avoid double-counting.
+      const lastPhase = compactionPhases[compactionPhases.length - 1];
+      if (lastPhase.post > 0) {
+        const lastContribution = lastMainAssistantInputTokens - lastPhase.post;
+        total += lastContribution;
+        phaseBreakdown.push({
+          phaseNumber: compactionPhases.length + 1,
+          contribution: lastContribution,
+          peakTokens: lastMainAssistantInputTokens,
+        });
+      }
+
+      contextConsumption = total;
+    }
   }
 
   return {
@@ -479,5 +584,8 @@ export async function analyzeSessionFileMetadata(
     messageCount,
     isOngoing: lastEndingIndex === -1 ? hasAnyOngoingActivity : hasActivityAfterLastEnding,
     gitBranch,
+    contextConsumption,
+    compactionCount: compactionPhases.length > 0 ? compactionPhases.length : undefined,
+    phaseBreakdown,
   };
 }

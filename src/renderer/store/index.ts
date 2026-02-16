@@ -221,7 +221,8 @@ export function initializeNotificationListeners(): () => void {
         (eventProjectBaseId == null || selectedProjectBaseId === eventProjectBaseId);
       const isTopLevelSessionEvent = !event.isSubagent;
       const isUnknownSessionInSidebar =
-        event.sessionId == null || !state.sessions.some((session) => session.id === event.sessionId);
+        event.sessionId == null ||
+        !state.sessions.some((session) => session.id === event.sessionId);
       const shouldRefreshForPotentialNewSession =
         isTopLevelSessionEvent &&
         matchesSelectedProject &&

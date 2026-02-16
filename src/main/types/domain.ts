@@ -64,6 +64,20 @@ export interface Project {
  */
 export type SessionMetadataLevel = 'light' | 'deep';
 
+/**
+ * Per-phase token breakdown for compaction-aware context consumption.
+ */
+export interface PhaseTokenBreakdown {
+  /** 1-based phase number */
+  phaseNumber: number;
+  /** Tokens added during this phase */
+  contribution: number;
+  /** Context window at peak (pre-compaction or final) */
+  peakTokens: number;
+  /** Tokens after compaction (undefined for the last/current phase) */
+  postCompaction?: number;
+}
+
 export interface Session {
   /** Session UUID (JSONL filename without extension) */
   id: string;
@@ -89,6 +103,12 @@ export interface Session {
   gitBranch?: string;
   /** Metadata completeness level */
   metadataLevel?: SessionMetadataLevel;
+  /** Total context consumed (compaction-aware sum of all phases) */
+  contextConsumption?: number;
+  /** Number of compaction events */
+  compactionCount?: number;
+  /** Per-phase token breakdown for tooltip display */
+  phaseBreakdown?: PhaseTokenBreakdown[];
 }
 
 /**

@@ -43,9 +43,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:coverage:critical": "vitest run --coverage --config vitest.critical.config.ts",
-    "remotion:preview": "remotion studio remotion/index.ts",
-    "remotion:render": "remotion render remotion/index.ts DemoVideo out/demo.mp4",
-    "remotion:render:gif": "remotion render remotion/index.ts DemoVideo out/demo.gif --image-format png"
+    "standalone": "tsx src/main/standalone.ts",
+    "standalone:build": "electron-vite build && vite build --config vite.standalone.config.ts",
+    "standalone:start": "node dist-standalone/index.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -53,7 +53,6 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fastify/cors": "^11.2.0",
     "@fastify/static": "^9.0.0",
-    "@remotion/light-leaks": "4.0.421",
     "@tanstack/react-virtual": "^3.10.8",
     "date-fns": "^3.6.0",
     "electron-updater": "^6.7.3",
@@ -74,10 +73,6 @@
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.6.0",
     "@eslint/js": "^9.39.2",
-    "@remotion/cli": "^4.0.421",
-    "@remotion/google-fonts": "^4.0.421",
-    "@remotion/media": "^4.0.421",
-    "@remotion/transitions": "^4.0.421",
     "@tailwindcss/typography": "^0.5.19",
     "@types/hast": "^3.0.4",
     "@types/mdast": "^4.0.4",
@@ -110,7 +105,6 @@
     "postcss": "^8.4.35",
     "prettier": "^3.8.1",
     "prettier-plugin-tailwindcss": "^0.7.2",
-    "remotion": "^4.0.421",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
@@ -130,6 +124,9 @@
       "package.json"
     ],
     "asar": true,
+    "asarUnpack": [
+      "out/renderer/**"
+    ],
     "npmRebuild": false,
     "extraMetadata": {
       "main": "dist-electron/main/index.cjs"

@@ -20,11 +20,13 @@ export interface ConfigSlice {
   appConfig: AppConfig | null;
   configLoading: boolean;
   configError: string | null;
+  pendingSettingsSection: string | null;
 
   // Actions
   fetchConfig: () => Promise<void>;
   updateConfig: (section: string, data: Record<string, unknown>) => Promise<void>;
-  openSettingsTab: () => void;
+  openSettingsTab: (section?: string) => void;
+  clearPendingSettingsSection: () => void;
 }
 
 // =============================================================================
@@ -36,6 +38,7 @@ export const createConfigSlice: StateCreator<AppState, [], [], ConfigSlice> = (s
   appConfig: null,
   configLoading: false,
   configError: null,
+  pendingSettingsSection: null,
 
   // Fetch app configuration from main process
   fetchConfig: async () => {
@@ -70,8 +73,12 @@ export const createConfigSlice: StateCreator<AppState, [], [], ConfigSlice> = (s
   },
 
   // Open or focus the settings tab (per-pane singleton)
-  openSettingsTab: () => {
+  openSettingsTab: (section?: string) => {
     const state = get();
+
+    if (section) {
+      set({ pendingSettingsSection: section });
+    }
 
     // Check if settings tab exists in focused pane
     const focusedPane = state.paneLayout.panes.find((p) => p.id === state.paneLayout.focusedPaneId);
@@ -86,5 +93,9 @@ export const createConfigSlice: StateCreator<AppState, [], [], ConfigSlice> = (s
       type: 'settings',
       label: 'Settings',
     });
+  },
+
+  clearPendingSettingsSection: () => {
+    set({ pendingSettingsSection: null });
   },
 });

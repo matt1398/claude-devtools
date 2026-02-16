@@ -33,14 +33,20 @@ export const UpdateBanner = (): React.JSX.Element | null => {
     >
       {isDownloading ? (
         <div className="pr-8">
-          <div className="mb-1.5 flex items-center gap-2 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+          <div
+            className="mb-1.5 flex items-center gap-2 text-xs"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
             <Loader2 className="size-3.5 shrink-0 animate-spin text-blue-400" />
             <span>Updating app</span>
             <span className="tabular-nums" style={{ color: 'var(--color-text-muted)' }}>
               {clampedPercent}%
             </span>
           </div>
-          <div className="h-1 w-full overflow-hidden rounded-full" style={{ backgroundColor: 'var(--color-border)' }}>
+          <div
+            className="h-1 w-full overflow-hidden rounded-full"
+            style={{ backgroundColor: 'var(--color-border)' }}
+          >
             <div
               className="h-full rounded-full bg-blue-500 transition-all duration-300 ease-out"
               style={{ width: `${clampedPercent}%` }}
@@ -74,7 +80,7 @@ export const UpdateBanner = (): React.JSX.Element | null => {
       {/* Dismiss */}
       <button
         onClick={dismissUpdateBanner}
-        className="absolute right-3 top-1/2 -translate-y-1/2 shrink-0 rounded p-0.5 transition-colors hover:bg-white/10"
+        className="absolute right-3 top-1/2 shrink-0 -translate-y-1/2 rounded p-0.5 transition-colors hover:bg-white/10"
         style={{ color: 'var(--color-text-muted)' }}
       >
         <X className="size-3.5" />

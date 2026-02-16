@@ -19,7 +19,8 @@ import { getTeamColorSet } from '@renderer/constants/teamColors';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useStore } from '@renderer/store';
 import { buildDisplayItemsFromMessages, buildSummary } from '@renderer/utils/aiGroupEnhancer';
-import { formatDuration } from '@renderer/utils/formatters';
+import { computeSubagentPhaseBreakdown } from '@renderer/utils/aiGroupHelpers';
+import { formatDuration, formatTokensCompact } from '@renderer/utils/formatters';
 import { getHighlightProps, type TriggerColor } from '@shared/constants/triggerColors';
 import { getModelColorClass, parseModelString } from '@shared/utils/modelParser';
 import {
@@ -154,6 +155,12 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
     return null;
   }, [subagent.messages]);
 
+  // Multi-phase context breakdown (for subagents with compaction)
+  const phaseData = useMemo(() => {
+    if (!subagent.messages?.length) return null;
+    return computeSubagentPhaseBreakdown(subagent.messages);
+  }, [subagent.messages]);
+
   // Search expansion
   const searchExpandedSubagentIds = useStore((s) => s.searchExpandedSubagentIds);
   const searchCurrentSubagentItemId = useStore((s) => s.searchCurrentSubagentItemId);
@@ -196,12 +203,15 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
   // Computed values for metrics
   const hasMainImpact = subagent.mainSessionImpact && subagent.mainSessionImpact.totalTokens > 0;
   const hasIsolated = lastUsage && lastUsage.input_tokens + lastUsage.output_tokens > 0;
-  const isolatedTotal = lastUsage
-    ? lastUsage.input_tokens +
-      lastUsage.output_tokens +
-      (lastUsage.cache_read_input_tokens ?? 0) +
-      (lastUsage.cache_creation_input_tokens ?? 0)
-    : 0;
+  const isMultiPhase = phaseData != null && phaseData.compactionCount > 0;
+  const isolatedTotal = isMultiPhase
+    ? phaseData.totalConsumption
+    : lastUsage
+      ? lastUsage.input_tokens +
+        lastUsage.output_tokens +
+        (lastUsage.cache_read_input_tokens ?? 0) +
+        (lastUsage.cache_creation_input_tokens ?? 0)
+      : 0;
 
   // Shutdown-only team activations: minimal inline row (no metrics, no expand)
   if (isShutdownOnly && teamColors && subagent.team) {
@@ -338,6 +348,10 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
           mainSessionImpact={subagent.team ? undefined : subagent.mainSessionImpact}
           lastUsage={lastUsage ?? undefined}
           isolatedLabel={subagent.team ? 'Context Window' : undefined}
+          isolatedOverride={
+            phaseData && phaseData.compactionCount > 0 ? phaseData.totalConsumption : undefined
+          }
+          phaseBreakdown={phaseData?.phases}
         />
 
         {/* Duration */}
@@ -453,7 +467,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                     <div className="flex items-center gap-2">
                       <CircleDot className="size-3" style={{ color: 'rgba(56, 189, 248, 0.7)' }} />
                       <span className="text-xs" style={{ color: COLOR_TEXT_SECONDARY }}>
-                        {subagent.team ? 'Context Window' : 'Isolated Usage'}
+                        {subagent.team ? 'Context Window' : 'Subagent Context'}
                       </span>
                     </div>
                     <span
@@ -464,6 +478,28 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                     </span>
                   </div>
                 )}
+
+                {/* Per-phase breakdown when multi-phase */}
+                {isMultiPhase &&
+                  phaseData.phases.map((phase) => (
+                    <div key={phase.phaseNumber} className="flex items-center justify-between pl-5">
+                      <span className="text-[11px]" style={{ color: CARD_ICON_MUTED }}>
+                        Phase {phase.phaseNumber}
+                      </span>
+                      <span
+                        className="font-mono text-[11px] tabular-nums"
+                        style={{ color: CARD_ICON_MUTED }}
+                      >
+                        {formatTokensCompact(phase.peakTokens)}
+                        {phase.postCompaction != null && (
+                          <span style={{ color: '#4ade80' }}>
+                            {' '}
+                            → {formatTokensCompact(phase.postCompaction)}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
               </div>
             </div>
           )}

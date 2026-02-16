@@ -1,9 +1,11 @@
 /**
  * DateGroupedSessions - Sessions organized by date categories with virtual scrolling.
  * Uses @tanstack/react-virtual for efficient DOM rendering with infinite scroll.
+ * Supports multi-select with bulk actions and hidden session filtering.
  */
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useStore } from '@renderer/store';
 import {
@@ -12,7 +14,17 @@ import {
   separatePinnedSessions,
 } from '@renderer/utils/dateGrouping';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Calendar, Loader2, MessageSquareOff, Pin } from 'lucide-react';
+import {
+  ArrowDownWideNarrow,
+  Calendar,
+  CheckSquare,
+  Eye,
+  EyeOff,
+  Loader2,
+  MessageSquareOff,
+  Pin,
+  X,
+} from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { SessionItem } from './SessionItem';
@@ -24,7 +36,7 @@ import type { DateCategory } from '@renderer/types/tabs';
 type VirtualItem =
   | { type: 'header'; category: DateCategory; id: string }
   | { type: 'pinned-header'; id: string }
-  | { type: 'session'; session: Session; isPinned: boolean; id: string }
+  | { type: 'session'; session: Session; isPinned: boolean; isHidden: boolean; id: string }
   | { type: 'loader'; id: string };
 
 /**
@@ -47,9 +59,21 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     sessionsError,
     sessionsHasMore,
     sessionsLoadingMore,
-    sessionsTotalCount,
     fetchSessionsMore,
     pinnedSessionIds,
+    sessionSortMode,
+    setSessionSortMode,
+    hiddenSessionIds,
+    showHiddenSessions,
+    toggleShowHiddenSessions,
+    sidebarSelectedSessionIds,
+    sidebarMultiSelectActive,
+    toggleSidebarSessionSelection,
+    clearSidebarSelection,
+    toggleSidebarMultiSelect,
+    hideMultipleSessions,
+    unhideMultipleSessions,
+    pinMultipleSessions,
   } = useStore(
     useShallow((s) => ({
       sessions: s.sessions,
@@ -59,18 +83,41 @@ export const DateGroupedSessions = (): React.JSX.Element => {
       sessionsError: s.sessionsError,
       sessionsHasMore: s.sessionsHasMore,
       sessionsLoadingMore: s.sessionsLoadingMore,
-      sessionsTotalCount: s.sessionsTotalCount,
       fetchSessionsMore: s.fetchSessionsMore,
       pinnedSessionIds: s.pinnedSessionIds,
+      sessionSortMode: s.sessionSortMode,
+      setSessionSortMode: s.setSessionSortMode,
+      hiddenSessionIds: s.hiddenSessionIds,
+      showHiddenSessions: s.showHiddenSessions,
+      toggleShowHiddenSessions: s.toggleShowHiddenSessions,
+      sidebarSelectedSessionIds: s.sidebarSelectedSessionIds,
+      sidebarMultiSelectActive: s.sidebarMultiSelectActive,
+      toggleSidebarSessionSelection: s.toggleSidebarSessionSelection,
+      clearSidebarSelection: s.clearSidebarSelection,
+      toggleSidebarMultiSelect: s.toggleSidebarMultiSelect,
+      hideMultipleSessions: s.hideMultipleSessions,
+      unhideMultipleSessions: s.unhideMultipleSessions,
+      pinMultipleSessions: s.pinMultipleSessions,
     }))
   );
 
   const parentRef = useRef<HTMLDivElement>(null);
+  const countRef = useRef<HTMLSpanElement>(null);
+  const [showCountTooltip, setShowCountTooltip] = useState(false);
+
+  const hiddenSet = useMemo(() => new Set(hiddenSessionIds), [hiddenSessionIds]);
+  const hasHiddenSessions = hiddenSessionIds.length > 0;
+
+  // Filter out hidden sessions unless showHiddenSessions is on
+  const visibleSessions = useMemo(() => {
+    if (showHiddenSessions) return sessions;
+    return sessions.filter((s) => !hiddenSet.has(s.id));
+  }, [sessions, hiddenSet, showHiddenSessions]);
 
   // Separate pinned sessions from unpinned
   const { pinned: pinnedSessions, unpinned: unpinnedSessions } = useMemo(
-    () => separatePinnedSessions(sessions, pinnedSessionIds),
-    [sessions, pinnedSessionIds]
+    () => separatePinnedSessions(visibleSessions, pinnedSessionIds),
+    [visibleSessions, pinnedSessionIds]
   );
 
   // Group only unpinned sessions by date
@@ -82,43 +129,64 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     [groupedSessions]
   );
 
+  // Sessions sorted by context consumption (for most-context sort mode)
+  const contextSortedSessions = useMemo(() => {
+    if (sessionSortMode !== 'most-context') return [];
+    return [...visibleSessions].sort(
+      (a, b) => (b.contextConsumption ?? 0) - (a.contextConsumption ?? 0)
+    );
+  }, [visibleSessions, sessionSortMode]);
+
   // Flatten sessions with date headers into virtual list items
   const virtualItems = useMemo((): VirtualItem[] => {
     const items: VirtualItem[] = [];
 
-    // Add pinned section first
-    if (pinnedSessions.length > 0) {
-      items.push({
-        type: 'pinned-header',
-        id: 'header-pinned',
-      });
-
-      for (const session of pinnedSessions) {
+    if (sessionSortMode === 'most-context') {
+      // Flat list sorted by consumption - no date headers, no pinned section
+      for (const session of contextSortedSessions) {
         items.push({
           type: 'session',
           session,
-          isPinned: true,
+          isPinned: pinnedSessionIds.includes(session.id),
+          isHidden: hiddenSet.has(session.id),
           id: `session-${session.id}`,
         });
       }
-    }
-
-    for (const category of nonEmptyCategories) {
-      // Add header item
-      items.push({
-        type: 'header',
-        category,
-        id: `header-${category}`,
-      });
-
-      // Add session items
-      for (const session of groupedSessions[category]) {
+    } else {
+      // Default: date-grouped view with pinned section
+      if (pinnedSessions.length > 0) {
         items.push({
-          type: 'session',
-          session,
-          isPinned: false,
-          id: `session-${session.id}`,
+          type: 'pinned-header',
+          id: 'header-pinned',
         });
+
+        for (const session of pinnedSessions) {
+          items.push({
+            type: 'session',
+            session,
+            isPinned: true,
+            isHidden: hiddenSet.has(session.id),
+            id: `session-${session.id}`,
+          });
+        }
+      }
+
+      for (const category of nonEmptyCategories) {
+        items.push({
+          type: 'header',
+          category,
+          id: `header-${category}`,
+        });
+
+        for (const session of groupedSessions[category]) {
+          items.push({
+            type: 'session',
+            session,
+            isPinned: false,
+            isHidden: hiddenSet.has(session.id),
+            id: `session-${session.id}`,
+          });
+        }
       }
     }
 
@@ -131,7 +199,16 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     }
 
     return items;
-  }, [pinnedSessions, nonEmptyCategories, groupedSessions, sessionsHasMore]);
+  }, [
+    sessionSortMode,
+    contextSortedSessions,
+    pinnedSessionIds,
+    hiddenSet,
+    pinnedSessions,
+    nonEmptyCategories,
+    groupedSessions,
+    sessionsHasMore,
+  ]);
 
   // Estimate item size based on type
   const estimateSize = useCallback(
@@ -191,6 +268,32 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     sessionsLoading,
     fetchSessionsMore,
   ]);
+
+  // Bulk action helpers
+  const selectedSet = useMemo(
+    () => new Set(sidebarSelectedSessionIds),
+    [sidebarSelectedSessionIds]
+  );
+  const someSelectedAreHidden = useMemo(
+    () => sidebarSelectedSessionIds.some((id) => hiddenSet.has(id)),
+    [sidebarSelectedSessionIds, hiddenSet]
+  );
+
+  const handleBulkHide = useCallback(() => {
+    void hideMultipleSessions(sidebarSelectedSessionIds);
+    clearSidebarSelection();
+  }, [hideMultipleSessions, sidebarSelectedSessionIds, clearSidebarSelection]);
+
+  const handleBulkUnhide = useCallback(() => {
+    const hiddenSelected = sidebarSelectedSessionIds.filter((id) => hiddenSet.has(id));
+    void unhideMultipleSessions(hiddenSelected);
+    clearSidebarSelection();
+  }, [unhideMultipleSessions, sidebarSelectedSessionIds, hiddenSet, clearSidebarSelection]);
+
+  const handleBulkPin = useCallback(() => {
+    void pinMultipleSessions(sidebarSelectedSessionIds);
+    clearSidebarSelection();
+  }, [pinMultipleSessions, sidebarSelectedSessionIds, clearSidebarSelection]);
 
   if (!selectedProjectId) {
     return (
@@ -273,13 +376,135 @@ export const DateGroupedSessions = (): React.JSX.Element => {
           className="text-xs uppercase tracking-wider"
           style={{ color: 'var(--color-text-muted)' }}
         >
-          Sessions
+          {sessionSortMode === 'most-context' ? 'By Context' : 'Sessions'}
         </h2>
-        <span className="text-xs" style={{ color: 'var(--color-text-muted)', opacity: 0.6 }}>
+        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- tooltip trigger via hover, not interactive */}
+        <span
+          ref={countRef}
+          className="text-xs"
+          style={{ color: 'var(--color-text-muted)', opacity: 0.6 }}
+          onMouseEnter={() => setShowCountTooltip(true)}
+          onMouseLeave={() => setShowCountTooltip(false)}
+        >
           ({sessions.length}
-          {sessionsTotalCount > sessions.length ? ` of ${sessionsTotalCount}` : ''})
+          {sessionsHasMore ? '+' : ''})
         </span>
+        {showCountTooltip &&
+          sessionsHasMore &&
+          countRef.current &&
+          createPortal(
+            <div
+              className="pointer-events-none fixed z-50 w-48 rounded-md px-2.5 py-1.5 text-[11px] leading-snug shadow-lg"
+              style={{
+                top: countRef.current.getBoundingClientRect().bottom + 6,
+                left:
+                  countRef.current.getBoundingClientRect().left +
+                  countRef.current.getBoundingClientRect().width / 2 -
+                  96,
+                backgroundColor: 'var(--color-surface-overlay)',
+                border: '1px solid var(--color-border-emphasis)',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              {sessions.length} loaded so far — scroll down to load more. Context sorting only ranks
+              loaded sessions.
+            </div>,
+            document.body
+          )}
+        <div className="ml-auto flex items-center gap-0.5">
+          {/* Multi-select toggle */}
+          <button
+            onClick={toggleSidebarMultiSelect}
+            className="rounded p-1 transition-colors hover:bg-white/5"
+            title={sidebarMultiSelectActive ? 'Exit selection mode' : 'Select sessions'}
+            style={{
+              color: sidebarMultiSelectActive ? '#818cf8' : 'var(--color-text-muted)',
+            }}
+          >
+            <CheckSquare className="size-3.5" />
+          </button>
+          {/* Show hidden sessions toggle - only when hidden sessions exist */}
+          {hasHiddenSessions && (
+            <button
+              onClick={toggleShowHiddenSessions}
+              className="rounded p-1 transition-colors hover:bg-white/5"
+              title={showHiddenSessions ? 'Hide hidden sessions' : 'Show hidden sessions'}
+              style={{
+                color: showHiddenSessions ? '#818cf8' : 'var(--color-text-muted)',
+              }}
+            >
+              {showHiddenSessions ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+            </button>
+          )}
+          {/* Sort mode toggle */}
+          <button
+            onClick={() =>
+              setSessionSortMode(sessionSortMode === 'recent' ? 'most-context' : 'recent')
+            }
+            className="rounded p-1 transition-colors hover:bg-white/5"
+            title={sessionSortMode === 'recent' ? 'Sort by context consumption' : 'Sort by recent'}
+            style={{
+              color: sessionSortMode === 'most-context' ? '#818cf8' : 'var(--color-text-muted)',
+            }}
+          >
+            <ArrowDownWideNarrow className="size-3.5" />
+          </button>
+        </div>
       </div>
+
+      {/* Bulk action bar - shown when sessions are selected */}
+      {sidebarMultiSelectActive && sidebarSelectedSessionIds.length > 0 && (
+        <div
+          className="flex items-center gap-1.5 border-b px-3 py-1.5"
+          style={{
+            borderColor: 'var(--color-border)',
+            backgroundColor: 'var(--color-surface-raised)',
+          }}
+        >
+          <span
+            className="text-[11px] font-medium"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            {sidebarSelectedSessionIds.length} selected
+          </span>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={handleBulkPin}
+              className="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-white/5"
+              style={{ color: 'var(--color-text-secondary)' }}
+              title="Pin selected sessions"
+            >
+              <Pin className="inline-block size-3" /> Pin
+            </button>
+            <button
+              onClick={handleBulkHide}
+              className="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-white/5"
+              style={{ color: 'var(--color-text-secondary)' }}
+              title="Hide selected sessions"
+            >
+              <EyeOff className="inline-block size-3" /> Hide
+            </button>
+            {showHiddenSessions && someSelectedAreHidden && (
+              <button
+                onClick={handleBulkUnhide}
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors hover:bg-white/5"
+                style={{ color: 'var(--color-text-secondary)' }}
+                title="Unhide selected sessions"
+              >
+                <Eye className="inline-block size-3" /> Unhide
+              </button>
+            )}
+            <button
+              onClick={clearSidebarSelection}
+              className="rounded p-0.5 transition-colors hover:bg-white/5"
+              style={{ color: 'var(--color-text-muted)' }}
+              title="Cancel selection"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div ref={parentRef} className="flex-1 overflow-y-auto">
         <div
@@ -349,6 +574,10 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                     session={item.session}
                     isActive={selectedSessionId === item.session.id}
                     isPinned={item.isPinned}
+                    isHidden={item.isHidden}
+                    multiSelectActive={sidebarMultiSelectActive}
+                    isSelected={selectedSet.has(item.session.id)}
+                    onToggleSelect={() => toggleSidebarSessionSelection(item.session.id)}
                   />
                 )}
               </div>

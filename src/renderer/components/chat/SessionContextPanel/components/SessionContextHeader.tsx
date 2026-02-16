@@ -12,12 +12,13 @@ import {
   COLOR_TEXT_MUTED,
   COLOR_TEXT_SECONDARY,
 } from '@renderer/constants/cssVariables';
-import { FileText, X } from 'lucide-react';
+import { ArrowDownWideNarrow, FileText, LayoutList, X } from 'lucide-react';
 
 import { formatTokens } from '../utils/formatting';
 
 import { SessionContextHelpTooltip } from './SessionContextHelpTooltip';
 
+import type { ContextViewMode } from '../types';
 import type { ContextPhaseInfo } from '@renderer/types/contextInjection';
 
 interface SessionContextHeaderProps {
@@ -28,6 +29,8 @@ interface SessionContextHeaderProps {
   phaseInfo?: ContextPhaseInfo;
   selectedPhase: number | null;
   onPhaseChange: (phase: number | null) => void;
+  viewMode: ContextViewMode;
+  onViewModeChange: (mode: ContextViewMode) => void;
 }
 
 export const SessionContextHeader = ({
@@ -38,6 +41,8 @@ export const SessionContextHeader = ({
   phaseInfo,
   selectedPhase,
   onPhaseChange,
+  viewMode,
+  onViewModeChange,
 }: Readonly<SessionContextHeaderProps>): React.ReactElement => {
   return (
     <div className="shrink-0 px-4 py-3" style={{ borderBottom: `1px solid ${COLOR_BORDER}` }}>
@@ -150,6 +155,40 @@ export const SessionContextHeader = ({
           </button>
         </div>
       )}
+
+      {/* View mode toggle */}
+      <div
+        className="mt-2 flex items-center gap-1 pt-2"
+        style={{ borderTop: `1px solid ${COLOR_BORDER_SUBTLE}` }}
+      >
+        <span className="mr-1 text-[10px]" style={{ color: COLOR_TEXT_MUTED }}>
+          View:
+        </span>
+        <button
+          onClick={() => onViewModeChange('category')}
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors"
+          style={{
+            backgroundColor:
+              viewMode === 'category' ? 'rgba(99, 102, 241, 0.2)' : COLOR_SURFACE_OVERLAY,
+            color: viewMode === 'category' ? '#818cf8' : COLOR_TEXT_MUTED,
+          }}
+        >
+          <LayoutList size={10} />
+          Category
+        </button>
+        <button
+          onClick={() => onViewModeChange('ranked')}
+          className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors"
+          style={{
+            backgroundColor:
+              viewMode === 'ranked' ? 'rgba(99, 102, 241, 0.2)' : COLOR_SURFACE_OVERLAY,
+            color: viewMode === 'ranked' ? '#818cf8' : COLOR_TEXT_MUTED,
+          }}
+        >
+          <ArrowDownWideNarrow size={10} />
+          By Size
+        </button>
+      </div>
     </div>
   );
 };

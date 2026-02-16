@@ -48,8 +48,8 @@ export class HttpAPIClient implements ElectronAPI {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- event callbacks have varying signatures
   private eventListeners = new Map<string, Set<(...args: any[]) => void>>();
 
-  constructor(port: number) {
-    this.baseUrl = `http://127.0.0.1:${port}`;
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
     this.initEventSource();
   }
 
@@ -436,6 +436,14 @@ export class HttpAPIClient implements ElectronAPI {
       this.post('/api/config/pin-session', { projectId, sessionId }),
     unpinSession: (projectId: string, sessionId: string): Promise<void> =>
       this.post('/api/config/unpin-session', { projectId, sessionId }),
+    hideSession: (projectId: string, sessionId: string): Promise<void> =>
+      this.post('/api/config/hide-session', { projectId, sessionId }),
+    unhideSession: (projectId: string, sessionId: string): Promise<void> =>
+      this.post('/api/config/unhide-session', { projectId, sessionId }),
+    hideSessions: (projectId: string, sessionIds: string[]): Promise<void> =>
+      this.post('/api/config/hide-sessions', { projectId, sessionIds }),
+    unhideSessions: (projectId: string, sessionIds: string[]): Promise<void> =>
+      this.post('/api/config/unhide-sessions', { projectId, sessionIds }),
   };
 
   // ---------------------------------------------------------------------------

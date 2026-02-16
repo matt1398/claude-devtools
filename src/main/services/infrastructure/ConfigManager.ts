@@ -191,6 +191,7 @@ export interface DisplayConfig {
 
 export interface SessionsConfig {
   pinnedSessions: Record<string, { sessionId: string; pinnedAt: number }[]>;
+  hiddenSessions: Record<string, { sessionId: string; hiddenAt: number }[]>;
 }
 
 export interface SshPersistConfig {
@@ -255,6 +256,7 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   sessions: {
     pinnedSessions: {},
+    hiddenSessions: {},
   },
   ssh: {
     lastConnection: null,
@@ -741,6 +743,89 @@ export class ConfigManager {
     // Clean up empty arrays
     if (this.config.sessions.pinnedSessions[projectId].length === 0) {
       delete this.config.sessions.pinnedSessions[projectId];
+    }
+
+    this.saveConfig();
+  }
+
+  // ===========================================================================
+  // Session Hide Management
+  // ===========================================================================
+
+  /**
+   * Hides a session for a project.
+   * @param projectId - The project ID
+   * @param sessionId - The session ID to hide
+   */
+  hideSession(projectId: string, sessionId: string): void {
+    const hidden = this.config.sessions.hiddenSessions[projectId] ?? [];
+
+    if (hidden.some((h) => h.sessionId === sessionId)) {
+      return;
+    }
+
+    this.config.sessions.hiddenSessions[projectId] = [
+      { sessionId, hiddenAt: Date.now() },
+      ...hidden,
+    ];
+    this.saveConfig();
+  }
+
+  /**
+   * Unhides a session for a project.
+   * @param projectId - The project ID
+   * @param sessionId - The session ID to unhide
+   */
+  unhideSession(projectId: string, sessionId: string): void {
+    const hidden = this.config.sessions.hiddenSessions[projectId];
+    if (!hidden) return;
+
+    this.config.sessions.hiddenSessions[projectId] = hidden.filter(
+      (h) => h.sessionId !== sessionId
+    );
+
+    if (this.config.sessions.hiddenSessions[projectId].length === 0) {
+      delete this.config.sessions.hiddenSessions[projectId];
+    }
+
+    this.saveConfig();
+  }
+
+  /**
+   * Hides multiple sessions for a project in a single write.
+   * @param projectId - The project ID
+   * @param sessionIds - The session IDs to hide
+   */
+  hideSessions(projectId: string, sessionIds: string[]): void {
+    const hidden = this.config.sessions.hiddenSessions[projectId] ?? [];
+    const existingIds = new Set(hidden.map((h) => h.sessionId));
+    const now = Date.now();
+    const newEntries = sessionIds
+      .filter((id) => !existingIds.has(id))
+      .map((sessionId) => ({ sessionId, hiddenAt: now }));
+
+    if (newEntries.length === 0) return;
+
+    this.config.sessions.hiddenSessions[projectId] = [...newEntries, ...hidden];
+    this.saveConfig();
+  }
+
+  /**
+   * Unhides multiple sessions for a project in a single write.
+   * @param projectId - The project ID
+   * @param sessionIds - The session IDs to unhide
+   */
+  unhideSessions(projectId: string, sessionIds: string[]): void {
+    const hidden = this.config.sessions.hiddenSessions[projectId];
+    if (!hidden) return;
+
+    const toRemove = new Set(sessionIds);
+    this.config.sessions.hiddenSessions[projectId] = hidden.filter(
+      (h) => !toRemove.has(h.sessionId)
+    );
+
+    if (this.config.sessions.hiddenSessions[projectId].length === 0) {
+      delete this.config.sessions.hiddenSessions[projectId];
     }
 
     this.saveConfig();

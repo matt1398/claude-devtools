@@ -7,7 +7,7 @@
 import { useEffect, useRef } from 'react';
 
 import { MAX_PANES } from '@renderer/types/panes';
-import { Pin, PinOff } from 'lucide-react';
+import { Eye, EyeOff, Pin, PinOff } from 'lucide-react';
 
 interface SessionContextMenuProps {
   x: number;
@@ -17,11 +17,13 @@ interface SessionContextMenuProps {
   sessionLabel: string;
   paneCount: number;
   isPinned: boolean;
+  isHidden: boolean;
   onClose: () => void;
   onOpenInCurrentPane: () => void;
   onOpenInNewTab: () => void;
   onSplitRightAndOpen: () => void;
   onTogglePin: () => void;
+  onToggleHide: () => void;
 }
 
 export const SessionContextMenu = ({
@@ -29,11 +31,13 @@ export const SessionContextMenu = ({
   y,
   paneCount,
   isPinned,
+  isHidden,
   onClose,
   onOpenInCurrentPane,
   onOpenInNewTab,
   onSplitRightAndOpen,
   onTogglePin,
+  onToggleHide,
 }: SessionContextMenuProps): React.JSX.Element => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -55,7 +59,7 @@ export const SessionContextMenu = ({
   }, [onClose]);
 
   const menuWidth = 240;
-  const menuHeight = 180;
+  const menuHeight = 204;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
@@ -91,6 +95,11 @@ export const SessionContextMenu = ({
         label={isPinned ? 'Unpin Session' : 'Pin Session'}
         icon={isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
         onClick={handleClick(onTogglePin)}
+      />
+      <MenuItem
+        label={isHidden ? 'Unhide Session' : 'Hide Session'}
+        icon={isHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+        onClick={handleClick(onToggleHide)}
       />
     </div>
   );

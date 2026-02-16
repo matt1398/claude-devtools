@@ -5,6 +5,7 @@
 
 import { useState } from 'react';
 
+import { useStore } from '@renderer/store';
 import { Loader2 } from 'lucide-react';
 
 import { useSettingsConfig, useSettingsHandlers } from './hooks';
@@ -19,6 +20,18 @@ import { type SettingsSection, SettingsTabs } from './SettingsTabs';
 
 export const SettingsView = (): React.JSX.Element | null => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general');
+  const pendingSettingsSection = useStore((s) => s.pendingSettingsSection);
+  const clearPendingSettingsSection = useStore((s) => s.clearPendingSettingsSection);
+
+  // Consume pending section during render (React-recommended pattern for adjusting state on prop change)
+  const [prevPending, setPrevPending] = useState<string | null>(null);
+  if (pendingSettingsSection !== prevPending) {
+    setPrevPending(pendingSettingsSection);
+    if (pendingSettingsSection) {
+      setActiveSection(pendingSettingsSection as SettingsSection);
+      clearPendingSettingsSection();
+    }
+  }
 
   const {
     config,

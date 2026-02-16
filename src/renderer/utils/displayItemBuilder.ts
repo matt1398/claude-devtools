@@ -29,6 +29,9 @@ function getDisplayItemTimestamp(item: AIGroupDisplayItem): Date {
       return toDate(item.slash.timestamp);
     case 'teammate_message':
       return toDate(item.teammateMessage.timestamp);
+    case 'subagent_input':
+    case 'compact_boundary':
+      return toDate(item.timestamp);
   }
 }
 
@@ -320,9 +323,75 @@ export function buildDisplayItemsFromMessages(
     subagents.map((s) => s.parentTaskId).filter((id): id is string => !!id)
   );
 
+  // Track compaction events for compact_boundary display items
+  let compactionCount = 0;
+
+  // Helper to get the last assistant's total input tokens before a given index
+  // Note: don't filter by isSidechain — subagent messages all have isSidechain=true
+  function getLastAssistantInputTokens(idx: number): number {
+    for (let i = idx - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.type === 'assistant' && m.usage && m.model !== '<synthetic>') {
+        return (
+          (m.usage.input_tokens ?? 0) +
+          (m.usage.cache_read_input_tokens ?? 0) +
+          (m.usage.cache_creation_input_tokens ?? 0)
+        );
+      }
+    }
+    return 0;
+  }
+
+  // Helper to get the first assistant's total input tokens after a given index
+  function getFirstAssistantInputTokens(idx: number): number {
+    for (let i = idx + 1; i < messages.length; i++) {
+      const m = messages[i];
+      if (m.type === 'assistant' && m.usage && m.model !== '<synthetic>') {
+        return (
+          (m.usage.input_tokens ?? 0) +
+          (m.usage.cache_read_input_tokens ?? 0) +
+          (m.usage.cache_creation_input_tokens ?? 0)
+        );
+      }
+    }
+    return 0;
+  }
+
   // First pass: collect tool calls and tool results from messages
-  for (const msg of messages) {
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex++) {
+    const msg = messages[messageIndex];
     const msgTimestamp = toDate(msg.timestamp);
+
+    // Detect compact boundary (before regular user message handling)
+    if (msg.isCompactSummary) {
+      const preTokens = getLastAssistantInputTokens(messageIndex);
+      const postTokens = getFirstAssistantInputTokens(messageIndex);
+      const rawText =
+        typeof msg.content === 'string'
+          ? msg.content
+          : Array.isArray(msg.content)
+            ? msg.content
+                .filter((b: { type: string; text?: string }) => b.type === 'text')
+                .map((b: { type: string; text?: string }) => b.text ?? '')
+                .join('\n\n')
+            : '';
+      displayItems.push({
+        type: 'compact_boundary',
+        content: rawText,
+        timestamp: msgTimestamp,
+        tokenDelta:
+          preTokens > 0
+            ? {
+                preCompactionTokens: preTokens,
+                postCompactionTokens: postTokens,
+                delta: postTokens - preTokens,
+              }
+            : undefined,
+        phaseNumber: compactionCount + 2,
+      });
+      compactionCount++;
+      continue;
+    }
 
     // Check for teammate messages (non-meta user messages with <teammate-message> content)
     // One user message may contain multiple <teammate-message> blocks
@@ -354,6 +423,16 @@ export function buildDisplayItemsFromMessages(
         }
         continue;
       }
+      // Plain-text user message (subagent input prompt)
+      if (rawText.trim()) {
+        displayItems.push({
+          type: 'subagent_input',
+          content: rawText.trim(),
+          timestamp: msgTimestamp,
+          tokenCount: estimateTokens(rawText),
+        });
+      }
+      continue;
     }
 
     if (msg.type === 'assistant' && Array.isArray(msg.content)) {

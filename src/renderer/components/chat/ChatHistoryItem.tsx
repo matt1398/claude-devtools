@@ -97,11 +97,10 @@ const ChatHistoryItemInner = ({
     }
     case 'ai': {
       const isHighlighted = highlightedGroupId === item.group.id;
-      // Pass highlightToolUseId to ALL AI groups (when not search/navigation)
+      // Pass highlightToolUseId to ALL AI groups (when not search highlight)
       // Each group will check if it contains the tool and expand accordingly
-      // This fixes issues where timestamp matching might fail to find the correct group
-      const toolUseIdForGroup =
-        !isSearchHighlight && !isNavigationHighlight ? highlightToolUseId : undefined;
+      // Allowed during navigation highlights so context panel tool deep-linking works
+      const toolUseIdForGroup = !isSearchHighlight ? highlightToolUseId : undefined;
       const hl = getHighlight(
         isHighlighted,
         isSearchHighlight,

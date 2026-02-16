@@ -116,7 +116,7 @@ function wireFileWatcherEvents(context: ServiceContext): void {
   }
 
   // Wire file-change events to renderer and HTTP SSE
-  const fileChangeHandler = (event: unknown) => {
+  const fileChangeHandler = (event: unknown): void => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('file-change', event);
     }
@@ -126,7 +126,7 @@ function wireFileWatcherEvents(context: ServiceContext): void {
   fileChangeCleanup = () => context.fileWatcher.off('file-change', fileChangeHandler);
 
   // Forward checklist-change events to renderer and HTTP SSE (mirrors file-change pattern above)
-  const todoChangeHandler = (event: unknown) => {
+  const todoChangeHandler = (event: unknown): void => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('todo-change', event);
     }

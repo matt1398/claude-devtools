@@ -99,6 +99,14 @@ export interface ConfigAPI {
   pinSession: (projectId: string, sessionId: string) => Promise<void>;
   /** Unpin a session for a project */
   unpinSession: (projectId: string, sessionId: string) => Promise<void>;
+  /** Hide a session for a project */
+  hideSession: (projectId: string, sessionId: string) => Promise<void>;
+  /** Unhide a session for a project */
+  unhideSession: (projectId: string, sessionId: string) => Promise<void>;
+  /** Bulk hide sessions for a project */
+  hideSessions: (projectId: string, sessionIds: string[]) => Promise<void>;
+  /** Bulk unhide sessions for a project */
+  unhideSessions: (projectId: string, sessionIds: string[]) => Promise<void>;
 }
 
 export interface ClaudeRootInfo {

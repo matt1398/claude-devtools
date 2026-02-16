@@ -382,6 +382,94 @@ export function registerConfigRoutes(app: FastifyInstance): void {
     }
   );
 
+  // Hide session
+  app.post<{ Body: { projectId: string; sessionId: string } }>(
+    '/api/config/hide-session',
+    async (request) => {
+      try {
+        const { projectId, sessionId } = request.body;
+        if (!projectId || typeof projectId !== 'string') {
+          return { success: false, error: 'Project ID is required and must be a string' };
+        }
+        if (!sessionId || typeof sessionId !== 'string') {
+          return { success: false, error: 'Session ID is required and must be a string' };
+        }
+
+        configManager.hideSession(projectId, sessionId);
+        return { success: true };
+      } catch (error) {
+        logger.error('Error in POST /api/config/hide-session:', error);
+        return { success: false, error: getErrorMessage(error) };
+      }
+    }
+  );
+
+  // Unhide session
+  app.post<{ Body: { projectId: string; sessionId: string } }>(
+    '/api/config/unhide-session',
+    async (request) => {
+      try {
+        const { projectId, sessionId } = request.body;
+        if (!projectId || typeof projectId !== 'string') {
+          return { success: false, error: 'Project ID is required and must be a string' };
+        }
+        if (!sessionId || typeof sessionId !== 'string') {
+          return { success: false, error: 'Session ID is required and must be a string' };
+        }
+
+        configManager.unhideSession(projectId, sessionId);
+        return { success: true };
+      } catch (error) {
+        logger.error('Error in POST /api/config/unhide-session:', error);
+        return { success: false, error: getErrorMessage(error) };
+      }
+    }
+  );
+
+  // Bulk hide sessions
+  app.post<{ Body: { projectId: string; sessionIds: string[] } }>(
+    '/api/config/hide-sessions',
+    async (request) => {
+      try {
+        const { projectId, sessionIds } = request.body;
+        if (!projectId || typeof projectId !== 'string') {
+          return { success: false, error: 'Project ID is required and must be a string' };
+        }
+        if (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== 'string')) {
+          return { success: false, error: 'Session IDs must be an array of strings' };
+        }
+
+        configManager.hideSessions(projectId, sessionIds);
+        return { success: true };
+      } catch (error) {
+        logger.error('Error in POST /api/config/hide-sessions:', error);
+        return { success: false, error: getErrorMessage(error) };
+      }
+    }
+  );
+
+  // Bulk unhide sessions
+  app.post<{ Body: { projectId: string; sessionIds: string[] } }>(
+    '/api/config/unhide-sessions',
+    async (request) => {
+      try {
+        const { projectId, sessionIds } = request.body;
+        if (!projectId || typeof projectId !== 'string') {
+          return { success: false, error: 'Project ID is required and must be a string' };
+        }
+        if (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== 'string')) {
+          return { success: false, error: 'Session IDs must be an array of strings' };
+        }
+
+        configManager.unhideSessions(projectId, sessionIds);
+        return { success: true };
+      } catch (error) {
+        logger.error('Error in POST /api/config/unhide-sessions:', error);
+        return { success: false, error: getErrorMessage(error) };
+      }
+    }
+  );
+
   // Select folders - no-op in browser mode
   app.post('/api/config/select-folders', async (): Promise<ConfigResult<string[]>> => {
     return { success: true, data: [] };

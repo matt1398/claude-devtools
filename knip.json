@@ -2,13 +2,13 @@
   "$schema": "https://unpkg.com/knip@next/schema.json",
   "entry": [
     "src/main/index.ts",
+    "src/main/standalone.ts",
     "src/preload/index.ts",
     "src/renderer/main.tsx",
     "electron.vite.config.ts",
-    "remotion/index.ts",
-    "remotion/**/*.{ts,tsx}"
+    "vite.standalone.config.ts"
   ],
-  "project": ["src/**/*.{ts,tsx}!", "remotion/**/*.{ts,tsx}!"],
+  "project": ["src/**/*.{ts,tsx}!"],
   "ignore": ["tsconfig*.json"],
   "paths": {
     "@main/*": ["./src/main/*"],
@@ -16,6 +16,5 @@
     "@preload/*": ["./src/preload/*"],
     "@shared/*": ["./src/shared/*"]
   },
-  "ignoreDependencies": ["@remotion/light-leaks", "remotion"],
   "ignoreBinaries": ["pkg"]
 }

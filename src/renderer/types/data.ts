@@ -16,6 +16,7 @@
 
 // Domain types
 export type {
+  PhaseTokenBreakdown,
   Project,
   RepositoryGroup,
   SearchResult,
@@ -67,6 +68,13 @@ export type {
   TriggerTokenType,
   TriggerToolName,
 } from './notifications';
+
+// =============================================================================
+// Session Sort Mode
+// =============================================================================
+
+/** Sort mode for session list in sidebar */
+export type SessionSortMode = 'recent' | 'most-context';
 
 // =============================================================================
 // Renderer-Specific Type Guards

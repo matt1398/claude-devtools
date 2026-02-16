@@ -15,6 +15,7 @@ import { formatTokensCompact } from '@renderer/utils/formatters';
 // =============================================================================
 // Types
 // =============================================================================
+import type { PhaseTokenBreakdown } from '@renderer/types/data';
 
 interface MetricsPillProps {
   mainSessionImpact?: {
@@ -30,6 +31,10 @@ interface MetricsPillProps {
   };
   /** Label override for the right segment (e.g. "Context Window" for team members) */
   isolatedLabel?: string;
+  /** Override isolated total (for multi-phase total consumption) */
+  isolatedOverride?: number;
+  /** Phase breakdown for tooltip (shown when multiple phases exist) */
+  phaseBreakdown?: PhaseTokenBreakdown[];
 }
 
 // =============================================================================
@@ -40,6 +45,8 @@ export const MetricsPill = ({
   mainSessionImpact,
   lastUsage,
   isolatedLabel,
+  isolatedOverride,
+  phaseBreakdown,
 }: Readonly<MetricsPillProps>): React.ReactElement | null => {
   const [showTooltip, setShowTooltip] = useState(false);
   const [tooltipStyle, setTooltipStyle] = useState<React.CSSProperties>({});
@@ -47,14 +54,21 @@ export const MetricsPill = ({
   const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasMainImpact = mainSessionImpact && mainSessionImpact.totalTokens > 0;
-  const hasIsolated = lastUsage && lastUsage.input_tokens + lastUsage.output_tokens > 0;
+  const hasIsolated =
+    isolatedOverride != null
+      ? isolatedOverride > 0
+      : lastUsage && lastUsage.input_tokens + lastUsage.output_tokens > 0;
 
-  const isolatedTotal = lastUsage
-    ? lastUsage.input_tokens +
-      lastUsage.output_tokens +
-      (lastUsage.cache_read_input_tokens ?? 0) +
-      (lastUsage.cache_creation_input_tokens ?? 0)
-    : 0;
+  const isolatedTotal =
+    isolatedOverride ??
+    (lastUsage
+      ? lastUsage.input_tokens +
+        lastUsage.output_tokens +
+        (lastUsage.cache_read_input_tokens ?? 0) +
+        (lastUsage.cache_creation_input_tokens ?? 0)
+      : 0);
+
+  const hasPhases = phaseBreakdown && phaseBreakdown.length > 1;
 
   const clearHideTimeout = (): void => {
     if (hideTimeoutRef.current) {
@@ -109,7 +123,7 @@ export const MetricsPill = ({
 
   const mainValue = hasMainImpact ? formatTokensCompact(mainSessionImpact.totalTokens) : null;
   const isolatedValue = hasIsolated ? formatTokensCompact(isolatedTotal) : null;
-  const rightLabel = isolatedLabel ?? 'Isolated Usage';
+  const rightLabel = isolatedLabel ?? 'Subagent Context';
 
   return (
     <>
@@ -160,6 +174,29 @@ export const MetricsPill = ({
                   </span>
                 </div>
               )}
+              {hasPhases &&
+                phaseBreakdown.map((phase) => (
+                  <div
+                    key={phase.phaseNumber}
+                    className="flex items-center justify-between gap-3 pl-2"
+                  >
+                    <span className="text-[10px]" style={{ color: CARD_ICON_MUTED }}>
+                      Phase {phase.phaseNumber}
+                    </span>
+                    <span
+                      className="font-mono text-[10px] tabular-nums"
+                      style={{ color: CARD_ICON_MUTED }}
+                    >
+                      {formatTokensCompact(phase.peakTokens)}
+                      {phase.postCompaction != null && (
+                        <span style={{ color: '#4ade80' }}>
+                          {' '}
+                          → {formatTokensCompact(phase.postCompaction)}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                ))}
               <div
                 className="mt-1 pt-1.5 text-[10px]"
                 style={{ borderTop: `1px solid ${TAG_BORDER}`, color: CARD_ICON_MUTED }}

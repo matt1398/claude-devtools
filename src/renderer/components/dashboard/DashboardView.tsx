@@ -16,7 +16,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 const logger = createLogger('Component:DashboardView');
 import { formatDistanceToNow } from 'date-fns';
-import { Command, FolderGit2, FolderOpen, GitBranch, Search } from 'lucide-react';
+import { Command, FolderGit2, FolderOpen, GitBranch, Search, Settings } from 'lucide-react';
 
 import type { RepositoryGroup } from '@renderer/types/data';
 
@@ -394,6 +394,7 @@ const ProjectsGrid = ({
 
 export const DashboardView = (): React.JSX.Element => {
   const [searchQuery, setSearchQuery] = useState('');
+  const openSettingsTab = useStore((s) => s.openSettingsTab);
 
   return (
     <div className="relative flex-1 overflow-auto bg-surface">
@@ -415,14 +416,24 @@ export const DashboardView = (): React.JSX.Element => {
           <h2 className="text-xs font-medium uppercase tracking-wider text-text-muted">
             {searchQuery.trim() ? 'Search Results' : 'Recent Projects'}
           </h2>
-          {searchQuery.trim() && (
+          <div className="flex items-center gap-3">
+            {searchQuery.trim() && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-xs text-text-muted transition-colors hover:text-text-secondary"
+              >
+                Clear search
+              </button>
+            )}
             <button
-              onClick={() => setSearchQuery('')}
-              className="text-xs text-text-muted transition-colors hover:text-text-secondary"
+              onClick={() => openSettingsTab('general')}
+              className="flex items-center gap-1.5 text-xs text-text-muted transition-colors hover:text-text-secondary"
+              title="Change Claude data folder"
             >
-              Clear search
+              <Settings className="size-3" />
+              Change default folder
             </button>
-          )}
+          </div>
         </div>
 
         {/* Projects Grid */}

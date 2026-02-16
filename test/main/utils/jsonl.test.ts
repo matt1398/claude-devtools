@@ -166,7 +166,7 @@ describe('jsonl', () => {
 
         expect(result.firstUserMessage?.text).toBe('hello world');
         expect(result.firstUserMessage?.timestamp).toBe('2026-01-01T00:00:00.000Z');
-        expect(result.messageCount).toBe(1);
+        expect(result.messageCount).toBe(2);
         expect(result.isOngoing).toBe(true);
         expect(result.gitBranch).toBe('feature/test');
       } finally {

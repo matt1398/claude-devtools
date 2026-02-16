@@ -333,9 +333,7 @@ export const SidebarHeader = (): React.JSX.Element => {
         style={
           {
             height: `${HEADER_ROW1_HEIGHT}px`,
-            paddingLeft: isMacElectron
-              ? 'var(--macos-traffic-light-padding-left, 72px)'
-              : '16px',
+            paddingLeft: isMacElectron ? 'var(--macos-traffic-light-padding-left, 72px)' : '16px',
             WebkitAppRegion: isMacElectron ? 'drag' : undefined,
           } as React.CSSProperties
         }

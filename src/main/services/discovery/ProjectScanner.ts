@@ -758,6 +758,9 @@ export class ProjectScanner {
       isOngoing: metadata.isOngoing,
       gitBranch: metadata.gitBranch ?? undefined,
       metadataLevel,
+      contextConsumption: metadata.contextConsumption,
+      compactionCount: metadata.compactionCount,
+      phaseBreakdown: metadata.phaseBreakdown,
     };
   }
 

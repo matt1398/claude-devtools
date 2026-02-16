@@ -11,10 +11,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
-import { confirm } from '@renderer/components/common/ConfirmDialog';
 import { useStore } from '@renderer/store';
-import { getFullResetState } from '@renderer/store/utils/stateResetHelpers';
-import { FolderOpen, Laptop, Loader2, Monitor, RotateCcw, Server, Wifi, WifiOff } from 'lucide-react';
+import { Loader2, Monitor, Server, Wifi, WifiOff } from 'lucide-react';
 
 import { SettingRow } from '../components/SettingRow';
 import { SettingsSectionHeader } from '../components/SettingsSectionHeader';
@@ -26,7 +24,6 @@ import type {
   SshConfigHostEntry,
   SshConnectionConfig,
   SshConnectionProfile,
-  WslClaudeRootCandidate,
 } from '@shared/types';
 
 const authMethodOptions: readonly { value: SshAuthMethod; label: string }[] = [
@@ -37,7 +34,6 @@ const authMethodOptions: readonly { value: SshAuthMethod; label: string }[] = [
 ];
 
 export const ConnectionSection = (): React.JSX.Element => {
-  const connectionMode = useStore((s) => s.connectionMode);
   const connectionState = useStore((s) => s.connectionState);
   const connectedHost = useStore((s) => s.connectedHost);
   const connectionError = useStore((s) => s.connectionError);
@@ -48,8 +44,6 @@ export const ConnectionSection = (): React.JSX.Element => {
   const fetchSshConfigHosts = useStore((s) => s.fetchSshConfigHosts);
   const lastSshConfig = useStore((s) => s.lastSshConfig);
   const loadLastConnection = useStore((s) => s.loadLastConnection);
-  const fetchProjects = useStore((s) => s.fetchProjects);
-  const fetchRepositoryGroups = useStore((s) => s.fetchRepositoryGroups);
 
   // Form state
   const [host, setHost] = useState('');
@@ -70,11 +64,6 @@ export const ConnectionSection = (): React.JSX.Element => {
   const [savedProfiles, setSavedProfiles] = useState<SshConnectionProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [claudeRootInfo, setClaudeRootInfo] = useState<ClaudeRootInfo | null>(null);
-  const [updatingClaudeRoot, setUpdatingClaudeRoot] = useState(false);
-  const [claudeRootError, setClaudeRootError] = useState<string | null>(null);
-  const [findingWslRoots, setFindingWslRoots] = useState(false);
-  const [wslCandidates, setWslCandidates] = useState<WslClaudeRootCandidate[]>([]);
-  const [showWslModal, setShowWslModal] = useState(false);
 
   const loadProfiles = useCallback(async () => {
     try {
@@ -90,10 +79,8 @@ export const ConnectionSection = (): React.JSX.Element => {
     try {
       const info = await api.config.getClaudeRootInfo();
       setClaudeRootInfo(info);
-    } catch (error) {
-      setClaudeRootError(
-        error instanceof Error ? error.message : 'Failed to load local Claude root settings'
-      );
+    } catch {
+      // ignore
     }
   }, []);
 
@@ -197,155 +184,9 @@ export const ConnectionSection = (): React.JSX.Element => {
     await disconnectSsh();
   };
 
-  const resetWorkspaceForRootChange = useCallback((): void => {
-    useStore.setState({
-      projects: [],
-      repositoryGroups: [],
-      openTabs: [],
-      activeTabId: null,
-      selectedTabIds: [],
-      paneLayout: {
-        panes: [
-          {
-            id: 'pane-default',
-            tabs: [],
-            activeTabId: null,
-            selectedTabIds: [],
-            widthFraction: 1,
-          },
-        ],
-        focusedPaneId: 'pane-default',
-      },
-      ...getFullResetState(),
-    });
-  }, []);
-
-  const applyClaudeRootPath = useCallback(
-    async (claudeRootPath: string | null): Promise<void> => {
-      try {
-        setUpdatingClaudeRoot(true);
-        setClaudeRootError(null);
-
-        await api.config.update('general', { claudeRootPath });
-        await loadClaudeRootInfo();
-
-        if (connectionMode === 'local') {
-          resetWorkspaceForRootChange();
-          await Promise.all([fetchProjects(), fetchRepositoryGroups()]);
-        }
-      } catch (error) {
-        setClaudeRootError(error instanceof Error ? error.message : 'Failed to update Claude root');
-      } finally {
-        setUpdatingClaudeRoot(false);
-      }
-    },
-    [
-      connectionMode,
-      fetchProjects,
-      fetchRepositoryGroups,
-      loadClaudeRootInfo,
-      resetWorkspaceForRootChange,
-    ]
-  );
-
-  const handleSelectClaudeRootFolder = useCallback(async (): Promise<void> => {
-    setClaudeRootError(null);
-
-    const selection = await api.config.selectClaudeRootFolder();
-    if (!selection) {
-      return;
-    }
-
-    if (!selection.isClaudeDirName) {
-      const proceed = await confirm({
-        title: 'Selected folder is not .claude',
-        message: `This folder is named "${selection.path.split(/[\\/]/).pop() ?? selection.path}", not ".claude". Continue anyway?`,
-        confirmLabel: 'Use Folder',
-      });
-      if (!proceed) {
-        return;
-      }
-    }
-
-    if (!selection.hasProjectsDir) {
-      const proceed = await confirm({
-        title: 'No projects directory found',
-        message: 'This folder does not contain a "projects" directory. Continue anyway?',
-        confirmLabel: 'Use Folder',
-      });
-      if (!proceed) {
-        return;
-      }
-    }
-
-    await applyClaudeRootPath(selection.path);
-  }, [applyClaudeRootPath]);
-
-  const handleResetClaudeRoot = useCallback(async (): Promise<void> => {
-    await applyClaudeRootPath(null);
-  }, [applyClaudeRootPath]);
-
-  const applyWslCandidate = useCallback(
-    async (candidate: WslClaudeRootCandidate): Promise<void> => {
-      if (!candidate.hasProjectsDir) {
-        const proceed = await confirm({
-          title: 'WSL path missing projects directory',
-          message: `"${candidate.path}" does not contain a "projects" directory. Continue anyway?`,
-          confirmLabel: 'Use Path',
-        });
-        if (!proceed) {
-          return;
-        }
-      }
-
-      await applyClaudeRootPath(candidate.path);
-      setShowWslModal(false);
-    },
-    [applyClaudeRootPath]
-  );
-
-  const handleUseWslForClaude = useCallback(async (): Promise<void> => {
-    try {
-      setFindingWslRoots(true);
-      setClaudeRootError(null);
-      const candidates = await api.config.findWslClaudeRoots();
-      setWslCandidates(candidates);
-
-      if (candidates.length === 0) {
-        const pickManually = await confirm({
-          title: 'No WSL Claude paths found',
-          message: 'Could not find WSL distros with Claude data automatically. Select folder manually?',
-          confirmLabel: 'Select Folder',
-        });
-        if (pickManually) {
-          await handleSelectClaudeRootFolder();
-        }
-        return;
-      }
-
-      const candidatesWithProjects = candidates.filter((candidate) => candidate.hasProjectsDir);
-      if (candidatesWithProjects.length === 1) {
-        await applyWslCandidate(candidatesWithProjects[0]);
-        return;
-      }
-
-      setShowWslModal(true);
-    } catch (error) {
-      setClaudeRootError(
-        error instanceof Error ? error.message : 'Failed to detect WSL Claude root paths'
-      );
-    } finally {
-      setFindingWslRoots(false);
-    }
-  }, [applyWslCandidate, handleSelectClaudeRootFolder]);
-
   const isConnecting = connectionState === 'connecting';
   const isConnected = connectionState === 'connected';
-  const isCustomClaudeRoot = Boolean(claudeRootInfo?.customPath);
   const resolvedClaudeRootPath = claudeRootInfo?.resolvedPath ?? '~/.claude';
-  const defaultClaudeRootPath = claudeRootInfo?.defaultPath ?? '~/.claude';
-  const isWindowsStyleDefaultPath =
-    /^[a-zA-Z]:\\/.test(defaultClaudeRootPath) || defaultClaudeRootPath.startsWith('\\\\');
 
   const inputClass = 'w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-1';
   const inputStyle = {
@@ -356,175 +197,6 @@ export const ConnectionSection = (): React.JSX.Element => {
 
   return (
     <div className="space-y-6">
-      <SettingsSectionHeader title="Local Claude Root" />
-      <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-        Choose which local folder is treated as your Claude data root
-      </p>
-
-      <SettingRow
-        label="Current Local Root"
-        description={isCustomClaudeRoot ? 'Using custom path' : 'Using auto-detected path'}
-      >
-        <div className="max-w-96 text-right">
-          <div className="truncate font-mono text-xs" style={{ color: 'var(--color-text)' }}>
-            {resolvedClaudeRootPath}
-          </div>
-          <div className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
-            Auto-detected: {defaultClaudeRootPath}
-          </div>
-        </div>
-      </SettingRow>
-
-      <div className="flex items-center gap-3">
-        <button
-          onClick={() => void handleSelectClaudeRootFolder()}
-          disabled={updatingClaudeRoot}
-          className="rounded-md px-4 py-1.5 text-sm transition-colors disabled:opacity-50"
-          style={{
-            backgroundColor: 'var(--color-surface-raised)',
-            color: 'var(--color-text)',
-          }}
-        >
-          <span className="flex items-center gap-2">
-            {updatingClaudeRoot ? (
-              <Loader2 className="size-3 animate-spin" />
-            ) : (
-              <FolderOpen className="size-3" />
-            )}
-            Select Folder
-          </span>
-        </button>
-
-        <button
-          onClick={() => void handleResetClaudeRoot()}
-          disabled={updatingClaudeRoot || !isCustomClaudeRoot}
-          className="rounded-md px-4 py-1.5 text-sm transition-colors disabled:opacity-50"
-          style={{
-            backgroundColor: 'var(--color-surface-raised)',
-            color: 'var(--color-text-secondary)',
-          }}
-        >
-          <span className="flex items-center gap-2">
-            <RotateCcw className="size-3" />
-            Use Auto-Detect
-          </span>
-        </button>
-
-        {isWindowsStyleDefaultPath && (
-          <button
-            onClick={() => void handleUseWslForClaude()}
-            disabled={updatingClaudeRoot || findingWslRoots}
-            className="rounded-md px-4 py-1.5 text-sm transition-colors disabled:opacity-50"
-            style={{
-              backgroundColor: 'var(--color-surface-raised)',
-              color: 'var(--color-text-secondary)',
-            }}
-          >
-            <span className="flex items-center gap-2">
-              {findingWslRoots ? (
-                <Loader2 className="size-3 animate-spin" />
-              ) : (
-                <Laptop className="size-3" />
-              )}
-              Using Linux/WSL?
-            </span>
-          </button>
-        )}
-      </div>
-
-      {claudeRootError && (
-        <div className="rounded-md border border-red-500/20 bg-red-500/10 px-4 py-3">
-          <p className="text-sm text-red-400">{claudeRootError}</p>
-        </div>
-      )}
-
-      {showWslModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <button
-            className="absolute inset-0 cursor-default"
-            style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
-            onClick={() => setShowWslModal(false)}
-            aria-label="Close WSL path modal"
-            tabIndex={-1}
-          />
-          <div
-            className="relative mx-4 w-full max-w-2xl rounded-lg border p-5 shadow-xl"
-            style={{
-              backgroundColor: 'var(--color-surface-overlay)',
-              borderColor: 'var(--color-border-emphasis)',
-            }}
-          >
-            <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-              Select WSL Claude Root
-            </h3>
-            <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Detected WSL distributions and Claude root candidates
-            </p>
-
-            <div className="mt-4 space-y-2">
-              {wslCandidates.map((candidate) => (
-                <div
-                  key={`${candidate.distro}:${candidate.path}`}
-                  className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-                  style={{ borderColor: 'var(--color-border)' }}
-                >
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>
-                      {candidate.distro}
-                    </p>
-                    <p
-                      className="truncate font-mono text-[11px]"
-                      style={{ color: 'var(--color-text-muted)' }}
-                    >
-                      {candidate.path}
-                    </p>
-                    {!candidate.hasProjectsDir && (
-                      <p className="text-[11px] text-amber-400">No projects directory detected</p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => void applyWslCandidate(candidate)}
-                    className="rounded-md px-3 py-1.5 text-xs transition-colors"
-                    style={{
-                      backgroundColor: 'var(--color-surface-raised)',
-                      color: 'var(--color-text)',
-                    }}
-                  >
-                    Use This Path
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowWslModal(false)}
-                className="rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-white/5"
-                style={{
-                  borderColor: 'var(--color-border)',
-                  color: 'var(--color-text-secondary)',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setShowWslModal(false);
-                  void handleSelectClaudeRootFolder();
-                }}
-                className="rounded-md px-3 py-1.5 text-xs transition-colors"
-                style={{
-                  backgroundColor: 'var(--color-surface-raised)',
-                  color: 'var(--color-text)',
-                }}
-              >
-                Select Folder Manually
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <SettingsSectionHeader title="Remote Connection" />
       <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
         Connect to a remote machine to view Claude Code sessions running there

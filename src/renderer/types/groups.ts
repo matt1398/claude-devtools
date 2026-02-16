@@ -253,7 +253,15 @@ export type AIGroupDisplayItem =
   | { type: 'subagent'; subagent: Process }
   | { type: 'output'; content: string; timestamp: Date; tokenCount?: number }
   | { type: 'slash'; slash: SlashItem }
-  | { type: 'teammate_message'; teammateMessage: TeammateMessage };
+  | { type: 'teammate_message'; teammateMessage: TeammateMessage }
+  | { type: 'subagent_input'; content: string; timestamp: Date; tokenCount?: number }
+  | {
+      type: 'compact_boundary';
+      content: string;
+      timestamp: Date;
+      tokenDelta?: CompactionTokenDelta;
+      phaseNumber: number;
+    };
 
 /**
  * The last output in an AI Group - what user sees as "the answer".

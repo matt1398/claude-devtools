@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-electron
+dist-standalone
+out
+release
+.git
+.claude
+*.md
+!README.md
+!SECURITY.md
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md

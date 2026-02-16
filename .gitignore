@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 dist-electron/
+dist-standalone/
 out/
 release/
 coverage/

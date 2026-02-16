@@ -13,10 +13,34 @@ import { type HttpServices, registerHttpRoutes } from '@main/http';
 import { broadcastEvent } from '@main/http/events';
 import { createLogger } from '@shared/utils/logger';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 const logger = createLogger('Service:HttpServer');
+
+/**
+ * Resolves the renderer output directory from multiple candidate paths.
+ * Returns the first path that exists on disk.
+ */
+function resolveRendererPath(): string | null {
+  const candidates = [
+    // Electron production (asarUnpack): app.asar.unpacked/out/renderer (real filesystem)
+    join(__dirname, '../../out/renderer').replace('app.asar', 'app.asar.unpacked'),
+    // Electron production (asar fallback): app.asar/out/renderer
+    join(__dirname, '../../out/renderer'),
+    // Standalone: dist-standalone/index.cjs → ../out/renderer
+    join(__dirname, '../out/renderer'),
+    // Fallback: relative to cwd (dev mode, standalone)
+    join(process.cwd(), 'out/renderer'),
+  ];
+
+  // Allow explicit override via env
+  if (process.env.RENDERER_PATH) {
+    candidates.unshift(process.env.RENDERER_PATH);
+  }
+
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
 
 export class HttpServer {
   private app: FastifyInstance | null = null;
@@ -28,70 +52,83 @@ export class HttpServer {
    * @param services - Service instances to pass to route handlers
    * @param sshModeSwitchCallback - Callback for SSH mode switching
    * @param preferredPort - Port to try first (default 3456)
+   * @param host - Host to bind to (default '127.0.0.1')
    */
   async start(
     services: HttpServices,
     sshModeSwitchCallback: (mode: 'local' | 'ssh') => Promise<void>,
-    preferredPort: number = 3456
+    preferredPort: number = 3456,
+    host: string = '127.0.0.1'
   ): Promise<number> {
     this.app = Fastify({ logger: false });
 
-    // Register CORS - allow all localhost origins
-    const localhostPattern = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/;
-    await this.app.register(cors, {
-      origin: (origin, cb) => {
-        // Allow requests with no origin (same-origin, curl, etc.)
-        if (!origin) {
-          cb(null, true);
-          return;
-        }
-        // Allow any localhost origin
-        if (localhostPattern.test(origin)) {
-          cb(null, true);
-          return;
-        }
-        cb(new Error('Not allowed by CORS'), false);
-      },
-      credentials: true,
-    });
+    // Register CORS
+    const corsOrigin = process.env.CORS_ORIGIN;
+    if (corsOrigin === '*') {
+      // Standalone/Docker mode: allow all origins (Docker network isolation replaces CORS)
+      await this.app.register(cors, { origin: true, credentials: true });
+    } else if (corsOrigin) {
+      // Custom origin(s) from env
+      const origins = corsOrigin.split(',').map((o) => o.trim());
+      await this.app.register(cors, { origin: origins, credentials: true });
+    } else {
+      // Default: allow all localhost origins
+      // eslint-disable-next-line security/detect-unsafe-regex -- anchored, no backtracking risk
+      const localhostPattern = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/;
+      await this.app.register(cors, {
+        origin: (origin, cb) => {
+          if (!origin) {
+            cb(null, true);
+            return;
+          }
+          if (localhostPattern.test(origin)) {
+            cb(null, true);
+            return;
+          }
+          cb(new Error('Not allowed by CORS'), false);
+        },
+        credentials: true,
+      });
+    }
 
-    // Register static file serving (production only)
-    const isDev = process.env.NODE_ENV === 'development';
-    if (!isDev) {
-      const rendererPathCandidates = [
-        join(__dirname, '../../../out/renderer'),
-        join(__dirname, '../../renderer'),
-      ];
-      const rendererPath =
-        rendererPathCandidates.find((candidate) => existsSync(candidate)) ??
-        rendererPathCandidates[0];
+    // Register static file serving and SPA fallback when renderer output exists.
+    // In dev mode this requires a prior `pnpm build`; in production/standalone it's always present.
+    const rendererPath = resolveRendererPath();
+    if (rendererPath) {
+      logger.info(`Serving static files from: ${rendererPath}`);
+
+      // Cache index.html for SPA fallback
+      const indexHtml = readFileSync(join(rendererPath, 'index.html'), 'utf-8');
+
       await this.app.register(fastifyStatic, {
         root: rendererPath,
         prefix: '/',
-        // Don't serve index.html for API routes
         wildcard: false,
       });
 
-      // Serve index.html for all non-API routes (SPA fallback)
+      // Register all API routes BEFORE the not-found handler
+      registerHttpRoutes(this.app, services, sshModeSwitchCallback);
+
+      // SPA fallback: serve index.html for all non-API routes
       this.app.setNotFoundHandler(async (request, reply) => {
         if (request.url.startsWith('/api/')) {
           return reply.status(404).send({ error: 'Not found' });
         }
-        return reply.sendFile('index.html');
+        return reply.type('text/html').send(indexHtml);
       });
+    } else {
+      logger.warn('Renderer output directory not found (run `pnpm build` first), serving API only');
+      registerHttpRoutes(this.app, services, sshModeSwitchCallback);
     }
-
-    // Register all API routes
-    registerHttpRoutes(this.app, services, sshModeSwitchCallback);
 
     // Try ports starting from preferredPort
     for (let attempt = 0; attempt <= 10; attempt++) {
       const tryPort = preferredPort + attempt;
       try {
-        await this.app.listen({ host: '127.0.0.1', port: tryPort });
+        await this.app.listen({ host, port: tryPort });
         this.port = tryPort;
         this.running = true;
-        logger.info(`HTTP server started on http://127.0.0.1:${tryPort}`);
+        logger.info(`HTTP server started on http://${host}:${tryPort}`);
         return tryPort;
       } catch (err: unknown) {
         const error = err as NodeJS.ErrnoException;

@@ -72,6 +72,8 @@ export interface ToolTokenBreakdown {
   tokenCount: number;
   /** Whether the tool execution resulted in an error */
   isError: boolean;
+  /** Tool use ID for deep-link navigation to specific tool in chat */
+  toolUseId?: string;
 }
 
 /**

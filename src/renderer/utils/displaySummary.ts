@@ -26,6 +26,8 @@ export function buildSummary(items: AIGroupDisplayItem[]): string {
     subagent: 0,
     slash: 0,
     teammate_message: 0,
+    subagent_input: 0,
+    compact_boundary: 0,
   };
   const teammateNames = new Set<string>();
 
@@ -60,6 +62,11 @@ export function buildSummary(items: AIGroupDisplayItem[]): string {
   if (counts.teammate_message > 0) {
     parts.push(
       `${counts.teammate_message} teammate ${counts.teammate_message === 1 ? 'message' : 'messages'}`
+    );
+  }
+  if (counts.compact_boundary > 0) {
+    parts.push(
+      `${counts.compact_boundary} ${counts.compact_boundary === 1 ? 'compaction' : 'compactions'}`
     );
   }
 

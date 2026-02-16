@@ -252,7 +252,11 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     selectSearchMatch,
   });
 
-  const effectiveHighlightToolUseId = controllerToolUseId ?? undefined;
+  // Local tool highlight for context panel navigation (separate from controller)
+  const [contextNavToolUseId, setContextNavToolUseId] = useState<string | null>(null);
+  const effectiveHighlightToolUseId = controllerToolUseId ?? contextNavToolUseId ?? undefined;
+  // Use blue for context panel tool navigation, otherwise use controller's color
+  const effectiveHighlightColor = contextNavToolUseId ? ('blue' as const) : highlightColor;
 
   // Keep search match indices aligned with this tab's rendered conversation.
   // This avoids stale/global match lists after tab switches or in-place refreshes.
@@ -388,6 +392,91 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
         navigationHighlightTimerRef.current = setTimeout(() => {
           setHighlightedGroupId(null);
           setIsNavigationHighlight(false);
+          navigationHighlightTimerRef.current = null;
+        }, 2000);
+      };
+      void run();
+    },
+    [conversation, ensureGroupVisible, setHighlightedGroupId]
+  );
+
+  // Handler to navigate to a user message group (preceding the AI group at turnIndex)
+  const handleNavigateToUserGroup = useCallback(
+    (turnIndex: number) => {
+      if (!conversation) return;
+      const aiItemIndex = conversation.items.findIndex(
+        (item) => item.type === 'ai' && item.group.turnIndex === turnIndex
+      );
+      if (aiItemIndex < 0) return;
+
+      // Find the user item preceding this AI group
+      const prevItem = aiItemIndex > 0 ? conversation.items[aiItemIndex - 1] : null;
+      if (prevItem?.type !== 'user') return;
+
+      const run = async (): Promise<void> => {
+        const groupId = prevItem.group.id;
+        await ensureGroupVisible(groupId);
+        const element = chatItemRefs.current.get(groupId);
+        if (!element) return;
+
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setHighlightedGroupId(groupId);
+        setIsNavigationHighlight(true);
+        if (navigationHighlightTimerRef.current) {
+          clearTimeout(navigationHighlightTimerRef.current);
+        }
+        navigationHighlightTimerRef.current = setTimeout(() => {
+          setHighlightedGroupId(null);
+          setIsNavigationHighlight(false);
+          navigationHighlightTimerRef.current = null;
+        }, 2000);
+      };
+      void run();
+    },
+    [conversation, ensureGroupVisible, setHighlightedGroupId]
+  );
+
+  // Handler to navigate to a specific tool within a turn from context panel
+  const handleNavigateToTool = useCallback(
+    (turnIndex: number, toolUseId: string) => {
+      if (!conversation) return;
+      const targetItem = conversation.items.find(
+        (item) => item.type === 'ai' && item.group.turnIndex === turnIndex
+      );
+      if (targetItem?.type !== 'ai') return;
+
+      const run = async (): Promise<void> => {
+        const groupId = targetItem.group.id;
+        await ensureGroupVisible(groupId);
+
+        // Set group + tool highlight immediately
+        setHighlightedGroupId(groupId);
+        setIsNavigationHighlight(true);
+        setContextNavToolUseId(toolUseId);
+
+        // Wait for tool element to appear in DOM (up to 500ms)
+        let toolElement: HTMLElement | undefined;
+        const startTime = Date.now();
+        while (Date.now() - startTime < 500) {
+          toolElement = toolItemRefs.current.get(toolUseId);
+          if (toolElement) break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+
+        // Scroll to tool element, or fall back to AI group
+        const scrollTarget = toolElement ?? aiGroupRefs.current.get(groupId);
+        if (scrollTarget) {
+          scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        // Clear highlight after 2s
+        if (navigationHighlightTimerRef.current) {
+          clearTimeout(navigationHighlightTimerRef.current);
+        }
+        navigationHighlightTimerRef.current = setTimeout(() => {
+          setHighlightedGroupId(null);
+          setIsNavigationHighlight(false);
+          setContextNavToolUseId(null);
           navigationHighlightTimerRef.current = null;
         }, 2000);
       };
@@ -695,7 +784,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
                           highlightToolUseId={effectiveHighlightToolUseId}
                           isSearchHighlight={isSearchHighlight}
                           isNavigationHighlight={isNavigationHighlight}
-                          highlightColor={highlightColor}
+                          highlightColor={effectiveHighlightColor}
                           registerChatItemRef={registerChatItemRef}
                           registerAIGroupRef={registerAIGroupRefCombined}
                           registerToolRef={registerToolRef}
@@ -713,7 +802,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
                     highlightToolUseId={effectiveHighlightToolUseId}
                     isSearchHighlight={isSearchHighlight}
                     isNavigationHighlight={isNavigationHighlight}
-                    highlightColor={highlightColor}
+                    highlightColor={effectiveHighlightColor}
                     registerChatItemRef={registerChatItemRef}
                     registerAIGroupRef={registerAIGroupRefCombined}
                     registerToolRef={registerToolRef}
@@ -732,6 +821,8 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
               onClose={() => setContextPanelVisible(false)}
               projectRoot={sessionDetail?.session?.projectPath}
               onNavigateToTurn={handleNavigateToTurn}
+              onNavigateToTool={handleNavigateToTool}
+              onNavigateToUserGroup={handleNavigateToUserGroup}
               totalSessionTokens={lastAiGroupTotalTokens}
               phaseInfo={sessionPhaseInfo ?? undefined}
               selectedPhase={selectedContextPhase}

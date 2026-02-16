@@ -37,6 +37,7 @@ let globalResolver: ConfirmResolver = null;
  * Usage:
  *   const confirmed = await confirm({ title: 'Delete?', message: 'This cannot be undone.' });
  */
+// eslint-disable-next-line react-refresh/only-export-components -- imperative API shares singleton state with component
 export async function confirm(opts: {
   title: string;
   message: string;

@@ -9,6 +9,7 @@ import { COLOR_BORDER, COLOR_SURFACE, COLOR_TEXT_MUTED } from '@renderer/constan
 
 import { ClaudeMdFilesSection } from './components/ClaudeMdFilesSection';
 import { MentionedFilesSection } from './components/MentionedFilesSection';
+import { RankedInjectionList } from './components/RankedInjectionList';
 import { SessionContextHeader } from './components/SessionContextHeader';
 import { TaskCoordinationSection } from './components/TaskCoordinationSection';
 import { ThinkingTextSection } from './components/ThinkingTextSection';
@@ -23,7 +24,7 @@ import {
   SECTION_USER_MESSAGES,
 } from './types';
 
-import type { SectionType, SessionContextPanelProps } from './types';
+import type { ContextViewMode, SectionType, SessionContextPanelProps } from './types';
 import type {
   ClaudeMdContextInjection,
   MentionedFileInjection,
@@ -38,11 +39,16 @@ export const SessionContextPanel = ({
   onClose,
   projectRoot,
   onNavigateToTurn,
+  onNavigateToTool,
+  onNavigateToUserGroup,
   totalSessionTokens,
   phaseInfo,
   selectedPhase,
   onPhaseChange,
 }: Readonly<SessionContextPanelProps>): React.ReactElement => {
+  // View mode: category sections or flat ranked list
+  const [viewMode, setViewMode] = useState<ContextViewMode>('category');
+
   // Track which main sections are expanded
   const [expandedSections, setExpandedSections] = useState<Set<SectionType>>(
     new Set([
@@ -180,6 +186,8 @@ export const SessionContextPanel = ({
         phaseInfo={phaseInfo}
         selectedPhase={selectedPhase}
         onPhaseChange={onPhaseChange}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
       />
 
       {/* Content */}
@@ -191,7 +199,7 @@ export const SessionContextPanel = ({
           >
             No context injections detected in this session
           </div>
-        ) : (
+        ) : viewMode === 'category' ? (
           <>
             <UserMessagesSection
               injections={userMessageInjections}
@@ -243,6 +251,13 @@ export const SessionContextPanel = ({
               onNavigateToTurn={onNavigateToTurn}
             />
           </>
+        ) : (
+          <RankedInjectionList
+            injections={injections}
+            onNavigateToTurn={onNavigateToTurn}
+            onNavigateToTool={onNavigateToTool}
+            onNavigateToUserGroup={onNavigateToUserGroup}
+          />
         )}
       </div>
     </div>

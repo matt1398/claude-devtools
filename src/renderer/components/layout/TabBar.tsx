@@ -48,6 +48,8 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
     splitPane,
     togglePinSession,
     pinnedSessionIds,
+    toggleHideSession,
+    hiddenSessionIds,
   } = useStore(
     useShallow((s) => ({
       pane: s.paneLayout.panes.find((p) => p.id === paneId),
@@ -72,6 +74,8 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
       splitPane: s.splitPane,
       togglePinSession: s.togglePinSession,
       pinnedSessionIds: s.pinnedSessionIds,
+      toggleHideSession: s.toggleHideSession,
+      hiddenSessionIds: s.hiddenSessionIds,
     }))
   );
 
@@ -235,6 +239,10 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
     isContextMenuTabSession && contextMenuTab?.sessionId
       ? pinnedSessionIds.includes(contextMenuTab.sessionId)
       : false;
+  const isContextMenuTabHidden =
+    isContextMenuTabSession && contextMenuTab?.sessionId
+      ? hiddenSessionIds.includes(contextMenuTab.sessionId)
+      : false;
 
   // Show sidebar expand button only in the leftmost pane
   const isLeftmostPane = useStore(
@@ -384,22 +392,20 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
           )}
         </button>
 
-        {/* Settings gear icon (Electron only - browser can't access native settings) */}
-        {isElectronMode() && (
-          <button
-            onClick={openSettingsTab}
-            onMouseEnter={() => setSettingsHover(true)}
-            onMouseLeave={() => setSettingsHover(false)}
-            className="rounded-md p-2 transition-colors"
-            style={{
-              color: settingsHover ? 'var(--color-text)' : 'var(--color-text-muted)',
-              backgroundColor: settingsHover ? 'var(--color-surface-raised)' : 'transparent',
-            }}
-            title="Settings"
-          >
-            <Settings className="size-4" />
-          </button>
-        )}
+        {/* Settings gear icon */}
+        <button
+          onClick={() => openSettingsTab()}
+          onMouseEnter={() => setSettingsHover(true)}
+          onMouseLeave={() => setSettingsHover(false)}
+          className="rounded-md p-2 transition-colors"
+          style={{
+            color: settingsHover ? 'var(--color-text)' : 'var(--color-text-muted)',
+            backgroundColor: settingsHover ? 'var(--color-surface-raised)' : 'transparent',
+          }}
+          title="Settings"
+        >
+          <Settings className="size-4" />
+        </button>
       </div>
 
       {/* Context menu */}
@@ -425,6 +431,12 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
           onTogglePin={
             isContextMenuTabSession && contextMenuTab?.sessionId
               ? () => togglePinSession(contextMenuTab.sessionId!)
+              : undefined
+          }
+          isHidden={isContextMenuTabHidden}
+          onToggleHide={
+            isContextMenuTabSession && contextMenuTab?.sessionId
+              ? () => toggleHideSession(contextMenuTab.sessionId!)
               : undefined
           }
         />

@@ -1,0 +1,29 @@
+# =============================================================================
+# claude-devtools — Docker Compose
+#
+# Quick start:
+#   docker compose up
+#
+# Then open http://localhost:3456 in your browser.
+#
+# Security note:
+#   The standalone server has zero outbound network calls — no telemetry,
+#   no analytics, no auto-updater. For maximum isolation, uncomment
+#   network_mode below.
+# =============================================================================
+
+services:
+  claude-devtools:
+    build: .
+    ports:
+      - "3456:3456"
+    volumes:
+      - ${CLAUDE_DIR:-~/.claude}:/data/.claude:ro
+    environment:
+      - NODE_ENV=production
+      - CLAUDE_ROOT=/data/.claude
+      - HOST=0.0.0.0
+      - PORT=3456
+    restart: unless-stopped
+    # Uncomment for maximum network isolation (no outbound connections):
+    # network_mode: "none"
