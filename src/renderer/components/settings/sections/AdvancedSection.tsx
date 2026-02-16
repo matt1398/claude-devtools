@@ -2,9 +2,9 @@
  * AdvancedSection - Advanced settings including config management and about info.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { api } from '@renderer/api';
+import { api, isElectronMode } from '@renderer/api';
 import appIcon from '@renderer/favicon.png';
 import { useStore } from '@renderer/store';
 import { CheckCircle, Code2, Download, Loader2, RefreshCw, Upload } from 'lucide-react';
@@ -26,6 +26,7 @@ export const AdvancedSection = ({
   onImportConfig,
   onOpenInEditor,
 }: AdvancedSectionProps): React.JSX.Element => {
+  const isElectron = useMemo(() => isElectronMode(), []);
   const [version, setVersion] = useState<string>('');
   const updateStatus = useStore((s) => s.updateStatus);
   const availableVersion = useStore((s) => s.availableVersion);
@@ -128,17 +129,19 @@ export const AdvancedSection = ({
           <Upload className="size-4" />
           Import Config
         </button>
-        <button
-          onClick={onOpenInEditor}
-          className="flex w-full items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-sm font-medium transition-all duration-150"
-          style={{
-            borderColor: 'var(--color-border)',
-            color: 'var(--color-text-secondary)',
-          }}
-        >
-          <Code2 className="size-4" />
-          Open in Editor
-        </button>
+        {isElectron && (
+          <button
+            onClick={onOpenInEditor}
+            className="flex w-full items-center justify-center gap-2 rounded-md border px-4 py-2.5 text-sm font-medium transition-all duration-150"
+            style={{
+              borderColor: 'var(--color-border)',
+              color: 'var(--color-text-secondary)',
+            }}
+          >
+            <Code2 className="size-4" />
+            Open in Editor
+          </button>
+        )}
       </div>
 
       <SettingsSectionHeader title="About" />
@@ -149,22 +152,35 @@ export const AdvancedSection = ({
             <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
               claude-devtools
             </p>
-            <button
-              onClick={handleCheckForUpdates}
-              disabled={updateStatus === 'checking'}
-              className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-white/5 disabled:opacity-50"
-              style={{
-                borderColor: 'var(--color-border)',
-                color:
-                  updateStatus === 'not-available'
-                    ? 'var(--color-text-muted)'
-                    : updateStatus === 'available' || updateStatus === 'downloaded'
-                      ? '#60a5fa'
-                      : 'var(--color-text-secondary)',
-              }}
-            >
-              {getUpdateButtonContent()}
-            </button>
+            {isElectron && (
+              <button
+                onClick={handleCheckForUpdates}
+                disabled={updateStatus === 'checking'}
+                className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-white/5 disabled:opacity-50"
+                style={{
+                  borderColor: 'var(--color-border)',
+                  color:
+                    updateStatus === 'not-available'
+                      ? 'var(--color-text-muted)'
+                      : updateStatus === 'available' || updateStatus === 'downloaded'
+                        ? '#60a5fa'
+                        : 'var(--color-text-secondary)',
+                }}
+              >
+                {getUpdateButtonContent()}
+              </button>
+            )}
+            {!isElectron && (
+              <span
+                className="rounded-md border px-2.5 py-1 text-xs font-medium"
+                style={{
+                  borderColor: 'var(--color-border)',
+                  color: 'var(--color-text-muted)',
+                }}
+              >
+                Standalone
+              </span>
+            )}
           </div>
           <p className="mt-0.5 text-xs" style={{ color: 'var(--color-text-muted)' }}>
             Version {version || '...'}

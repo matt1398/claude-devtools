@@ -2,9 +2,11 @@
   "$schema": "https://unpkg.com/knip@next/schema.json",
   "entry": [
     "src/main/index.ts",
+    "src/main/standalone.ts",
     "src/preload/index.ts",
     "src/renderer/main.tsx",
     "electron.vite.config.ts",
+    "vite.standalone.config.ts",
     "remotion/index.ts",
     "remotion/**/*.{ts,tsx}"
   ],

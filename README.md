@@ -17,7 +17,7 @@
   <a href="https://github.com/matt1398/claude-devtools/releases/latest"><img src="https://img.shields.io/github/v/release/matt1398/claude-devtools?style=flat-square&label=version&color=blue" alt="Latest Release" /></a>&nbsp;
   <a href="https://github.com/matt1398/claude-devtools/actions/workflows/ci.yml"><img src="https://github.com/matt1398/claude-devtools/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>&nbsp;
   <a href="https://github.com/matt1398/claude-devtools/releases"><img src="https://img.shields.io/github/downloads/matt1398/claude-devtools/total?style=flat-square&color=green" alt="Downloads" /></a>&nbsp;
-  <img src="https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon%20%2B%20Intel)%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon%20%2B%20Intel)%20%7C%20Linux%20%7C%20Windows%20%7C%20Docker-lightgrey?style=flat-square" alt="Platform" />
 </p>
 
 <br />
@@ -182,6 +182,66 @@ Every tool call is paired with its result in an expandable card. Specialized vie
 | Teammate messages buried in session logs | Color-coded teammate cards with name, message, and full team lifecycle visibility |
 | Critical events mixed into normal output | Trigger-filtered notification inbox for `.env` access, payment-related file paths, execution errors, and high token usage |
 | `--verbose` JSON dump | Structured, filterable, navigable interface — no noise |
+
+---
+
+## Docker / Standalone Deployment
+
+Run claude-devtools without Electron — in Docker, on a remote server, or anywhere Node.js runs.
+
+### Quick Start (Docker Compose)
+
+```bash
+docker compose up
+```
+
+Open `http://localhost:3456` in your browser.
+
+### Quick Start (Docker)
+
+```bash
+docker build -t claude-devtools .
+docker run -p 3456:3456 -v ~/.claude:/data/.claude:ro claude-devtools
+```
+
+### Quick Start (Node.js)
+
+```bash
+pnpm install
+pnpm standalone:build
+node dist-standalone/index.cjs
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAUDE_ROOT` | `~/.claude` | Path to the `.claude` data directory |
+| `HOST` | `0.0.0.0` | Bind address |
+| `PORT` | `3456` | Listen port |
+| `CORS_ORIGIN` | `*` (standalone) | CORS origin policy (`*`, specific origin, or comma-separated list) |
+
+### Notes
+
+- **Real-time updates may be slower than Electron.** The Electron app uses native file system watchers with IPC for instant updates. The Docker/standalone server uses SSE (Server-Sent Events) over HTTP, which may introduce slight delays when sessions are actively being written to.
+- **Custom Claude root path.** If your `.claude` directory is not at `~/.claude`, update the volume mount to point to the correct location:
+  ```bash
+  # Example: Claude root at /home/user/custom-claude-dir
+  docker run -p 3456:3456 -v /home/user/custom-claude-dir:/data/.claude:ro claude-devtools
+
+  # Or with docker compose, set the CLAUDE_DIR env variable:
+  CLAUDE_DIR=/home/user/custom-claude-dir docker compose up
+  ```
+
+### Security-Focused Deployment
+
+The standalone server has **zero** outbound network calls. For maximum isolation:
+
+```bash
+docker run --network none -p 3456:3456 -v ~/.claude:/data/.claude:ro claude-devtools
+```
+
+See [SECURITY.md](SECURITY.md) for a full audit of network activity.
 
 ---
 

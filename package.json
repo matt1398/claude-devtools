@@ -45,7 +45,10 @@
     "test:coverage:critical": "vitest run --coverage --config vitest.critical.config.ts",
     "remotion:preview": "remotion studio remotion/index.ts",
     "remotion:render": "remotion render remotion/index.ts DemoVideo out/demo.mp4",
-    "remotion:render:gif": "remotion render remotion/index.ts DemoVideo out/demo.gif --image-format png"
+    "remotion:render:gif": "remotion render remotion/index.ts DemoVideo out/demo.gif --image-format png",
+    "standalone": "tsx src/main/standalone.ts",
+    "standalone:build": "electron-vite build && vite build --config vite.standalone.config.ts",
+    "standalone:start": "node dist-standalone/index.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

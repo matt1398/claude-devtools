@@ -16,9 +16,20 @@ import { HttpAPIClient } from './httpClient';
 
 import type { ElectronAPI } from '@shared/types/api';
 
-function getHttpPort(): number {
+/**
+ * Resolves the base URL for the HTTP API client.
+ *
+ * - Electron "server mode" (browser opened via ?port=XXXX): use explicit port on 127.0.0.1
+ * - Standalone/Docker (page served by the same server): use window.location.origin
+ *   to avoid cross-origin issues (localhost vs 127.0.0.1)
+ */
+function getHttpBaseUrl(): string {
   const params = new URLSearchParams(window.location.search);
-  return parseInt(params.get('port') ?? '3456', 10);
+  const explicitPort = params.get('port');
+  if (explicitPort) {
+    return `http://127.0.0.1:${parseInt(explicitPort, 10)}`;
+  }
+  return window.location.origin;
 }
 
 let httpClient: HttpAPIClient | null = null;
@@ -28,7 +39,7 @@ function getImpl(): ElectronAPI {
   // Lazily create the HTTP client only when actually needed (browser mode).
   // Caching avoids creating multiple EventSource connections.
   if (!httpClient) {
-    httpClient = new HttpAPIClient(getHttpPort());
+    httpClient = new HttpAPIClient(getHttpBaseUrl());
   }
   return httpClient;
 }

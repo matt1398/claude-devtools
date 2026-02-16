@@ -48,8 +48,8 @@ export class HttpAPIClient implements ElectronAPI {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- event callbacks have varying signatures
   private eventListeners = new Map<string, Set<(...args: any[]) => void>>();
 
-  constructor(port: number) {
-    this.baseUrl = `http://127.0.0.1:${port}`;
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
     this.initEventSource();
   }
 
