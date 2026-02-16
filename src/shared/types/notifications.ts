@@ -276,6 +276,8 @@ export interface AppConfig {
   sessions: {
     /** Pinned sessions per project. Key is projectId, value is array of pinned sessions */
     pinnedSessions: Record<string, { sessionId: string; pinnedAt: number }[]>;
+    /** Hidden sessions per project. Key is projectId, value is array of hidden sessions */
+    hiddenSessions: Record<string, { sessionId: string; hiddenAt: number }[]>;
   };
   /** SSH connection settings */
   ssh?: {

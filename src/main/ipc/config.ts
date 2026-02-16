@@ -17,10 +17,7 @@
  * - config:testTrigger: Test a trigger against historical session data
  */
 
-import {
-  getAutoDetectedClaudeBasePath,
-  getClaudeBasePath,
-} from '@main/utils/pathDecoder';
+import { getAutoDetectedClaudeBasePath, getClaudeBasePath } from '@main/utils/pathDecoder';
 import { getErrorMessage } from '@shared/utils/errorHandling';
 import { createLogger } from '@shared/utils/logger';
 import { execFile } from 'child_process';
@@ -54,9 +51,8 @@ const execFileAsync = promisify(execFile);
 
 // Get singleton instance
 const configManager = ConfigManager.getInstance();
-let onClaudeRootPathUpdated:
-  | ((claudeRootPath: string | null) => Promise<void> | void)
-  | null = null;
+let onClaudeRootPathUpdated: ((claudeRootPath: string | null) => Promise<void> | void) | null =
+  null;
 
 /**
  * Response type for config operations
@@ -110,6 +106,12 @@ export function registerConfigHandlers(ipcMain: IpcMain): void {
   // Session pin handlers
   ipcMain.handle('config:pinSession', handlePinSession);
   ipcMain.handle('config:unpinSession', handleUnpinSession);
+
+  // Session hide handlers
+  ipcMain.handle('config:hideSession', handleHideSession);
+  ipcMain.handle('config:unhideSession', handleUnhideSession);
+  ipcMain.handle('config:hideSessions', handleHideSessions);
+  ipcMain.handle('config:unhideSessions', handleUnhideSessions);
 
   // Dialog handlers
   ipcMain.handle('config:selectFolders', handleSelectFolders);
@@ -789,9 +791,10 @@ function decodeWslOutput(output: string | Buffer | undefined): string {
   }
 
   const hasUtf16LeBom = output.length >= 2 && output[0] === 0xff && output[1] === 0xfe;
-  const decoded = hasUtf16LeBom || looksLikeUtf16Le(output)
-    ? output.toString('utf16le')
-    : output.toString('utf8');
+  const decoded =
+    hasUtf16LeBom || looksLikeUtf16Le(output)
+      ? output.toString('utf16le')
+      : output.toString('utf8');
   return decoded.replace(/\0/g, '');
 }
 
@@ -853,11 +856,7 @@ function parseWslDistros(stdout: string): string[] {
 }
 
 async function listWslDistros(): Promise<string[]> {
-  const commands: string[][] = [
-    ['--list', '--quiet'],
-    ['-l', '-q'],
-    ['-l'],
-  ];
+  const commands: string[][] = [['--list', '--quiet'], ['-l', '-q'], ['-l']];
 
   for (const command of commands) {
     try {
@@ -885,10 +884,7 @@ function stripDefaultSuffix(input: string): string {
 
 async function resolveWslHome(distro: string): Promise<string | null> {
   try {
-    const { stdout } = await runWsl(
-      ['-d', distro, '--', 'sh', '-lc', 'printf %s "$HOME"'],
-      5000
-    );
+    const { stdout } = await runWsl(['-d', distro, '--', 'sh', '-lc', 'printf %s "$HOME"'], 5000);
     return normalizeWslHomePath(stdout);
   } catch {
     return null;
@@ -958,6 +954,102 @@ async function handleFindWslClaudeRoots(
   }
 }
 
+/**
+ * Handler for 'config:hideSession' - Hides a session for a project.
+ */
+async function handleHideSession(
+  _event: IpcMainInvokeEvent,
+  projectId: string,
+  sessionId: string
+): Promise<ConfigResult> {
+  try {
+    if (!projectId || typeof projectId !== 'string') {
+      return { success: false, error: 'Project ID is required and must be a string' };
+    }
+    if (!sessionId || typeof sessionId !== 'string') {
+      return { success: false, error: 'Session ID is required and must be a string' };
+    }
+
+    configManager.hideSession(projectId, sessionId);
+    return { success: true };
+  } catch (error) {
+    logger.error('Error in config:hideSession:', error);
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
+/**
+ * Handler for 'config:unhideSession' - Unhides a session for a project.
+ */
+async function handleUnhideSession(
+  _event: IpcMainInvokeEvent,
+  projectId: string,
+  sessionId: string
+): Promise<ConfigResult> {
+  try {
+    if (!projectId || typeof projectId !== 'string') {
+      return { success: false, error: 'Project ID is required and must be a string' };
+    }
+    if (!sessionId || typeof sessionId !== 'string') {
+      return { success: false, error: 'Session ID is required and must be a string' };
+    }
+
+    configManager.unhideSession(projectId, sessionId);
+    return { success: true };
+  } catch (error) {
+    logger.error('Error in config:unhideSession:', error);
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
+/**
+ * Handler for 'config:hideSessions' - Bulk hide sessions for a project.
+ */
+async function handleHideSessions(
+  _event: IpcMainInvokeEvent,
+  projectId: string,
+  sessionIds: string[]
+): Promise<ConfigResult> {
+  try {
+    if (!projectId || typeof projectId !== 'string') {
+      return { success: false, error: 'Project ID is required and must be a string' };
+    }
+    if (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== 'string')) {
+      return { success: false, error: 'Session IDs must be an array of strings' };
+    }
+
+    configManager.hideSessions(projectId, sessionIds);
+    return { success: true };
+  } catch (error) {
+    logger.error('Error in config:hideSessions:', error);
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
+/**
+ * Handler for 'config:unhideSessions' - Bulk unhide sessions for a project.
+ */
+async function handleUnhideSessions(
+  _event: IpcMainInvokeEvent,
+  projectId: string,
+  sessionIds: string[]
+): Promise<ConfigResult> {
+  try {
+    if (!projectId || typeof projectId !== 'string') {
+      return { success: false, error: 'Project ID is required and must be a string' };
+    }
+    if (!Array.isArray(sessionIds) || sessionIds.some((id) => typeof id !== 'string')) {
+      return { success: false, error: 'Session IDs must be an array of strings' };
+    }
+
+    configManager.unhideSessions(projectId, sessionIds);
+    return { success: true };
+  } catch (error) {
+    logger.error('Error in config:unhideSessions:', error);
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
 // =============================================================================
 // Cleanup
 // =============================================================================
@@ -982,6 +1074,10 @@ export function removeConfigHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler('config:testTrigger');
   ipcMain.removeHandler('config:pinSession');
   ipcMain.removeHandler('config:unpinSession');
+  ipcMain.removeHandler('config:hideSession');
+  ipcMain.removeHandler('config:unhideSession');
+  ipcMain.removeHandler('config:hideSessions');
+  ipcMain.removeHandler('config:unhideSessions');
   ipcMain.removeHandler('config:selectFolders');
   ipcMain.removeHandler('config:selectClaudeRootFolder');
   ipcMain.removeHandler('config:getClaudeRootInfo');

@@ -68,6 +68,18 @@ export const CONFIG_PIN_SESSION = 'config:pinSession';
 /** Unpin a session */
 export const CONFIG_UNPIN_SESSION = 'config:unpinSession';
 
+/** Hide a session */
+export const CONFIG_HIDE_SESSION = 'config:hideSession';
+
+/** Unhide a session */
+export const CONFIG_UNHIDE_SESSION = 'config:unhideSession';
+
+/** Bulk hide sessions */
+export const CONFIG_HIDE_SESSIONS = 'config:hideSessions';
+
+/** Bulk unhide sessions */
+export const CONFIG_UNHIDE_SESSIONS = 'config:unhideSessions';
+
 // =============================================================================
 // SSH API Channels
 // =============================================================================

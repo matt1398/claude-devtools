@@ -436,6 +436,14 @@ export class HttpAPIClient implements ElectronAPI {
       this.post('/api/config/pin-session', { projectId, sessionId }),
     unpinSession: (projectId: string, sessionId: string): Promise<void> =>
       this.post('/api/config/unpin-session', { projectId, sessionId }),
+    hideSession: (projectId: string, sessionId: string): Promise<void> =>
+      this.post('/api/config/hide-session', { projectId, sessionId }),
+    unhideSession: (projectId: string, sessionId: string): Promise<void> =>
+      this.post('/api/config/unhide-session', { projectId, sessionId }),
+    hideSessions: (projectId: string, sessionIds: string[]): Promise<void> =>
+      this.post('/api/config/hide-sessions', { projectId, sessionIds }),
+    unhideSessions: (projectId: string, sessionIds: string[]): Promise<void> =>
+      this.post('/api/config/unhide-sessions', { projectId, sessionIds }),
   };
 
   // ---------------------------------------------------------------------------

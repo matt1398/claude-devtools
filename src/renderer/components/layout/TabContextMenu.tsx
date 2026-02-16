@@ -27,6 +27,10 @@ interface TabContextMenuProps {
   isPinned?: boolean;
   /** Callback to toggle pin state */
   onTogglePin?: () => void;
+  /** Whether this session is currently hidden from the sidebar */
+  isHidden?: boolean;
+  /** Callback to toggle hide state */
+  onToggleHide?: () => void;
 }
 
 export const TabContextMenu = ({
@@ -44,6 +48,8 @@ export const TabContextMenu = ({
   isSessionTab,
   isPinned,
   onTogglePin,
+  isHidden,
+  onToggleHide,
 }: TabContextMenuProps): React.JSX.Element => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -113,6 +119,12 @@ export const TabContextMenu = ({
             onClick={handleClick(onTogglePin)}
           />
         </>
+      )}
+      {isSessionTab && onToggleHide && (
+        <MenuItem
+          label={isHidden ? 'Unhide from Sidebar' : 'Hide from Sidebar'}
+          onClick={handleClick(onToggleHide)}
+        />
       )}
       <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
       <MenuItem label="Close All Tabs" shortcut="⇧⌘W" onClick={handleClick(onCloseAllTabs)} />

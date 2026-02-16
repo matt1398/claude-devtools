@@ -36,6 +36,8 @@ import {
   CONFIG_GET,
   CONFIG_GET_CLAUDE_ROOT_INFO,
   CONFIG_GET_TRIGGERS,
+  CONFIG_HIDE_SESSION,
+  CONFIG_HIDE_SESSIONS,
   CONFIG_OPEN_IN_EDITOR,
   CONFIG_PIN_SESSION,
   CONFIG_REMOVE_IGNORE_REGEX,
@@ -45,6 +47,8 @@ import {
   CONFIG_SELECT_FOLDERS,
   CONFIG_SNOOZE,
   CONFIG_TEST_TRIGGER,
+  CONFIG_UNHIDE_SESSION,
+  CONFIG_UNHIDE_SESSIONS,
   CONFIG_UNPIN_SESSION,
   CONFIG_UPDATE,
   CONFIG_UPDATE_TRIGGER,
@@ -291,6 +295,18 @@ const electronAPI: ElectronAPI = {
     },
     unpinSession: async (projectId: string, sessionId: string): Promise<void> => {
       return invokeIpcWithResult<void>(CONFIG_UNPIN_SESSION, projectId, sessionId);
+    },
+    hideSession: async (projectId: string, sessionId: string): Promise<void> => {
+      return invokeIpcWithResult<void>(CONFIG_HIDE_SESSION, projectId, sessionId);
+    },
+    unhideSession: async (projectId: string, sessionId: string): Promise<void> => {
+      return invokeIpcWithResult<void>(CONFIG_UNHIDE_SESSION, projectId, sessionId);
+    },
+    hideSessions: async (projectId: string, sessionIds: string[]): Promise<void> => {
+      return invokeIpcWithResult<void>(CONFIG_HIDE_SESSIONS, projectId, sessionIds);
+    },
+    unhideSessions: async (projectId: string, sessionIds: string[]): Promise<void> => {
+      return invokeIpcWithResult<void>(CONFIG_UNHIDE_SESSIONS, projectId, sessionIds);
     },
   },
 

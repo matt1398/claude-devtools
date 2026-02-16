@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom';
 import { useStore } from '@renderer/store';
 import { formatTokensCompact } from '@shared/utils/tokenFormatting';
 import { formatDistanceToNowStrict } from 'date-fns';
-import { MessageSquare, Pin } from 'lucide-react';
+import { EyeOff, MessageSquare, Pin } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { OngoingIndicator } from '../common/OngoingIndicator';
@@ -23,6 +23,10 @@ interface SessionItemProps {
   session: Session;
   isActive?: boolean;
   isPinned?: boolean;
+  isHidden?: boolean;
+  multiSelectActive?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }
 
 /**
@@ -112,7 +116,7 @@ const ConsumptionBadge = ({
                   <span className="tabular-nums">{formatTokensCompact(phase.contribution)}</span>
                   {phase.postCompaction != null && (
                     <span style={{ color: 'var(--color-text-muted)' }}>
-                      (compacted → {formatTokensCompact(phase.postCompaction)})
+                      (compacted to {formatTokensCompact(phase.postCompaction)})
                     </span>
                   )}
                 </div>
@@ -129,23 +133,41 @@ export const SessionItem = ({
   session,
   isActive,
   isPinned,
+  isHidden,
+  multiSelectActive,
+  isSelected,
+  onToggleSelect,
 }: Readonly<SessionItemProps>): React.JSX.Element => {
-  const { openTab, activeProjectId, selectSession, paneCount, splitPane, togglePinSession } =
-    useStore(
-      useShallow((s) => ({
-        openTab: s.openTab,
-        activeProjectId: s.activeProjectId,
-        selectSession: s.selectSession,
-        paneCount: s.paneLayout.panes.length,
-        splitPane: s.splitPane,
-        togglePinSession: s.togglePinSession,
-      }))
-    );
+  const {
+    openTab,
+    activeProjectId,
+    selectSession,
+    paneCount,
+    splitPane,
+    togglePinSession,
+    toggleHideSession,
+  } = useStore(
+    useShallow((s) => ({
+      openTab: s.openTab,
+      activeProjectId: s.activeProjectId,
+      selectSession: s.selectSession,
+      paneCount: s.paneLayout.panes.length,
+      splitPane: s.splitPane,
+      togglePinSession: s.togglePinSession,
+      toggleHideSession: s.toggleHideSession,
+    }))
+  );
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleClick = (event: React.MouseEvent): void => {
     if (!activeProjectId) return;
+
+    // In multi-select mode, clicks toggle selection
+    if (multiSelectActive && onToggleSelect) {
+      onToggleSelect();
+      return;
+    }
 
     // Cmd/Ctrl+click: open in new tab; plain click: replace current tab
     const forceNewTab = event.ctrlKey || event.metaKey;
@@ -227,12 +249,23 @@ export const SessionItem = ({
         style={{
           borderColor: 'var(--color-border)',
           ...(isActive ? { backgroundColor: 'var(--color-surface-raised)' } : {}),
+          ...(isHidden ? { opacity: 0.5 } : {}),
         }}
       >
-        {/* First line: title + ongoing indicator + pin icon */}
+        {/* First line: title + ongoing indicator + pin/hidden icons */}
         <div className="flex items-center gap-1.5">
+          {multiSelectActive && (
+            <input
+              type="checkbox"
+              checked={isSelected ?? false}
+              onChange={() => onToggleSelect?.()}
+              onClick={(e) => e.stopPropagation()}
+              className="size-3.5 shrink-0 accent-blue-500"
+            />
+          )}
           {session.isOngoing && <OngoingIndicator />}
           {isPinned && <Pin className="size-2.5 shrink-0 text-blue-400" />}
+          {isHidden && <EyeOff className="size-2.5 shrink-0 text-zinc-500" />}
           <span
             className="truncate text-[13px] font-medium leading-tight"
             style={{ color: isActive ? 'var(--color-text)' : 'var(--color-text-muted)' }}
@@ -275,11 +308,13 @@ export const SessionItem = ({
             sessionLabel={sessionLabel}
             paneCount={paneCount}
             isPinned={isPinned ?? false}
+            isHidden={isHidden ?? false}
             onClose={() => setContextMenu(null)}
             onOpenInCurrentPane={handleOpenInCurrentPane}
             onOpenInNewTab={handleOpenInNewTab}
             onSplitRightAndOpen={handleSplitRightAndOpen}
             onTogglePin={() => void togglePinSession(session.id)}
+            onToggleHide={() => void toggleHideSession(session.id)}
           />,
           document.body
         )}

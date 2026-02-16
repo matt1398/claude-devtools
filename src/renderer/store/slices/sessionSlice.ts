@@ -34,6 +34,12 @@ export interface SessionSlice {
   sessionsLoadingMore: boolean;
   // Pinned sessions
   pinnedSessionIds: string[];
+  // Hidden sessions
+  hiddenSessionIds: string[];
+  showHiddenSessions: boolean;
+  // Multi-select
+  sidebarSelectedSessionIds: string[];
+  sidebarMultiSelectActive: boolean;
   // Sort mode
   sessionSortMode: SessionSortMode;
 
@@ -52,6 +58,24 @@ export interface SessionSlice {
   loadPinnedSessions: () => Promise<void>;
   /** Set session sort mode */
   setSessionSortMode: (mode: SessionSortMode) => void;
+  /** Toggle hide/unhide for a session */
+  toggleHideSession: (sessionId: string) => Promise<void>;
+  /** Bulk hide sessions */
+  hideMultipleSessions: (sessionIds: string[]) => Promise<void>;
+  /** Bulk unhide sessions */
+  unhideMultipleSessions: (sessionIds: string[]) => Promise<void>;
+  /** Load hidden sessions from config for current project */
+  loadHiddenSessions: () => Promise<void>;
+  /** Toggle showing hidden sessions in sidebar */
+  toggleShowHiddenSessions: () => void;
+  /** Toggle one session's checkbox in sidebar multi-select */
+  toggleSidebarSessionSelection: (sessionId: string) => void;
+  /** Clear all selections and exit multi-select mode */
+  clearSidebarSelection: () => void;
+  /** Enter/exit selection mode */
+  toggleSidebarMultiSelect: () => void;
+  /** Bulk pin for multi-select */
+  pinMultipleSessions: (sessionIds: string[]) => Promise<void>;
 }
 
 // =============================================================================
@@ -71,6 +95,12 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
   sessionsLoadingMore: false,
   // Pinned sessions
   pinnedSessionIds: [],
+  // Hidden sessions
+  hiddenSessionIds: [],
+  showHiddenSessions: false,
+  // Multi-select
+  sidebarSelectedSessionIds: [],
+  sidebarMultiSelectActive: false,
   // Sort mode
   sessionSortMode: 'recent' as SessionSortMode,
 
@@ -115,8 +145,9 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
         sessionsLoading: false,
       });
 
-      // Load pinned sessions after fetching session list
+      // Load pinned and hidden sessions after fetching session list
       void get().loadPinnedSessions();
+      void get().loadHiddenSessions();
     } catch (error) {
       set({
         sessionsError: error instanceof Error ? error.message : 'Failed to fetch sessions',
@@ -327,5 +358,151 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
   // Set session sort mode
   setSessionSortMode: (mode: SessionSortMode) => {
     set({ sessionSortMode: mode });
+  },
+
+  // Toggle hide/unhide for a session (optimistic update)
+  toggleHideSession: async (sessionId: string) => {
+    const state = get();
+    const projectId = state.selectedProjectId;
+    if (!projectId) return;
+
+    const isHidden = state.hiddenSessionIds.includes(sessionId);
+    const previousHiddenIds = state.hiddenSessionIds;
+
+    // Optimistic: update UI immediately
+    if (isHidden) {
+      set({ hiddenSessionIds: previousHiddenIds.filter((id) => id !== sessionId) });
+    } else {
+      set({ hiddenSessionIds: [sessionId, ...previousHiddenIds] });
+    }
+
+    try {
+      if (isHidden) {
+        await api.config.unhideSession(projectId, sessionId);
+      } else {
+        await api.config.hideSession(projectId, sessionId);
+      }
+    } catch (error) {
+      // Rollback on failure
+      set({ hiddenSessionIds: previousHiddenIds });
+      logger.error('toggleHideSession error:', error);
+    }
+  },
+
+  // Bulk hide sessions
+  hideMultipleSessions: async (sessionIds: string[]) => {
+    const state = get();
+    const projectId = state.selectedProjectId;
+    if (!projectId || sessionIds.length === 0) return;
+
+    const previousHiddenIds = state.hiddenSessionIds;
+    const existingSet = new Set(previousHiddenIds);
+    const newIds = sessionIds.filter((id) => !existingSet.has(id));
+
+    // Optimistic update
+    set({ hiddenSessionIds: [...newIds, ...previousHiddenIds] });
+
+    try {
+      await api.config.hideSessions(projectId, sessionIds);
+    } catch (error) {
+      set({ hiddenSessionIds: previousHiddenIds });
+      logger.error('hideMultipleSessions error:', error);
+    }
+  },
+
+  // Bulk unhide sessions
+  unhideMultipleSessions: async (sessionIds: string[]) => {
+    const state = get();
+    const projectId = state.selectedProjectId;
+    if (!projectId || sessionIds.length === 0) return;
+
+    const previousHiddenIds = state.hiddenSessionIds;
+    const toRemove = new Set(sessionIds);
+
+    // Optimistic update
+    set({ hiddenSessionIds: previousHiddenIds.filter((id) => !toRemove.has(id)) });
+
+    try {
+      await api.config.unhideSessions(projectId, sessionIds);
+    } catch (error) {
+      set({ hiddenSessionIds: previousHiddenIds });
+      logger.error('unhideMultipleSessions error:', error);
+    }
+  },
+
+  // Load hidden sessions from config for current project
+  loadHiddenSessions: async () => {
+    const state = get();
+    const projectId = state.selectedProjectId;
+    if (!projectId) {
+      set({ hiddenSessionIds: [] });
+      return;
+    }
+
+    try {
+      const config = await api.config.get();
+      const hidden = config.sessions?.hiddenSessions?.[projectId] ?? [];
+      const hiddenIds = hidden.map((h) => h.sessionId);
+      set({ hiddenSessionIds: hiddenIds });
+    } catch (error) {
+      logger.error('loadHiddenSessions error:', error);
+      set({ hiddenSessionIds: [] });
+    }
+  },
+
+  // Toggle showing hidden sessions in sidebar
+  toggleShowHiddenSessions: () => {
+    set((prev) => ({ showHiddenSessions: !prev.showHiddenSessions }));
+  },
+
+  // Toggle one session's checkbox in sidebar multi-select
+  toggleSidebarSessionSelection: (sessionId: string) => {
+    set((prev) => {
+      const selected = prev.sidebarSelectedSessionIds;
+      if (selected.includes(sessionId)) {
+        return { sidebarSelectedSessionIds: selected.filter((id) => id !== sessionId) };
+      }
+      return {
+        sidebarSelectedSessionIds: [...selected, sessionId],
+        sidebarMultiSelectActive: true,
+      };
+    });
+  },
+
+  // Clear all selections and exit multi-select mode
+  clearSidebarSelection: () => {
+    set({ sidebarSelectedSessionIds: [], sidebarMultiSelectActive: false });
+  },
+
+  // Enter/exit selection mode
+  toggleSidebarMultiSelect: () => {
+    set((prev) => {
+      if (prev.sidebarMultiSelectActive) {
+        return { sidebarMultiSelectActive: false, sidebarSelectedSessionIds: [] };
+      }
+      return { sidebarMultiSelectActive: true };
+    });
+  },
+
+  // Bulk pin for multi-select
+  pinMultipleSessions: async (sessionIds: string[]) => {
+    const state = get();
+    const projectId = state.selectedProjectId;
+    if (!projectId || sessionIds.length === 0) return;
+
+    const previousPinnedIds = state.pinnedSessionIds;
+    const existingSet = new Set(previousPinnedIds);
+    const newIds = sessionIds.filter((id) => !existingSet.has(id));
+
+    // Optimistic update
+    set({ pinnedSessionIds: [...newIds, ...previousPinnedIds] });
+
+    try {
+      // Pin each session individually (no bulk pin IPC)
+      await Promise.all(newIds.map((sessionId) => api.config.pinSession(projectId, sessionId)));
+    } catch (error) {
+      set({ pinnedSessionIds: previousPinnedIds });
+      logger.error('pinMultipleSessions error:', error);
+    }
   },
 });

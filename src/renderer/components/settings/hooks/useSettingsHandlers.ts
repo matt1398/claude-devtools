@@ -295,6 +295,7 @@ export function useSettingsHandlers({
         },
         sessions: {
           pinnedSessions: {},
+          hiddenSessions: {},
         },
       };
 
