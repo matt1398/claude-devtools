@@ -205,7 +205,7 @@ open claude-devtools://session/-Users-name-project/session-uuid
 open claude-devtools://session/-Users-name-project/session-uuid/subagent/subagent-uuid
 open claude-devtools://notifications
 open claude-devtools://settings/notifications
-open claude-devtools://search?q=hello
+open 'claude-devtools://search?q=hello'
 ```
 
 | URL | Opens |
