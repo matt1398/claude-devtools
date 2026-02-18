@@ -115,6 +115,14 @@
   "build": {
     "appId": "com.claudecode.context",
     "productName": "claude-devtools",
+    "protocols": [
+      {
+        "name": "claude-devtools URL",
+        "schemes": [
+          "claude-devtools"
+        ]
+      }
+    ],
     "directories": {
       "output": "release"
     },
