@@ -8,6 +8,7 @@ import { vi } from 'vitest';
 import type { Project, Session, SessionDetail } from '../../src/renderer/types/data';
 
 export interface MockElectronAPI {
+  onDeepLinkNavigate: ReturnType<typeof vi.fn>;
   getProjects: ReturnType<typeof vi.fn<() => Promise<Project[]>>>;
   getSessions: ReturnType<typeof vi.fn<(projectId: string) => Promise<Session[]>>>;
   getSessionsPaginated: ReturnType<
@@ -82,6 +83,7 @@ export interface MockElectronAPI {
  */
 export function createMockElectronAPI(): MockElectronAPI {
   return {
+    onDeepLinkNavigate: vi.fn().mockReturnValue(() => undefined),
     getProjects: vi.fn().mockResolvedValue([]),
     getSessions: vi.fn().mockResolvedValue([]),
     getSessionsPaginated: vi.fn().mockResolvedValue({
