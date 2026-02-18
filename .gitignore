@@ -8,6 +8,7 @@ dist-standalone/
 out/
 release/
 coverage/
+.last-built-sha
 
 # IDE
 .vscode/
