@@ -3,6 +3,16 @@
  *
  * Parses custom URL scheme into typed navigation actions.
  * Pure logic with no Node.js or DOM dependencies.
+ *
+ * Supported routes:
+ *   claude-devtools://projects                                                            → projects list
+ *   claude-devtools://projects?q={query}                                                  → projects list, search pre-filled
+ *   claude-devtools://projects/{project_name}                                             → specific project selected
+ *   claude-devtools://projects/{project_name}?q={query}                                  → project selected, session search pre-filled
+ *   claude-devtools://projects/{project_name}/sessions/{sessionId}                       → session
+ *   claude-devtools://projects/{project_name}/sessions/{sessionId}/subagents/{subagentId} → subagent
+ *   claude-devtools://notifications                                                       → notifications tab
+ *   claude-devtools://settings/{section}                                                  → settings tab
  */
 
 // =============================================================================
@@ -131,7 +141,13 @@ export function parseDeepLinkUrl(rawUrl: string): DeepLinkParseResult {
 
     case 'notifications': {
       const filter = url.searchParams.get('filter') ?? undefined;
-      return { success: true, navigation: { type: 'notifications', filter } };
+      return {
+        success: true,
+        navigation: {
+          type: 'notifications',
+          ...(filter !== undefined && { filter }),
+        },
+      };
     }
 
     case 'settings': {
