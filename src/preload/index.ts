@@ -6,6 +6,7 @@ import {
   CONTEXT_GET_ACTIVE,
   CONTEXT_LIST,
   CONTEXT_SWITCH,
+  DEEPLINK_NAVIGATE,
   HTTP_SERVER_GET_STATUS,
   HTTP_SERVER_START,
   HTTP_SERVER_STOP,
@@ -71,6 +72,7 @@ import type {
   TriggerTestResult,
   WslClaudeRootCandidate,
 } from '@shared/types';
+import type { DeepLinkNavigation } from '@shared/utils/deepLinkParser';
 
 // =============================================================================
 // IPC Result Types and Helpers
@@ -457,6 +459,22 @@ const electronAPI: ElectronAPI = {
     getStatus: async (): Promise<HttpServerStatus> => {
       return invokeIpcWithResult<HttpServerStatus>(HTTP_SERVER_GET_STATUS);
     },
+  },
+
+  // Deep link navigation (main -> renderer push event)
+  onDeepLinkNavigate: (
+    callback: (event: unknown, navigation: DeepLinkNavigation) => void
+  ): (() => void) => {
+    ipcRenderer.on(
+      DEEPLINK_NAVIGATE,
+      callback as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
+    );
+    return (): void => {
+      ipcRenderer.removeListener(
+        DEEPLINK_NAVIGATE,
+        callback as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void
+      );
+    };
   },
 };
 

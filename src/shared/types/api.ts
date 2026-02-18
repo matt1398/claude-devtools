@@ -7,6 +7,7 @@
  * Shared between preload and renderer processes.
  */
 
+import type { DeepLinkNavigation } from '../utils/deepLinkParser';
 import type {
   AppConfig,
   DetectedError,
@@ -413,6 +414,11 @@ export interface ElectronAPI {
 
   // HTTP Server API
   httpServer: HttpServerAPI;
+
+  /** Deep link navigation events (main -> renderer push event) */
+  onDeepLinkNavigate: (
+    callback: (event: unknown, navigation: DeepLinkNavigation) => void
+  ) => () => void;
 }
 
 // =============================================================================

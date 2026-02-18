@@ -41,6 +41,7 @@ import type {
   WaterfallData,
   WslClaudeRootCandidate,
 } from '@shared/types';
+import type { DeepLinkNavigation } from '@shared/utils/deepLinkParser';
 
 export class HttpAPIClient implements ElectronAPI {
   private baseUrl: string;
@@ -475,6 +476,13 @@ export class HttpAPIClient implements ElectronAPI {
 
   onTodoChange = (callback: (event: FileChangeEvent) => void): (() => void) =>
     this.addEventListener('todo-change', callback);
+
+  onDeepLinkNavigate = (
+    _callback: (event: unknown, navigation: DeepLinkNavigation) => void
+  ): (() => void) => {
+    // No-op in browser mode — deep links are not supported without Electron
+    return () => {};
+  };
 
   // ---------------------------------------------------------------------------
   // Shell operations (browser fallbacks)

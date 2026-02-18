@@ -171,3 +171,10 @@ export const WINDOW_CLOSE = 'window:close';
 
 /** Whether the window is currently maximized */
 export const WINDOW_IS_MAXIMIZED = 'window:isMaximized';
+
+// =============================================================================
+// Deep Link API Channels
+// =============================================================================
+
+/** Deep link navigation event channel (main -> renderer) */
+export const DEEPLINK_NAVIGATE = 'deeplink:navigate';
