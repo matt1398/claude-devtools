@@ -16,6 +16,7 @@ import {
   getTrafficLightPositionForZoom,
   WINDOW_ZOOM_FACTOR_CHANGED_CHANNEL,
 } from '@shared/constants';
+import { parseDeepLinkUrl } from '@shared/utils/deepLinkParser';
 import { createLogger } from '@shared/utils/logger';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { existsSync } from 'fs';
@@ -49,6 +50,7 @@ const CONTEXT_CHANGED = 'context:changed';
 const HTTP_SERVER_START = 'httpServer:start';
 const HTTP_SERVER_STOP = 'httpServer:stop';
 const HTTP_SERVER_GET_STATUS = 'httpServer:getStatus';
+const DEEPLINK_NAVIGATE = 'deeplink:navigate';
 
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled promise rejection in main process:', reason);
@@ -86,6 +88,9 @@ let httpServer: HttpServer;
 let fileChangeCleanup: (() => void) | null = null;
 let todoChangeCleanup: (() => void) | null = null;
 
+// Deep link URL queued before the window is ready
+let pendingDeepLinkUrl: string | null = null;
+
 /**
  * Resolve production renderer index path.
  * Main bundle lives in dist-electron/main, while renderer lives in out/renderer.
@@ -96,6 +101,28 @@ function getRendererIndexPath(): string {
     join(__dirname, '../renderer/index.html'),
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+/**
+ * Process a deep link URL: parse it and send navigation to the renderer.
+ * Queues the URL if the window isn't ready yet.
+ */
+function handleDeepLinkUrl(url: string): void {
+  logger.info(`Deep link received: ${url}`);
+
+  const result = parseDeepLinkUrl(url);
+  if (!result.success) {
+    logger.warn(`Invalid deep link URL: ${url} - ${result.error}`);
+    return;
+  }
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send(DEEPLINK_NAVIGATE, result.navigation);
+  } else {
+    pendingDeepLinkUrl = url;
+  }
 }
 
 /**
@@ -457,6 +484,12 @@ function createWindow(): void {
       syncTrafficLightPosition(mainWindow);
       // Auto-check for updates 3 seconds after window loads
       setTimeout(() => updaterService.checkForUpdates(), 3000);
+      // Deliver queued deep link URL
+      if (pendingDeepLinkUrl) {
+        const url = pendingDeepLinkUrl;
+        pendingDeepLinkUrl = null;
+        setTimeout(() => handleDeepLinkUrl(url), 500);
+      }
     }
   });
 
@@ -534,68 +567,99 @@ function createWindow(): void {
   logger.info('Main window created');
 }
 
-/**
- * Application ready handler.
- */
-void app.whenReady().then(() => {
-  logger.info('App ready, initializing...');
-  try {
-    // Initialize services first
-    initializeServices();
+// macOS: Register open-url handler BEFORE app.whenReady() since it can fire during launch
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLinkUrl(url);
+});
 
-    // Apply configuration settings
-    const config = configManager.getConfig();
+const gotTheLock = app.requestSingleInstanceLock();
 
-    // Apply launch at login setting
-    app.setLoginItemSettings({
-      openAtLogin: config.general.launchAtLogin,
-    });
-
-    // Apply dock visibility and icon (macOS)
-    if (process.platform === 'darwin') {
-      if (!config.general.showDockIcon) {
-        app.dock?.hide();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    // On macOS, URLs come via open-url, not commandLine
+    if (process.platform !== 'darwin') {
+      const url = commandLine.find((arg) => arg.startsWith('claude-devtools://'));
+      if (url) {
+        handleDeepLinkUrl(url);
       }
-      // macOS app icon is already provided by the signed bundle (.icns)
-      // so we avoid runtime setIcon calls that can fail and block startup.
     }
 
-    // Then create window
-    createWindow();
-
-    // Listen for notification click events
-    notificationManager.on('notification-clicked', (_error) => {
-      if (mainWindow) {
-        mainWindow.show();
-        mainWindow.focus();
-      }
-    });
-  } catch (error) {
-    logger.error('Startup initialization failed:', error);
-    if (!mainWindow) {
-      createWindow();
-    }
-  }
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
     }
   });
-});
 
-/**
- * All windows closed handler.
- */
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+  /**
+   * Application ready handler.
+   */
+  void app.whenReady().then(() => {
+    logger.info('App ready, initializing...');
+    try {
+      // Initialize services first
+      initializeServices();
 
-/**
- * Before quit handler - cleanup.
- */
-app.on('before-quit', () => {
-  shutdownServices();
-});
+      // Apply configuration settings
+      const config = configManager.getConfig();
+
+      // Apply launch at login setting
+      app.setLoginItemSettings({
+        openAtLogin: config.general.launchAtLogin,
+      });
+
+      // Apply dock visibility and icon (macOS)
+      if (process.platform === 'darwin') {
+        if (!config.general.showDockIcon) {
+          app.dock?.hide();
+        }
+        // macOS app icon is already provided by the signed bundle (.icns)
+        // so we avoid runtime setIcon calls that can fail and block startup.
+      }
+
+      // Register as default protocol handler
+      app.setAsDefaultProtocolClient('claude-devtools');
+
+      // Then create window
+      createWindow();
+
+      // Listen for notification click events
+      notificationManager.on('notification-clicked', (_error) => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      });
+    } catch (error) {
+      logger.error('Startup initialization failed:', error);
+      if (!mainWindow) {
+        createWindow();
+      }
+    }
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+
+  /**
+   * All windows closed handler.
+   */
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  /**
+   * Before quit handler - cleanup.
+   */
+  app.on('before-quit', () => {
+    shutdownServices();
+  });
+}
