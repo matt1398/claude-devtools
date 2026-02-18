@@ -91,6 +91,23 @@ Tracks what consumes tokens in Claude's context window across 6 categories (disc
 - Virtual Scrolling: For large session/message lists
 - Debounced File Watching: 100ms debounce
 
+## URL Scheme (Deep Links)
+Registered protocol: `claude-devtools://`
+
+| Route | Description |
+|-------|-------------|
+| `claude-devtools://dashboard` | Open dashboard |
+| `claude-devtools://session/{projectId}/{sessionId}` | Open session |
+| `claude-devtools://session/{projectId}/{sessionId}/subagent/{subagentId}` | Open subagent |
+| `claude-devtools://notifications` | Open notifications |
+| `claude-devtools://settings/{section}` | Open settings section (general/connection/workspace/notifications/advanced) |
+| `claude-devtools://search?q={query}` | Open command palette with query |
+
+- Parser: `src/shared/utils/deepLinkParser.ts`
+- Main process handler: `src/main/index.ts` (`handleDeepLinkUrl`, `open-url`, `second-instance`)
+- IPC channel: `deeplink:navigate` (main → renderer push)
+- Renderer listener: `src/renderer/store/index.ts` (in `initializeNotificationListeners`)
+
 ## Troubleshooting
 
 ### Build Issues

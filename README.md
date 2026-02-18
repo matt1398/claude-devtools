@@ -195,6 +195,32 @@ Every tool call is paired with its result in an expandable card. Specialized vie
 
 ---
 
+## Deep Links
+
+Open any view directly from Terminal, scripts, or other apps:
+
+```bash
+open claude-devtools://dashboard
+open claude-devtools://session/-Users-name-project/session-uuid
+open claude-devtools://session/-Users-name-project/session-uuid/subagent/subagent-uuid
+open claude-devtools://notifications
+open claude-devtools://settings/notifications
+open claude-devtools://search?q=hello
+```
+
+| URL | Opens |
+|-----|-------|
+| `claude-devtools://dashboard` | Dashboard tab |
+| `claude-devtools://session/{projectId}/{sessionId}` | Session view |
+| `claude-devtools://session/{projectId}/{sessionId}/subagent/{subagentId}` | Subagent view |
+| `claude-devtools://notifications` | Notifications tab |
+| `claude-devtools://settings/{section}` | Settings (general/connection/workspace/notifications/advanced) |
+| `claude-devtools://search?q={query}` | Command palette with pre-filled query |
+
+> **Note:** Deep links require the installed app. `open` focuses an already-running window or launches a fresh one.
+
+---
+
 ## Docker / Standalone Deployment
 
 Run claude-devtools without Electron — in Docker, on a remote server, or anywhere Node.js runs.
