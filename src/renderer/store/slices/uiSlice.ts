@@ -13,10 +13,12 @@ export interface UISlice {
   // State
   commandPaletteOpen: boolean;
   sidebarCollapsed: boolean;
+  pendingSearchQuery: string | null;
 
   // Actions
-  openCommandPalette: () => void;
+  openCommandPalette: (query?: string) => void;
   closeCommandPalette: () => void;
+  clearPendingSearchQuery: () => void;
   toggleSidebar: () => void;
 }
 
@@ -28,14 +30,19 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set) => (
   // Initial state
   commandPaletteOpen: false,
   sidebarCollapsed: false,
+  pendingSearchQuery: null,
 
   // Command palette actions
-  openCommandPalette: () => {
-    set({ commandPaletteOpen: true });
+  openCommandPalette: (query?: string) => {
+    set({ commandPaletteOpen: true, pendingSearchQuery: query ?? null });
   },
 
   closeCommandPalette: () => {
     set({ commandPaletteOpen: false });
+  },
+
+  clearPendingSearchQuery: () => {
+    set({ pendingSearchQuery: null });
   },
 
   // Sidebar actions

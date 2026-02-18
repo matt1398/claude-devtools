@@ -359,7 +359,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
 
         {/* Search button (icon only) */}
         <button
-          onClick={openCommandPalette}
+          onClick={() => openCommandPalette()}
           onMouseEnter={() => setSearchHover(true)}
           onMouseLeave={() => setSearchHover(false)}
           className="rounded-md p-2 transition-colors"
