@@ -12,13 +12,16 @@ import type { StateCreator } from 'zustand';
 export interface UISlice {
   // State
   commandPaletteOpen: boolean;
-  sidebarCollapsed: boolean;
+  pendingProjectsQuery: string | null;
   pendingSearchQuery: string | null;
+  sidebarCollapsed: boolean;
 
   // Actions
-  openCommandPalette: (query?: string) => void;
-  closeCommandPalette: () => void;
+  clearPendingProjectsQuery: () => void;
   clearPendingSearchQuery: () => void;
+  closeCommandPalette: () => void;
+  openCommandPalette: (query?: string) => void;
+  setPendingProjectsQuery: (query: string) => void;
   toggleSidebar: () => void;
 }
 
@@ -29,8 +32,9 @@ export interface UISlice {
 export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set) => ({
   // Initial state
   commandPaletteOpen: false,
-  sidebarCollapsed: false,
+  pendingProjectsQuery: null,
   pendingSearchQuery: null,
+  sidebarCollapsed: false,
 
   // Command palette actions
   openCommandPalette: (query?: string) => {
@@ -43,6 +47,15 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set) => (
 
   clearPendingSearchQuery: () => {
     set({ pendingSearchQuery: null });
+  },
+
+  // Projects query actions
+  setPendingProjectsQuery: (query: string) => {
+    set({ pendingProjectsQuery: query });
+  },
+
+  clearPendingProjectsQuery: () => {
+    set({ pendingProjectsQuery: null });
   },
 
   // Sidebar actions

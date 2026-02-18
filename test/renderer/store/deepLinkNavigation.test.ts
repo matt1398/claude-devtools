@@ -65,4 +65,15 @@ describe('Deep Link Navigation', () => {
     store.getState().clearPendingSearchQuery();
     expect(store.getState().pendingSearchQuery).toBeNull();
   });
+
+  it('sets pending projects query', () => {
+    store.getState().setPendingProjectsQuery('dotfiles');
+    expect(store.getState().pendingProjectsQuery).toBe('dotfiles');
+  });
+
+  it('clears pending projects query', () => {
+    store.getState().setPendingProjectsQuery('dotfiles');
+    store.getState().clearPendingProjectsQuery();
+    expect(store.getState().pendingProjectsQuery).toBeNull();
+  });
 });
