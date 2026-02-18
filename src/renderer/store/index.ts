@@ -24,6 +24,7 @@ import { createUpdateSlice } from './slices/updateSlice';
 import type { DetectedError } from '../types/data';
 import type { AppState } from './types';
 import type { UpdaterStatus } from '@shared/types';
+import type { DeepLinkNavigation } from '@shared/utils/deepLinkParser';
 
 // =============================================================================
 // Store Creation
@@ -341,6 +342,33 @@ export function initializeNotificationListeners(): () => void {
         // Main process switched context externally (e.g., SSH disconnect)
         // Trigger renderer-side context switch to sync state
         void useStore.getState().switchContext(id);
+      }
+    });
+    if (typeof cleanup === 'function') {
+      cleanupFns.push(cleanup);
+    }
+  }
+
+  // Listen for deep link navigation events from main process
+  if (api.onDeepLinkNavigate) {
+    const cleanup = api.onDeepLinkNavigate((_event: unknown, navigation: DeepLinkNavigation) => {
+      const state = useStore.getState();
+      switch (navigation.type) {
+        case 'dashboard':
+          state.openDashboard();
+          break;
+        case 'session':
+          state.navigateToSession(navigation.projectId, navigation.sessionId);
+          break;
+        case 'notifications':
+          state.openNotificationsTab();
+          break;
+        case 'settings':
+          state.openSettingsTab(navigation.section);
+          break;
+        case 'search':
+          state.openCommandPalette(navigation.query || undefined);
+          break;
       }
     });
     if (typeof cleanup === 'function') {
