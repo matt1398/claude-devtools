@@ -36,6 +36,9 @@ export default defineConfig({
       }),
       nativeModuleStub()
     ],
+    define: {
+      __FEATURE_BUILD__: process.env.FEATURE_BUILD === '1',
+    },
     resolve: {
       alias: {
         '@main': resolve(__dirname, 'src/main'),

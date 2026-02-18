@@ -9,10 +9,10 @@ import { getErrorMessage } from '@shared/utils/errorHandling';
 import { createLogger } from '@shared/utils/logger';
 import electronUpdater from 'electron-updater';
 
-const { autoUpdater } = electronUpdater;
-
 import type { UpdaterStatus } from '@shared/types';
 import type { BrowserWindow } from 'electron';
+
+const { autoUpdater } = electronUpdater;
 
 const logger = createLogger('UpdaterService');
 
@@ -37,6 +37,7 @@ export class UpdaterService {
    * Check for available updates.
    */
   async checkForUpdates(): Promise<void> {
+    if (__FEATURE_BUILD__) return;
     try {
       await autoUpdater.checkForUpdates();
     } catch (error) {
