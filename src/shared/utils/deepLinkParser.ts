@@ -12,11 +12,10 @@
 export type SettingsSection = 'general' | 'connection' | 'workspace' | 'notifications' | 'advanced';
 
 export type DeepLinkNavigation =
-  | { type: 'dashboard' }
-  | { type: 'session'; projectId: string; sessionId: string; subagentId?: string }
+  | { type: 'projects'; projectName?: string; query?: string }
+  | { type: 'session'; projectName: string; sessionId: string; subagentId?: string }
   | { type: 'notifications'; filter?: string }
   | { type: 'settings'; section: SettingsSection }
-  | { type: 'search'; query: string }
   | { type: 'unknown'; raw: string };
 
 export interface DeepLinkParseResult {
@@ -32,11 +31,11 @@ export interface DeepLinkParseResult {
 const PROTOCOL = 'claude-devtools://';
 
 const VALID_SETTINGS_SECTIONS: ReadonlySet<string> = new Set([
-  'general',
-  'connection',
-  'workspace',
-  'notifications',
   'advanced',
+  'connection',
+  'general',
+  'notifications',
+  'workspace',
 ]);
 
 // =============================================================================
@@ -68,7 +67,7 @@ export function parseDeepLinkUrl(rawUrl: string): DeepLinkParseResult {
     };
   }
 
-  // hostname is the first path segment for custom protocols
+  // hostname is the first path segment for custom protocols;
   // pathname segments are everything after
   const pathSegments = url.pathname.split('/').filter(Boolean);
   const allSegments = [url.hostname, ...pathSegments];
@@ -84,29 +83,49 @@ export function parseDeepLinkUrl(rawUrl: string): DeepLinkParseResult {
   const route = allSegments[0].toLowerCase();
 
   switch (route) {
-    case 'dashboard':
-      return { success: true, navigation: { type: 'dashboard' } };
+    case 'projects': {
+      // Decode the project name from segment [1] (if present)
+      const projectName = allSegments[1] ? decodeURIComponent(allSegments[1]) : undefined;
 
-    case 'session': {
-      const projectId = allSegments[1] ? decodeURIComponent(allSegments[1]) : undefined;
-      const sessionId = allSegments[2] ? decodeURIComponent(allSegments[2]) : undefined;
+      // Sub-path: projects/{name}/sessions/{id}[/subagents/{aid}]
+      if (allSegments[2]?.toLowerCase() === 'sessions') {
+        const sessionId = allSegments[3] ? decodeURIComponent(allSegments[3]) : undefined;
 
-      if (!projectId || !sessionId) {
+        if (!projectName || !sessionId) {
+          return {
+            success: false,
+            navigation: { type: 'unknown', raw: trimmed },
+            error: 'Session URL requires projectName and sessionId',
+          };
+        }
+
+        let subagentId: string | undefined;
+        if (allSegments[4]?.toLowerCase() === 'subagents' && allSegments[5]) {
+          subagentId = decodeURIComponent(allSegments[5]);
+        }
+
         return {
-          success: false,
-          navigation: { type: 'unknown', raw: trimmed },
-          error: 'Session URL requires projectId and sessionId',
+          success: true,
+          navigation: {
+            type: 'session',
+            projectName,
+            sessionId,
+            ...(subagentId !== undefined && { subagentId }),
+          },
         };
       }
 
-      let subagentId: string | undefined;
-      if (allSegments[3]?.toLowerCase() === 'subagent' && allSegments[4]) {
-        subagentId = decodeURIComponent(allSegments[4]);
-      }
+      // Sub-path: projects[/{name}][?q=...]
+      const queryRaw = url.searchParams.get('q');
+      const query = queryRaw !== null && queryRaw.length > 0 ? queryRaw : undefined;
 
       return {
         success: true,
-        navigation: { type: 'session', projectId, sessionId, subagentId },
+        navigation: {
+          type: 'projects',
+          ...(projectName !== undefined && { projectName }),
+          ...(query !== undefined && { query }),
+        },
       };
     }
 
@@ -122,11 +141,6 @@ export function parseDeepLinkUrl(rawUrl: string): DeepLinkParseResult {
           ? (sectionRaw as SettingsSection)
           : 'general';
       return { success: true, navigation: { type: 'settings', section } };
-    }
-
-    case 'search': {
-      const query = url.searchParams.get('q') ?? '';
-      return { success: true, navigation: { type: 'search', query } };
     }
 
     default:
