@@ -142,6 +142,8 @@ export const CommandPalette = (): React.JSX.Element | null => {
     repositoryGroups,
     fetchRepositoryGroups,
     selectRepository,
+    pendingSearchQuery,
+    clearPendingSearchQuery,
   } = useStore(
     useShallow((s) => ({
       commandPaletteOpen: s.commandPaletteOpen,
@@ -151,6 +153,8 @@ export const CommandPalette = (): React.JSX.Element | null => {
       repositoryGroups: s.repositoryGroups,
       fetchRepositoryGroups: s.fetchRepositoryGroups,
       selectRepository: s.selectRepository,
+      pendingSearchQuery: s.pendingSearchQuery,
+      clearPendingSearchQuery: s.clearPendingSearchQuery,
     }))
   );
 
@@ -193,17 +197,22 @@ export const CommandPalette = (): React.JSX.Element | null => {
     }
   }, [commandPaletteOpen, searchMode, repositoryGroups.length, fetchRepositoryGroups]);
 
-  // Focus input when palette opens
+  // Focus input when palette opens, pre-filling any pending deep link query
   useEffect(() => {
     if (commandPaletteOpen && inputRef.current) {
+      if (pendingSearchQuery) {
+        setQuery(pendingSearchQuery);
+        clearPendingSearchQuery();
+      } else {
+        setQuery('');
+      }
       inputRef.current.focus();
-      setQuery('');
       setSessionResults([]);
       setSelectedIndex(0);
       setTotalMatches(0);
       setSearchIsPartial(false);
     }
-  }, [commandPaletteOpen]);
+  }, [commandPaletteOpen, pendingSearchQuery, clearPendingSearchQuery]);
 
   // Search sessions with debounce (only in session mode)
   useEffect(() => {

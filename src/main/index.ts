@@ -112,7 +112,7 @@ function handleDeepLinkUrl(url: string): void {
 
   const result = parseDeepLinkUrl(url);
   if (!result.success) {
-    logger.warn(`Invalid deep link URL: ${url} - ${result.error}`);
+    logger.warn(`Invalid deep link URL: ${url} - ${result.error ?? 'unknown error'}`);
     return;
   }
 
