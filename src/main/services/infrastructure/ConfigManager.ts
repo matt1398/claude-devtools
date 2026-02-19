@@ -11,7 +11,9 @@
 
 import { setClaudeBasePathOverride } from '@main/utils/pathDecoder';
 import { validateRegexPattern } from '@main/utils/regexValidation';
+import { type DataRoot, DEFAULT_LOCAL_ROOT_ID, type LocalDataRoot, type SshDataRoot } from '@shared/types/roots';
 import { createLogger } from '@shared/utils/logger';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -194,6 +196,11 @@ export interface SessionsConfig {
   hiddenSessions: Record<string, { sessionId: string; hiddenAt: number }[]>;
 }
 
+export interface RootsConfig {
+  items: DataRoot[];
+  activeRootId: string;
+}
+
 export interface SshPersistConfig {
   lastConnection: {
     host: string;
@@ -217,6 +224,7 @@ export interface AppConfig {
   general: GeneralConfig;
   display: DisplayConfig;
   sessions: SessionsConfig;
+  roots: RootsConfig;
   ssh: SshPersistConfig;
   httpServer: HttpServerConfig;
 }
@@ -230,6 +238,20 @@ export type ConfigSection = keyof AppConfig;
 
 // Default regex patterns for common non-actionable notifications
 const DEFAULT_IGNORED_REGEX = ["The user doesn't want to proceed with this tool use\\."];
+
+function createDefaultLocalRoot(): LocalDataRoot {
+  return {
+    id: DEFAULT_LOCAL_ROOT_ID,
+    name: 'Local',
+    type: 'local',
+    claudeRootPath: null,
+    order: 0,
+  };
+}
+
+function normalizeRootOrder(roots: DataRoot[]): DataRoot[] {
+  return roots.map((root, index) => ({ ...root, order: index }));
+}
 
 const DEFAULT_CONFIG: AppConfig = {
   notifications: {
@@ -257,6 +279,10 @@ const DEFAULT_CONFIG: AppConfig = {
   sessions: {
     pinnedSessions: {},
     hiddenSessions: {},
+  },
+  roots: {
+    items: [createDefaultLocalRoot()],
+    activeRootId: DEFAULT_LOCAL_ROOT_ID,
   },
   ssh: {
     lastConnection: null,
@@ -302,6 +328,28 @@ function normalizeConfiguredClaudeRootPath(value: unknown): string | null {
   return resolved.slice(0, end);
 }
 
+function normalizeRemoteClaudeRootPath(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function migrateLegacyRoots(legacyClaudeRootPath: unknown, _legacyLastActiveContextId: unknown): {
+  items: DataRoot[];
+  activeRootId: string;
+} {
+  const defaultLocalRoot = createDefaultLocalRoot();
+  defaultLocalRoot.claudeRootPath = normalizeConfiguredClaudeRootPath(legacyClaudeRootPath);
+
+  return {
+    items: [defaultLocalRoot],
+    activeRootId: defaultLocalRoot.id,
+  };
+}
+
 // ===========================================================================
 // ConfigManager Class
 // ===========================================================================
@@ -315,7 +363,7 @@ export class ConfigManager {
   constructor(configPath?: string) {
     this.configPath = configPath ?? DEFAULT_CONFIG_PATH;
     this.config = this.loadConfig();
-    setClaudeBasePathOverride(this.config.general.claudeRootPath);
+    setClaudeBasePathOverride(this.getActiveLocalClaudeRootPath());
     this.triggerManager = new TriggerManager(this.config.notifications.triggers, () =>
       this.saveConfig()
     );
@@ -403,7 +451,96 @@ export class ConfigManager {
       ...DEFAULT_CONFIG.general,
       ...(loaded.general ?? {}),
     };
-    mergedGeneral.claudeRootPath = normalizeConfiguredClaudeRootPath(mergedGeneral.claudeRootPath);
+    mergedGeneral.claudeRootPath = normalizeConfiguredClaudeRootPath(
+      mergedGeneral.claudeRootPath
+    );
+
+    const mergedSsh: SshPersistConfig = {
+      ...DEFAULT_CONFIG.ssh,
+      ...(loaded.ssh ?? {}),
+    };
+
+    const rootsFromConfig = (() => {
+      if (!loaded.roots || !Array.isArray(loaded.roots.items) || loaded.roots.items.length === 0) {
+        return migrateLegacyRoots(mergedGeneral.claudeRootPath, mergedSsh.lastActiveContextId);
+      }
+
+      const sanitizedRoots: DataRoot[] = [];
+      for (const [index, candidate] of loaded.roots.items.entries()) {
+        if (!candidate || typeof candidate !== 'object') {
+          continue;
+        }
+        const id = typeof candidate.id === 'string' && candidate.id.trim().length > 0
+          ? candidate.id
+          : `${candidate.type === 'ssh' ? 'ssh' : 'local'}-root-${index + 1}`;
+        const name =
+          typeof candidate.name === 'string' && candidate.name.trim().length > 0
+            ? candidate.name.trim()
+            : candidate.type === 'ssh'
+              ? `SSH Root ${index + 1}`
+              : `Local Root ${index + 1}`;
+        const order =
+          typeof candidate.order === 'number' && Number.isFinite(candidate.order)
+            ? candidate.order
+            : index;
+
+        if (candidate.type === 'ssh') {
+          if (
+            typeof candidate.sshProfileId !== 'string' ||
+            candidate.sshProfileId.trim().length === 0
+          ) {
+            continue;
+          }
+          sanitizedRoots.push({
+            id,
+            name,
+            type: 'ssh',
+            sshProfileId: candidate.sshProfileId,
+            remoteClaudeRootPath: normalizeRemoteClaudeRootPath(candidate.remoteClaudeRootPath),
+            order,
+          });
+          continue;
+        }
+
+        sanitizedRoots.push({
+          id,
+          name,
+          type: 'local',
+          claudeRootPath: normalizeConfiguredClaudeRootPath(candidate.claudeRootPath),
+          order,
+        });
+      }
+
+      const existingProfileIds = new Set(mergedSsh.profiles.map((profile) => profile.id));
+      const rootsWithValidProfiles = sanitizedRoots.filter(
+        (root) => root.type !== 'ssh' || existingProfileIds.has(root.sshProfileId)
+      );
+
+      const ordered = normalizeRootOrder(rootsWithValidProfiles);
+      if (ordered.length === 0) {
+        return migrateLegacyRoots(mergedGeneral.claudeRootPath, mergedSsh.lastActiveContextId);
+      }
+
+      const hasLocalRoot = ordered.some((root) => root.type === 'local');
+      const items = hasLocalRoot ? ordered : [createDefaultLocalRoot(), ...ordered];
+      const requestedActiveRootId =
+        typeof loaded.roots.activeRootId === 'string' ? loaded.roots.activeRootId : null;
+      const activeRootId =
+        requestedActiveRootId && items.some((root) => root.id === requestedActiveRootId)
+          ? requestedActiveRootId
+          : items[0].id;
+
+      return { items: normalizeRootOrder(items), activeRootId };
+    })();
+
+    const defaultLocalRoot =
+      rootsFromConfig.items.find(
+        (root): root is LocalDataRoot =>
+          root.type === 'local' && root.id === DEFAULT_LOCAL_ROOT_ID
+      ) ??
+      rootsFromConfig.items.find((root): root is LocalDataRoot => root.type === 'local') ??
+      createDefaultLocalRoot();
+    mergedGeneral.claudeRootPath = defaultLocalRoot.claudeRootPath;
 
     // Merge triggers: preserve existing triggers, add missing builtin ones
     const mergedTriggers = TriggerManager.mergeTriggers(loadedTriggers, DEFAULT_TRIGGERS);
@@ -423,10 +560,8 @@ export class ConfigManager {
         ...DEFAULT_CONFIG.sessions,
         ...(loaded.sessions ?? {}),
       },
-      ssh: {
-        ...DEFAULT_CONFIG.ssh,
-        ...(loaded.ssh ?? {}),
-      },
+      roots: rootsFromConfig,
+      ssh: mergedSsh,
       httpServer: {
         ...DEFAULT_CONFIG.httpServer,
         ...(loaded.httpServer ?? {}),
@@ -459,6 +594,59 @@ export class ConfigManager {
     return this.configPath;
   }
 
+  /**
+   * Gets ordered root list.
+   */
+  getRoots(): DataRoot[] {
+    return this.deepClone(this.config.roots.items).sort((a, b) => a.order - b.order);
+  }
+
+  /**
+   * Gets a root by ID.
+   */
+  getRoot(rootId: string): DataRoot | null {
+    const root = this.config.roots.items.find((item) => item.id === rootId);
+    return root ? this.deepClone(root) : null;
+  }
+
+  /**
+   * Gets the active root configuration.
+   */
+  getActiveRoot(): DataRoot {
+    const root =
+      this.config.roots.items.find((item) => item.id === this.config.roots.activeRootId) ??
+      this.config.roots.items[0];
+    return this.deepClone(root);
+  }
+
+  /**
+   * Set active root ID.
+   */
+  setActiveRoot(rootId: string): AppConfig {
+    if (!this.config.roots.items.some((root) => root.id === rootId)) {
+      throw new Error(`Root not found: ${rootId}`);
+    }
+    this.config.roots.activeRootId = rootId;
+    this.syncLegacyGeneralClaudeRootPath();
+    setClaudeBasePathOverride(this.getActiveLocalClaudeRootPath());
+    this.saveConfig();
+    return this.getConfig();
+  }
+
+  private getActiveLocalClaudeRootPath(): string | null {
+    const activeRoot =
+      this.config.roots.items.find((item) => item.id === this.config.roots.activeRootId) ??
+      this.config.roots.items[0];
+    if (activeRoot?.type === 'local') {
+      return activeRoot.claudeRootPath;
+    }
+
+    const fallbackLocalRoot = this.config.roots.items.find(
+      (item): item is LocalDataRoot => item.type === 'local'
+    );
+    return fallbackLocalRoot?.claudeRootPath ?? null;
+  }
+
   // ===========================================================================
   // Config Updates
   // ===========================================================================
@@ -470,13 +658,38 @@ export class ConfigManager {
    */
   updateConfig<K extends ConfigSection>(section: K, data: Partial<AppConfig[K]>): AppConfig {
     const normalizedData = this.normalizeSectionUpdate(section, data);
-    this.config[section] = {
-      ...this.config[section],
-      ...normalizedData,
-    };
+
+    if (section === 'ssh') {
+      const sshUpdate = normalizedData as Partial<SshPersistConfig>;
+      if (sshUpdate.profiles) {
+        this.assertRemovedSshProfilesAreUnreferenced(sshUpdate.profiles);
+      }
+    }
+
+    if (section === 'roots') {
+      this.assertRootsConfigValid(normalizedData as Partial<RootsConfig>);
+    }
+
+    if (section === 'roots') {
+      this.config.roots = this.mergeRootsUpdate(normalizedData as Partial<RootsConfig>);
+      this.syncLegacyGeneralClaudeRootPath();
+    } else {
+      this.config[section] = {
+        ...this.config[section],
+        ...normalizedData,
+      };
+    }
 
     if (section === 'general') {
-      setClaudeBasePathOverride(this.config.general.claudeRootPath);
+      const generalUpdate = normalizedData as Partial<GeneralConfig>;
+      if (Object.prototype.hasOwnProperty.call(generalUpdate, 'claudeRootPath')) {
+        const defaultLocalRoot = this.getDefaultLocalRootMutable();
+        defaultLocalRoot.claudeRootPath = generalUpdate.claudeRootPath ?? null;
+      }
+    }
+
+    if (section === 'roots' || section === 'general') {
+      setClaudeBasePathOverride(this.getActiveLocalClaudeRootPath());
     }
 
     this.saveConfig();
@@ -488,6 +701,29 @@ export class ConfigManager {
     data: Partial<AppConfig[K]>
   ): Partial<AppConfig[K]> {
     if (section !== 'general') {
+      if (section === 'roots') {
+        const rootsUpdate = data as Partial<RootsConfig>;
+        const result: Partial<RootsConfig> = { ...rootsUpdate };
+        if (Array.isArray(rootsUpdate.items)) {
+          result.items = normalizeRootOrder(
+            rootsUpdate.items.map((root, index) => {
+              if (root.type === 'local') {
+                return {
+                  ...root,
+                  order: typeof root.order === 'number' ? root.order : index,
+                  claudeRootPath: normalizeConfiguredClaudeRootPath(root.claudeRootPath),
+                };
+              }
+              return {
+                ...root,
+                order: typeof root.order === 'number' ? root.order : index,
+                remoteClaudeRootPath: normalizeRemoteClaudeRootPath(root.remoteClaudeRootPath),
+              };
+            })
+          );
+        }
+        return result as unknown as Partial<AppConfig[K]>;
+      }
       return data;
     }
 
@@ -500,6 +736,271 @@ export class ConfigManager {
       ...generalUpdate,
       claudeRootPath: normalizeConfiguredClaudeRootPath(generalUpdate.claudeRootPath),
     } as unknown as Partial<AppConfig[K]>;
+  }
+
+  private getDefaultLocalRootMutable(): LocalDataRoot {
+    const existingDefaultRoot = this.config.roots.items.find(
+      (root): root is LocalDataRoot => root.type === 'local' && root.id === DEFAULT_LOCAL_ROOT_ID
+    );
+    if (existingDefaultRoot) {
+      return existingDefaultRoot;
+    }
+
+    const firstLocalRoot = this.config.roots.items.find(
+      (root): root is LocalDataRoot => root.type === 'local'
+    );
+    if (firstLocalRoot) {
+      return firstLocalRoot;
+    }
+
+    const created = createDefaultLocalRoot();
+    this.config.roots.items.unshift(created);
+    this.config.roots.items = normalizeRootOrder(this.config.roots.items);
+    return created;
+  }
+
+  private assertRootsConfigValid(update: Partial<RootsConfig>): void {
+    if (!update.items && !update.activeRootId) {
+      return;
+    }
+
+    const nextItems = update.items ?? this.config.roots.items;
+    if (nextItems.length === 0) {
+      throw new Error('At least one root is required');
+    }
+
+    const seenRootIds = new Set<string>();
+    for (const root of nextItems) {
+      if (seenRootIds.has(root.id)) {
+        throw new Error(`Duplicate root id: ${root.id}`);
+      }
+      seenRootIds.add(root.id);
+      if (!root.name.trim()) {
+        throw new Error('Root name is required');
+      }
+    }
+
+    if (!update.items) {
+      if (!nextItems.some((root) => root.id === update.activeRootId)) {
+        throw new Error('activeRootId must reference an existing root');
+      }
+      return;
+    }
+
+    const profileIds = new Set(this.config.ssh.profiles.map((profile) => profile.id));
+    for (const root of nextItems) {
+      if (root.type !== 'ssh') {
+        continue;
+      }
+      if (!profileIds.has(root.sshProfileId)) {
+        throw new Error(`SSH profile not found for root "${root.name}"`);
+      }
+    }
+
+    if (!nextItems.some((root) => root.type === 'local')) {
+      throw new Error('At least one local root is required');
+    }
+
+    if (update.activeRootId && !nextItems.some((root) => root.id === update.activeRootId)) {
+      throw new Error('activeRootId must reference one of roots.items[].id');
+    }
+  }
+
+  private mergeRootsUpdate(update: Partial<RootsConfig>): RootsConfig {
+    const nextItems = update.items ? normalizeRootOrder(update.items) : this.config.roots.items;
+    const requestedActiveRootId = update.activeRootId ?? this.config.roots.activeRootId;
+    const activeRootId = nextItems.some((root) => root.id === requestedActiveRootId)
+      ? requestedActiveRootId
+      : nextItems[0].id;
+
+    return {
+      items: nextItems,
+      activeRootId,
+    };
+  }
+
+  private assertRemovedSshProfilesAreUnreferenced(nextProfiles: SshConnectionProfile[]): void {
+    const nextProfileIds = new Set(nextProfiles.map((profile) => profile.id));
+    for (const removedProfile of this.config.ssh.profiles) {
+      if (nextProfileIds.has(removedProfile.id)) {
+        continue;
+      }
+
+      const referencingRoot = this.config.roots.items.find(
+        (root): root is SshDataRoot =>
+          root.type === 'ssh' && root.sshProfileId === removedProfile.id
+      );
+      if (referencingRoot) {
+        throw new Error(
+          `Profile is used by root "${referencingRoot.name}". Remove the root first.`
+        );
+      }
+    }
+  }
+
+  private syncLegacyGeneralClaudeRootPath(): void {
+    const defaultLocalRoot = this.getDefaultLocalRootMutable();
+    this.config.general.claudeRootPath = defaultLocalRoot.claudeRootPath;
+  }
+
+  // ===========================================================================
+  // Roots Management
+  // ===========================================================================
+
+  addRoot(root: Omit<LocalDataRoot, 'id' | 'order'> | Omit<SshDataRoot, 'id' | 'order'>): AppConfig {
+    const nextOrder = this.config.roots.items.length;
+    const trimmedName = root.name.trim();
+    if (!trimmedName) {
+      throw new Error('Root name is required');
+    }
+
+    if (root.type === 'ssh') {
+      const sshRoot = root;
+      const profileExists = this.config.ssh.profiles.some(
+        (profile) => profile.id === sshRoot.sshProfileId
+      );
+      if (!profileExists) {
+        throw new Error(`SSH profile not found: ${sshRoot.sshProfileId}`);
+      }
+
+      this.config.roots.items.push({
+        id: randomUUID(),
+        name: trimmedName,
+        type: 'ssh',
+        sshProfileId: sshRoot.sshProfileId,
+        remoteClaudeRootPath: normalizeRemoteClaudeRootPath(sshRoot.remoteClaudeRootPath),
+        order: nextOrder,
+      });
+    } else {
+      const localRoot = root;
+      this.config.roots.items.push({
+        id: randomUUID(),
+        name: trimmedName,
+        type: 'local',
+        claudeRootPath: normalizeConfiguredClaudeRootPath(localRoot.claudeRootPath),
+        order: nextOrder,
+      });
+    }
+
+    this.config.roots.items = normalizeRootOrder(this.config.roots.items);
+    this.syncLegacyGeneralClaudeRootPath();
+    this.saveConfig();
+    return this.getConfig();
+  }
+
+  updateRoot(
+    rootId: string,
+    updates: Partial<Omit<LocalDataRoot, 'id'>> | Partial<Omit<SshDataRoot, 'id'>>
+  ): AppConfig {
+    const index = this.config.roots.items.findIndex((root) => root.id === rootId);
+    if (index === -1) {
+      throw new Error(`Root not found: ${rootId}`);
+    }
+
+    const currentRoot = this.config.roots.items[index];
+    if (updates.type && updates.type !== currentRoot.type) {
+      throw new Error('Root type cannot be changed');
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'name')) {
+      if (typeof updates.name !== 'string' || updates.name.trim().length === 0) {
+        throw new Error('Root name is required');
+      }
+    }
+
+    if (currentRoot.type === 'local') {
+      this.config.roots.items[index] = {
+        ...currentRoot,
+        name: typeof updates.name === 'string' ? updates.name.trim() : currentRoot.name,
+        claudeRootPath:
+          Object.prototype.hasOwnProperty.call(updates, 'claudeRootPath')
+            ? normalizeConfiguredClaudeRootPath((updates as Partial<LocalDataRoot>).claudeRootPath)
+            : currentRoot.claudeRootPath,
+        order:
+          typeof updates.order === 'number' && Number.isFinite(updates.order)
+            ? updates.order
+            : currentRoot.order,
+      };
+    } else {
+      const nextProfileId = (updates as Partial<SshDataRoot>).sshProfileId ?? currentRoot.sshProfileId;
+      const profileExists = this.config.ssh.profiles.some((profile) => profile.id === nextProfileId);
+      if (!profileExists) {
+        throw new Error(`SSH profile not found: ${nextProfileId}`);
+      }
+
+      this.config.roots.items[index] = {
+        ...currentRoot,
+        name: typeof updates.name === 'string' ? updates.name.trim() : currentRoot.name,
+        sshProfileId: nextProfileId,
+        remoteClaudeRootPath: Object.prototype.hasOwnProperty.call(updates, 'remoteClaudeRootPath')
+          ? normalizeRemoteClaudeRootPath((updates as Partial<SshDataRoot>).remoteClaudeRootPath)
+          : currentRoot.remoteClaudeRootPath,
+        order:
+          typeof updates.order === 'number' && Number.isFinite(updates.order)
+            ? updates.order
+            : currentRoot.order,
+      };
+    }
+
+    this.config.roots.items = normalizeRootOrder(this.config.roots.items);
+    this.syncLegacyGeneralClaudeRootPath();
+    setClaudeBasePathOverride(this.getActiveLocalClaudeRootPath());
+    this.saveConfig();
+    return this.getConfig();
+  }
+
+  removeRoot(rootId: string): AppConfig {
+    if (this.config.roots.items.length <= 1) {
+      throw new Error('Cannot remove the last root');
+    }
+    if (rootId === DEFAULT_LOCAL_ROOT_ID) {
+      throw new Error('Default local root cannot be removed');
+    }
+
+    const index = this.config.roots.items.findIndex((root) => root.id === rootId);
+    if (index === -1) {
+      throw new Error(`Root not found: ${rootId}`);
+    }
+
+    this.config.roots.items.splice(index, 1);
+    this.config.roots.items = normalizeRootOrder(this.config.roots.items);
+
+    if (this.config.roots.activeRootId === rootId) {
+      const fallbackRoot =
+        this.config.roots.items.find((root) => root.type === 'local') ?? this.config.roots.items[0];
+      this.config.roots.activeRootId = fallbackRoot.id;
+    }
+
+    this.syncLegacyGeneralClaudeRootPath();
+    setClaudeBasePathOverride(this.getActiveLocalClaudeRootPath());
+    this.saveConfig();
+    return this.getConfig();
+  }
+
+  reorderRoots(rootIdsInOrder: string[]): AppConfig {
+    if (rootIdsInOrder.length !== this.config.roots.items.length) {
+      throw new Error('Reorder payload does not match roots length');
+    }
+
+    const uniqueRootIds = new Set(rootIdsInOrder);
+    if (uniqueRootIds.size !== rootIdsInOrder.length) {
+      throw new Error('Reorder payload contains duplicate root IDs');
+    }
+
+    const knownIds = new Set(this.config.roots.items.map((root) => root.id));
+    for (const rootId of rootIdsInOrder) {
+      if (!knownIds.has(rootId)) {
+        throw new Error(`Unknown root in reorder payload: ${rootId}`);
+      }
+    }
+
+    this.config.roots.items = rootIdsInOrder.map((rootId, index) => {
+      const root = this.config.roots.items.find((item) => item.id === rootId)!;
+      return { ...root, order: index };
+    });
+
+    this.syncLegacyGeneralClaudeRootPath();
+    this.saveConfig();
+    return this.getConfig();
   }
 
   // ===========================================================================
@@ -856,6 +1357,13 @@ export class ConfigManager {
    * @param profileId - The profile ID to remove
    */
   removeSshProfile(profileId: string): void {
+    const referencingRoot = this.config.roots.items.find(
+      (root): root is SshDataRoot => root.type === 'ssh' && root.sshProfileId === profileId
+    );
+    if (referencingRoot) {
+      throw new Error(`Profile is used by root "${referencingRoot.name}". Remove the root first.`);
+    }
+
     const index = this.config.ssh.profiles.findIndex((p) => p.id === profileId);
     if (index === -1) {
       logger.warn(`SSH profile not found: ${profileId}`);
@@ -912,7 +1420,7 @@ export class ConfigManager {
    */
   resetToDefaults(): AppConfig {
     this.config = this.deepClone(DEFAULT_CONFIG);
-    setClaudeBasePathOverride(this.config.general.claudeRootPath);
+    setClaudeBasePathOverride(this.getActiveLocalClaudeRootPath());
     this.triggerManager.setTriggers(this.config.notifications.triggers);
     this.saveConfig();
     logger.info('Config reset to defaults');
@@ -926,7 +1434,7 @@ export class ConfigManager {
    */
   reload(): AppConfig {
     this.config = this.loadConfig();
-    setClaudeBasePathOverride(this.config.general.claudeRootPath);
+    setClaudeBasePathOverride(this.getActiveLocalClaudeRootPath());
     this.triggerManager.setTriggers(this.config.notifications.triggers);
     logger.info('Config reloaded from disk');
     return this.getConfig();

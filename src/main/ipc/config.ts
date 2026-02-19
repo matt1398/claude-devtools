@@ -18,6 +18,10 @@
  */
 
 import { getAutoDetectedClaudeBasePath, getClaudeBasePath } from '@main/utils/pathDecoder';
+import {
+  applyRootLifecycleCallbacks,
+  type RootLifecycleCallbacks,
+} from '@main/utils/rootLifecycleCallbacks';
 import { getErrorMessage } from '@shared/utils/errorHandling';
 import { createLogger } from '@shared/utils/logger';
 import { execFile } from 'child_process';
@@ -43,6 +47,8 @@ import type { TriggerColor } from '@shared/constants/triggerColors';
 import type {
   ClaudeRootFolderSelection,
   ClaudeRootInfo,
+  LocalDataRoot,
+  SshDataRoot,
   WslClaudeRootCandidate,
 } from '@shared/types';
 
@@ -53,6 +59,10 @@ const execFileAsync = promisify(execFile);
 const configManager = ConfigManager.getInstance();
 let onClaudeRootPathUpdated: ((claudeRootPath: string | null) => Promise<void> | void) | null =
   null;
+let onRootAdded: RootLifecycleCallbacks['onRootAdded'] | null = null;
+let onRootUpdated: RootLifecycleCallbacks['onRootUpdated'] | null = null;
+let onRootRemoved: RootLifecycleCallbacks['onRootRemoved'] | null = null;
+let onRootActivated: RootLifecycleCallbacks['onRootActivated'] | null = null;
 
 /**
  * Response type for config operations
@@ -63,15 +73,27 @@ interface ConfigResult<T = void> {
   error?: string;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Initializes config handlers with callbacks that require app-level services.
  */
 export function initializeConfigHandlers(
   options: {
     onClaudeRootPathUpdated?: (claudeRootPath: string | null) => Promise<void> | void;
+    onRootAdded?: RootLifecycleCallbacks['onRootAdded'];
+    onRootUpdated?: RootLifecycleCallbacks['onRootUpdated'];
+    onRootRemoved?: RootLifecycleCallbacks['onRootRemoved'];
+    onRootActivated?: RootLifecycleCallbacks['onRootActivated'];
   } = {}
 ): void {
   onClaudeRootPathUpdated = options.onClaudeRootPathUpdated ?? null;
+  onRootAdded = options.onRootAdded ?? null;
+  onRootUpdated = options.onRootUpdated ?? null;
+  onRootRemoved = options.onRootRemoved ?? null;
+  onRootActivated = options.onRootActivated ?? null;
 }
 
 /**
@@ -83,6 +105,10 @@ export function registerConfigHandlers(ipcMain: IpcMain): void {
 
   // Update configuration section
   ipcMain.handle('config:update', handleUpdateConfig);
+  ipcMain.handle('config:addRoot', handleAddRoot);
+  ipcMain.handle('config:updateRoot', handleUpdateRoot);
+  ipcMain.handle('config:removeRoot', handleRemoveRoot);
+  ipcMain.handle('config:reorderRoots', handleReorderRoots);
 
   // Ignore regex pattern handlers
   ipcMain.handle('config:addIgnoreRegex', handleAddIgnoreRegex);
@@ -116,6 +142,7 @@ export function registerConfigHandlers(ipcMain: IpcMain): void {
   // Dialog handlers
   ipcMain.handle('config:selectFolders', handleSelectFolders);
   ipcMain.handle('config:selectClaudeRootFolder', handleSelectClaudeRootFolder);
+  ipcMain.handle('config:getRootInfo', handleGetRootInfo);
   ipcMain.handle('config:getClaudeRootInfo', handleGetClaudeRootInfo);
   ipcMain.handle('config:findWslClaudeRoots', handleFindWslClaudeRoots);
 
@@ -154,7 +181,7 @@ async function handleUpdateConfig(
   data: unknown
 ): Promise<ConfigResult<AppConfig>> {
   try {
-    const validation = validateConfigUpdatePayload(section, data);
+    const validation = validateConfigUpdatePayload(section, data, configManager.getConfig());
     if (!validation.valid) {
       return { success: false, error: validation.error };
     }
@@ -162,6 +189,7 @@ async function handleUpdateConfig(
     const isClaudeRootUpdate =
       validation.section === 'general' &&
       Object.prototype.hasOwnProperty.call(validation.data, 'claudeRootPath');
+    const previousConfig = validation.section === 'roots' ? configManager.getConfig() : null;
 
     configManager.updateConfig(validation.section, validation.data);
 
@@ -176,9 +204,130 @@ async function handleUpdateConfig(
     }
 
     const updatedConfig = configManager.getConfig();
+    if (validation.section === 'roots' && previousConfig) {
+      await applyRootLifecycleCallbacks(previousConfig, updatedConfig, {
+        onRootAdded: onRootAdded ?? undefined,
+        onRootUpdated: onRootUpdated ?? undefined,
+        onRootRemoved: onRootRemoved ?? undefined,
+        onRootActivated: onRootActivated ?? undefined,
+      });
+    }
     return { success: true, data: updatedConfig };
   } catch (error) {
     logger.error('Error in config:update:', error);
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
+async function handleAddRoot(
+  _event: IpcMainInvokeEvent,
+  rootInput: unknown
+): Promise<ConfigResult<AppConfig>> {
+  try {
+    if (!isPlainObject(rootInput)) {
+      return { success: false, error: 'Root input must be an object' };
+    }
+    if (rootInput.type !== 'local' && rootInput.type !== 'ssh') {
+      return { success: false, error: 'Root type must be "local" or "ssh"' };
+    }
+    if (typeof rootInput.name !== 'string' || rootInput.name.trim().length === 0) {
+      return { success: false, error: 'Root name is required' };
+    }
+    if (
+      rootInput.type === 'ssh' &&
+      (typeof rootInput.sshProfileId !== 'string' || rootInput.sshProfileId.trim().length === 0)
+    ) {
+      return { success: false, error: 'SSH profile ID is required for SSH roots' };
+    }
+
+    const prevRootIds = new Set(configManager.getConfig().roots.items.map((root) => root.id));
+    const updatedConfig = configManager.addRoot(
+      rootInput as Omit<LocalDataRoot, 'id' | 'order'> | Omit<SshDataRoot, 'id' | 'order'>
+    );
+
+    if (onRootAdded) {
+      const addedRoot = updatedConfig.roots.items.find((root) => !prevRootIds.has(root.id));
+      if (addedRoot) {
+        await onRootAdded(addedRoot);
+      }
+    }
+
+    return { success: true, data: updatedConfig };
+  } catch (error) {
+    logger.error('Error in config:addRoot:', error);
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
+async function handleUpdateRoot(
+  _event: IpcMainInvokeEvent,
+  rootId: unknown,
+  updates: unknown
+): Promise<ConfigResult<AppConfig>> {
+  try {
+    if (typeof rootId !== 'string' || rootId.trim().length === 0) {
+      return { success: false, error: 'rootId is required' };
+    }
+    if (!isPlainObject(updates)) {
+      return { success: false, error: 'updates must be an object' };
+    }
+
+    const updatedConfig = configManager.updateRoot(
+      rootId,
+      updates as Partial<Omit<LocalDataRoot, 'id'>> | Partial<Omit<SshDataRoot, 'id'>>
+    );
+    if (onRootUpdated) {
+      const updatedRoot = updatedConfig.roots.items.find((root) => root.id === rootId);
+      if (updatedRoot) {
+        await onRootUpdated(updatedRoot);
+      }
+    }
+
+    return { success: true, data: updatedConfig };
+  } catch (error) {
+    logger.error('Error in config:updateRoot:', error);
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
+async function handleRemoveRoot(
+  _event: IpcMainInvokeEvent,
+  rootId: unknown
+): Promise<ConfigResult<AppConfig>> {
+  try {
+    if (typeof rootId !== 'string' || rootId.trim().length === 0) {
+      return { success: false, error: 'rootId is required' };
+    }
+
+    const previousActiveRootId = configManager.getConfig().roots.activeRootId;
+    const updatedConfig = configManager.removeRoot(rootId);
+    if (onRootRemoved) {
+      await onRootRemoved(rootId);
+    }
+    if (previousActiveRootId !== updatedConfig.roots.activeRootId && onRootActivated) {
+      await onRootActivated(updatedConfig.roots.activeRootId);
+    }
+    return { success: true, data: updatedConfig };
+  } catch (error) {
+    logger.error('Error in config:removeRoot:', error);
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
+async function handleReorderRoots(
+  _event: IpcMainInvokeEvent,
+  rootIdsInOrder: unknown
+): Promise<ConfigResult<AppConfig>> {
+  try {
+    if (!Array.isArray(rootIdsInOrder) || rootIdsInOrder.some((id) => typeof id !== 'string')) {
+      return { success: false, error: 'rootIdsInOrder must be a string[]' };
+    }
+
+    const rootIds = rootIdsInOrder as string[];
+    const updatedConfig = configManager.reorderRoots([...rootIds]);
+    return { success: true, data: updatedConfig };
+  } catch (error) {
+    logger.error('Error in config:reorderRoots:', error);
     return { success: false, error: getErrorMessage(error) };
   }
 }
@@ -649,11 +798,17 @@ async function handleSelectFolders(_event: IpcMainInvokeEvent): Promise<ConfigRe
  * Handler for 'config:selectClaudeRootFolder' - Opens native folder picker for Claude root.
  */
 async function handleSelectClaudeRootFolder(
-  _event: IpcMainInvokeEvent
+  _event: IpcMainInvokeEvent,
+  rootId?: string
 ): Promise<ConfigResult<ClaudeRootFolderSelection | null>> {
   try {
     const focusedWindow = BrowserWindow.getFocusedWindow();
-    const currentRootPath = getClaudeBasePath();
+    const selectedRoot =
+      typeof rootId === 'string' ? configManager.getRoot(rootId) : configManager.getActiveRoot();
+    const currentRootPath =
+      selectedRoot?.type === 'local'
+        ? (selectedRoot.claudeRootPath ?? getAutoDetectedClaudeBasePath())
+        : getClaudeBasePath();
     const dialogOptions: Electron.OpenDialogOptions = {
       properties: ['openDirectory'],
       title: 'Select Claude Root Folder',
@@ -697,6 +852,34 @@ async function handleSelectClaudeRootFolder(
   }
 }
 
+async function handleGetRootInfo(
+  _event: IpcMainInvokeEvent,
+  rootId: string
+): Promise<ConfigResult<ClaudeRootInfo>> {
+  try {
+    const root = configManager.getRoot(rootId);
+    if (root?.type !== 'local') {
+      return { success: false, error: `Local root not found: ${rootId}` };
+    }
+
+    const defaultPath = getAutoDetectedClaudeBasePath();
+    const customPath = root.claudeRootPath;
+    const resolvedPath = customPath ?? defaultPath;
+
+    return {
+      success: true,
+      data: {
+        defaultPath,
+        resolvedPath,
+        customPath,
+      },
+    };
+  } catch (error) {
+    logger.error('Error in config:getRootInfo:', error);
+    return { success: false, error: getErrorMessage(error) };
+  }
+}
+
 /**
  * Handler for 'config:getClaudeRootInfo' - Returns default/custom/effective local Claude root paths.
  */
@@ -704,9 +887,10 @@ async function handleGetClaudeRootInfo(
   _event: IpcMainInvokeEvent
 ): Promise<ConfigResult<ClaudeRootInfo>> {
   try {
-    const customPath = configManager.getConfig().general.claudeRootPath;
+    const activeRoot = configManager.getActiveRoot();
+    const customPath = activeRoot.type === 'local' ? activeRoot.claudeRootPath : null;
     const defaultPath = getAutoDetectedClaudeBasePath();
-    const resolvedPath = getClaudeBasePath();
+    const resolvedPath = customPath ?? defaultPath;
 
     return {
       success: true,
@@ -1061,6 +1245,10 @@ async function handleUnhideSessions(
 export function removeConfigHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler('config:get');
   ipcMain.removeHandler('config:update');
+  ipcMain.removeHandler('config:addRoot');
+  ipcMain.removeHandler('config:updateRoot');
+  ipcMain.removeHandler('config:removeRoot');
+  ipcMain.removeHandler('config:reorderRoots');
   ipcMain.removeHandler('config:addIgnoreRegex');
   ipcMain.removeHandler('config:removeIgnoreRegex');
   ipcMain.removeHandler('config:addIgnoreRepository');
@@ -1080,6 +1268,7 @@ export function removeConfigHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler('config:unhideSessions');
   ipcMain.removeHandler('config:selectFolders');
   ipcMain.removeHandler('config:selectClaudeRootFolder');
+  ipcMain.removeHandler('config:getRootInfo');
   ipcMain.removeHandler('config:getClaudeRootInfo');
   ipcMain.removeHandler('config:findWslClaudeRoots');
   ipcMain.removeHandler('config:openInEditor');

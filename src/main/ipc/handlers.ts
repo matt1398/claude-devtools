@@ -57,6 +57,7 @@ import type {
   SshConnectionManager,
   UpdaterService,
 } from '../services';
+import type { DataRoot } from '@shared/types';
 
 /**
  * Initializes IPC handlers with service registry.
@@ -69,6 +70,10 @@ export function initializeIpcHandlers(
     rewire: (context: ServiceContext) => void;
     full: (context: ServiceContext) => void;
     onClaudeRootPathUpdated: (claudeRootPath: string | null) => Promise<void> | void;
+    onRootAdded: (root: DataRoot) => Promise<void> | void;
+    onRootRemoved: (rootId: string) => Promise<void> | void;
+    onRootUpdated: (root: DataRoot) => Promise<void> | void;
+    onRootActivated: (rootId: string) => Promise<void> | void;
   }
 ): void {
   // Initialize domain handlers with registry
@@ -81,6 +86,10 @@ export function initializeIpcHandlers(
   initializeContextHandlers(registry, contextCallbacks.rewire);
   initializeConfigHandlers({
     onClaudeRootPathUpdated: contextCallbacks.onClaudeRootPathUpdated,
+    onRootAdded: contextCallbacks.onRootAdded,
+    onRootRemoved: contextCallbacks.onRootRemoved,
+    onRootUpdated: contextCallbacks.onRootUpdated,
+    onRootActivated: contextCallbacks.onRootActivated,
   });
 
   // Register all handlers

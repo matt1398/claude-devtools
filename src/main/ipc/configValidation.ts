@@ -12,6 +12,7 @@ import type {
   HttpServerConfig,
   NotificationConfig,
   NotificationTrigger,
+  RootsConfig,
   SshPersistConfig,
 } from '../services';
 
@@ -34,6 +35,7 @@ export type ConfigUpdateValidationResult =
   | ValidationSuccess<'display'>
   | ValidationSuccess<'httpServer'>
   | ValidationSuccess<'ssh'>
+  | ValidationSuccess<'roots'>
   | ValidationFailure;
 
 const VALID_SECTIONS = new Set<ConfigSection>([
@@ -42,6 +44,7 @@ const VALID_SECTIONS = new Set<ConfigSection>([
   'display',
   'httpServer',
   'ssh',
+  'roots',
 ]);
 const MAX_SNOOZE_MINUTES = 24 * 60;
 
@@ -396,7 +399,8 @@ function validateSshSection(data: unknown): ValidationSuccess<'ssh'> | Validatio
         if (typeof value !== 'string') {
           return { valid: false, error: 'ssh.lastActiveContextId must be a string' };
         }
-        result.lastActiveContextId = value;
+        // Deprecated: roots.activeRootId is the source of truth.
+        // Accept for backward compatibility but ignore during update.
         break;
       case 'lastConnection':
         if (value !== null && !isPlainObject(value)) {
@@ -418,14 +422,160 @@ function validateSshSection(data: unknown): ValidationSuccess<'ssh'> | Validatio
   return { valid: true, section: 'ssh', data: result };
 }
 
+function isValidRootId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function validateRootsSection(
+  data: unknown,
+  fullConfig?: AppConfig
+): ValidationSuccess<'roots'> | ValidationFailure {
+  if (!isPlainObject(data)) {
+    return { valid: false, error: 'roots update must be an object' };
+  }
+
+  const allowedKeys: (keyof RootsConfig)[] = ['items', 'activeRootId'];
+  const result: Partial<RootsConfig> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (!allowedKeys.includes(key as keyof RootsConfig)) {
+      return { valid: false, error: `roots.${key} is not a valid setting` };
+    }
+
+    switch (key as keyof RootsConfig) {
+      case 'activeRootId':
+        if (!isValidRootId(value)) {
+          return { valid: false, error: 'roots.activeRootId must be a non-empty string' };
+        }
+        result.activeRootId = value;
+        break;
+      case 'items': {
+        if (!Array.isArray(value)) {
+          return { valid: false, error: 'roots.items must be an array' };
+        }
+        if (value.length === 0) {
+          return { valid: false, error: 'roots.items must contain at least one root' };
+        }
+
+        result.items = [];
+        const profileIds = new Set(fullConfig?.ssh.profiles.map((profile) => profile.id) ?? []);
+        const seenRootIds = new Set<string>();
+
+        for (const [index, item] of value.entries()) {
+          if (!isPlainObject(item)) {
+            return { valid: false, error: `roots.items[${index}] must be an object` };
+          }
+          if (!isValidRootId(item.id)) {
+            return { valid: false, error: `roots.items[${index}].id must be a non-empty string` };
+          }
+          if (seenRootIds.has(item.id)) {
+            return { valid: false, error: `roots.items[${index}].id must be unique` };
+          }
+          seenRootIds.add(item.id);
+          if (!isValidRootId(item.name)) {
+            return { valid: false, error: `roots.items[${index}].name must be a non-empty string` };
+          }
+          if (!isFiniteNumber(item.order) || !Number.isInteger(item.order)) {
+            return { valid: false, error: `roots.items[${index}].order must be an integer` };
+          }
+
+          if (item.type === 'local') {
+            let normalizedPath: string | null = null;
+            if (item.claudeRootPath != null) {
+              if (typeof item.claudeRootPath !== 'string') {
+                return {
+                  valid: false,
+                  error: `roots.items[${index}].claudeRootPath must be an absolute path or null`,
+                };
+              }
+              const trimmed = item.claudeRootPath.trim();
+              if (trimmed.length > 0) {
+                const normalized = path.normalize(trimmed);
+                if (!path.isAbsolute(normalized)) {
+                  return {
+                    valid: false,
+                    error: `roots.items[${index}].claudeRootPath must be an absolute path`,
+                  };
+                }
+                normalizedPath = path.resolve(normalized);
+              }
+            }
+
+            result.items.push({
+              id: item.id,
+              name: item.name.trim(),
+              type: 'local',
+              claudeRootPath: normalizedPath,
+              order: item.order,
+            });
+            continue;
+          }
+
+          if (item.type === 'ssh') {
+            if (!isValidRootId(item.sshProfileId)) {
+              return {
+                valid: false,
+                error: `roots.items[${index}].sshProfileId must be a non-empty string`,
+              };
+            }
+            if (fullConfig && !profileIds.has(item.sshProfileId)) {
+              return {
+                valid: false,
+                error: `roots.items[${index}].sshProfileId references a missing SSH profile`,
+              };
+            }
+            if (item.remoteClaudeRootPath != null && typeof item.remoteClaudeRootPath !== 'string') {
+              return {
+                valid: false,
+                error: `roots.items[${index}].remoteClaudeRootPath must be a string or null`,
+              };
+            }
+            result.items.push({
+              id: item.id,
+              name: item.name.trim(),
+              type: 'ssh',
+              sshProfileId: item.sshProfileId,
+              remoteClaudeRootPath: item.remoteClaudeRootPath?.trim() || null,
+              order: item.order,
+            });
+            continue;
+          }
+
+          return {
+            valid: false,
+            error: `roots.items[${index}].type must be "local" or "ssh"`,
+          };
+        }
+        break;
+      }
+      default:
+        return { valid: false, error: `Unsupported roots key: ${key}` };
+    }
+  }
+
+  if (
+    result.activeRootId &&
+    result.items &&
+    !result.items.some((root) => root.id === result.activeRootId)
+  ) {
+    return { valid: false, error: 'roots.activeRootId must reference one of roots.items[].id' };
+  }
+  if (result.items && !result.items.some((root) => root.type === 'local')) {
+    return { valid: false, error: 'roots.items must contain at least one local root' };
+  }
+
+  return { valid: true, section: 'roots', data: result };
+}
+
 export function validateConfigUpdatePayload(
   section: unknown,
-  data: unknown
+  data: unknown,
+  fullConfig?: AppConfig
 ): ConfigUpdateValidationResult {
   if (typeof section !== 'string' || !VALID_SECTIONS.has(section as ConfigSection)) {
     return {
       valid: false,
-      error: 'Section must be one of: notifications, general, display, httpServer, ssh',
+      error: 'Section must be one of: notifications, general, display, httpServer, ssh, roots',
     };
   }
 
@@ -440,6 +590,8 @@ export function validateConfigUpdatePayload(
       return validateHttpServerSection(data);
     case 'ssh':
       return validateSshSection(data);
+    case 'roots':
+      return validateRootsSection(data, fullConfig);
     default:
       return { valid: false, error: 'Invalid section' };
   }

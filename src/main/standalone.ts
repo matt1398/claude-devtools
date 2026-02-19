@@ -12,6 +12,7 @@
  * - CORS_ORIGIN: CORS origin policy (default '*')
  */
 
+import { DEFAULT_LOCAL_ROOT_ID, getLocalContextId } from '@main/utils/contextIds';
 import { createLogger } from '@shared/utils/logger';
 
 import { HttpServer } from './services/infrastructure/HttpServer';
@@ -20,7 +21,13 @@ import {
   getTodosBasePath,
   setClaudeBasePathOverride,
 } from './utils/pathDecoder';
-import { LocalFileSystemProvider, NotificationManager, ServiceContext } from './services';
+import {
+  ConfigManager,
+  LocalFileSystemProvider,
+  NotificationManager,
+  ServiceContext,
+  ServiceContextRegistry,
+} from './services';
 
 import type { HttpServices } from './http';
 import type { SshConnectionManager } from './services/infrastructure/SshConnectionManager';
@@ -79,6 +86,7 @@ const sshConnectionManagerStub = {
 // =============================================================================
 
 let localContext: ServiceContext;
+let contextRegistry: ServiceContextRegistry;
 let notificationManager: NotificationManager;
 let httpServer: HttpServer;
 
@@ -89,10 +97,18 @@ let httpServer: HttpServer;
 async function start(): Promise<void> {
   logger.info('Starting standalone server...');
 
+  const configManager = ConfigManager.getInstance();
+  const config = configManager.getConfig();
+  const defaultLocalRoot =
+    config.roots.items.find((root) => root.type === 'local' && root.id === DEFAULT_LOCAL_ROOT_ID) ??
+    config.roots.items.find((root) => root.type === 'local');
+
   // Apply Claude root override if set
   if (CLAUDE_ROOT) {
     setClaudeBasePathOverride(CLAUDE_ROOT);
     logger.info(`Using CLAUDE_ROOT: ${CLAUDE_ROOT}`);
+  } else if (defaultLocalRoot?.type === 'local') {
+    setClaudeBasePathOverride(defaultLocalRoot.claudeRootPath);
   }
 
   const projectsDir = getProjectsBasePath();
@@ -103,13 +119,18 @@ async function start(): Promise<void> {
 
   // Create local context (the only context in standalone mode)
   localContext = new ServiceContext({
-    id: 'local',
+    id: getLocalContextId(defaultLocalRoot?.id ?? DEFAULT_LOCAL_ROOT_ID),
     type: 'local',
+    rootId: defaultLocalRoot?.id ?? DEFAULT_LOCAL_ROOT_ID,
+    rootName: defaultLocalRoot?.name ?? 'Local',
     fsProvider: new LocalFileSystemProvider(),
     projectsDir,
     todosDir,
   });
   localContext.start();
+
+  contextRegistry = new ServiceContextRegistry();
+  contextRegistry.registerContext(localContext);
 
   // Initialize notification manager
   notificationManager = NotificationManager.getInstance();
@@ -144,6 +165,7 @@ async function start(): Promise<void> {
     subagentResolver: localContext.subagentResolver,
     chunkBuilder: localContext.chunkBuilder,
     dataCache: localContext.dataCache,
+    contextRegistry,
     updaterService: updaterServiceStub,
     sshConnectionManager: sshConnectionManagerStub,
   };
@@ -152,7 +174,9 @@ async function start(): Promise<void> {
   const modeSwitchHandler = async (): Promise<void> => {};
 
   // Start the server
-  const port = await httpServer.start(services, modeSwitchHandler, PORT, HOST);
+  const port = await httpServer.start(services, modeSwitchHandler, PORT, HOST, {
+    mode: 'standalone',
+  });
   logger.info(`Standalone server running at http://${HOST}:${port}`);
   logger.info('Open in your browser to view Claude Code sessions');
 }
@@ -164,7 +188,9 @@ async function shutdown(): Promise<void> {
     await httpServer.stop();
   }
 
-  if (localContext) {
+  if (contextRegistry) {
+    contextRegistry.dispose();
+  } else if (localContext) {
     localContext.dispose();
   }
 

@@ -14,6 +14,18 @@ export const CONFIG_GET = 'config:get';
 /** Update config section */
 export const CONFIG_UPDATE = 'config:update';
 
+/** Add a new data root */
+export const CONFIG_ADD_ROOT = 'config:addRoot';
+
+/** Update existing data root */
+export const CONFIG_UPDATE_ROOT = 'config:updateRoot';
+
+/** Remove a data root */
+export const CONFIG_REMOVE_ROOT = 'config:removeRoot';
+
+/** Reorder data roots */
+export const CONFIG_REORDER_ROOTS = 'config:reorderRoots';
+
 /** Add regex pattern to ignore list */
 export const CONFIG_ADD_IGNORE_REGEX = 'config:addIgnoreRegex';
 
@@ -55,6 +67,9 @@ export const CONFIG_SELECT_CLAUDE_ROOT_FOLDER = 'config:selectClaudeRootFolder';
 
 /** Get effective/default Claude root folder info */
 export const CONFIG_GET_CLAUDE_ROOT_INFO = 'config:getClaudeRootInfo';
+
+/** Get effective/default Claude root folder info for a specific root */
+export const CONFIG_GET_ROOT_INFO = 'config:getRootInfo';
 
 /** Find WSL Claude root candidates (Windows only) */
 export const CONFIG_FIND_WSL_CLAUDE_ROOTS = 'config:findWslClaudeRoots';

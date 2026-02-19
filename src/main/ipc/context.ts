@@ -7,6 +7,8 @@
  * - context:switch - Switch to a different context
  */
 
+import { configManager } from '@main/services';
+import { getContextIdForRoot, getRootIdForContextId } from '@main/utils/contextIds';
 import { createLogger } from '@shared/utils/logger';
 
 // Channel constants (mirrored from preload/constants/ipcChannels.ts to respect module boundaries)
@@ -50,7 +52,18 @@ export function initializeContextHandlers(
 export function registerContextHandlers(ipcMain: IpcMain): void {
   ipcMain.handle(CONTEXT_LIST, async () => {
     try {
-      const contexts = registry.list();
+      const config = configManager.getConfig();
+      const sortedRoots = [...config.roots.items].sort((a, b) => a.order - b.order);
+      const contexts = sortedRoots.map((root) => {
+        const contextId = getContextIdForRoot(root, config.ssh.profiles);
+        return {
+          id: contextId,
+          type: root.type,
+          rootId: root.id,
+          rootName: root.name,
+          connected: registry.has(contextId),
+        };
+      });
       return { success: true, data: contexts };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -74,6 +87,12 @@ export function registerContextHandlers(ipcMain: IpcMain): void {
     try {
       // Switch to the new context
       const { current } = registry.switch(contextId);
+
+      const config = configManager.getConfig();
+      const rootId = getRootIdForContextId(contextId, config.roots.items, config.ssh.profiles);
+      if (rootId) {
+        configManager.setActiveRoot(rootId);
+      }
 
       // Re-wire file watcher events only (no renderer notification — renderer initiated this switch)
       onContextRewire(current);

@@ -30,11 +30,13 @@ import {
 import {
   CONFIG_ADD_IGNORE_REGEX,
   CONFIG_ADD_IGNORE_REPOSITORY,
+  CONFIG_ADD_ROOT,
   CONFIG_ADD_TRIGGER,
   CONFIG_CLEAR_SNOOZE,
   CONFIG_FIND_WSL_CLAUDE_ROOTS,
   CONFIG_GET,
   CONFIG_GET_CLAUDE_ROOT_INFO,
+  CONFIG_GET_ROOT_INFO,
   CONFIG_GET_TRIGGERS,
   CONFIG_HIDE_SESSION,
   CONFIG_HIDE_SESSIONS,
@@ -42,7 +44,9 @@ import {
   CONFIG_PIN_SESSION,
   CONFIG_REMOVE_IGNORE_REGEX,
   CONFIG_REMOVE_IGNORE_REPOSITORY,
+  CONFIG_REMOVE_ROOT,
   CONFIG_REMOVE_TRIGGER,
+  CONFIG_REORDER_ROOTS,
   CONFIG_SELECT_CLAUDE_ROOT_FOLDER,
   CONFIG_SELECT_FOLDERS,
   CONFIG_SNOOZE,
@@ -51,6 +55,7 @@ import {
   CONFIG_UNHIDE_SESSIONS,
   CONFIG_UNPIN_SESSION,
   CONFIG_UPDATE,
+  CONFIG_UPDATE_ROOT,
   CONFIG_UPDATE_TRIGGER,
 } from './constants/ipcChannels';
 
@@ -71,6 +76,7 @@ import type {
   TriggerTestResult,
   WslClaudeRootCandidate,
 } from '@shared/types';
+import type { LocalDataRoot, SshDataRoot } from '@shared/types/roots';
 
 // =============================================================================
 // IPC Result Types and Helpers
@@ -224,6 +230,23 @@ const electronAPI: ElectronAPI = {
     update: async (section: string, data: object): Promise<AppConfig> => {
       return invokeIpcWithResult<AppConfig>(CONFIG_UPDATE, section, data);
     },
+    addRoot: async (
+      root: Omit<LocalDataRoot, 'id' | 'order'> | Omit<SshDataRoot, 'id' | 'order'>
+    ): Promise<AppConfig> => {
+      return invokeIpcWithResult<AppConfig>(CONFIG_ADD_ROOT, root);
+    },
+    updateRoot: async (
+      rootId: string,
+      updates: Partial<Omit<LocalDataRoot, 'id'>> | Partial<Omit<SshDataRoot, 'id'>>
+    ): Promise<AppConfig> => {
+      return invokeIpcWithResult<AppConfig>(CONFIG_UPDATE_ROOT, rootId, updates);
+    },
+    removeRoot: async (rootId: string): Promise<AppConfig> => {
+      return invokeIpcWithResult<AppConfig>(CONFIG_REMOVE_ROOT, rootId);
+    },
+    reorderRoots: async (rootIdsInOrder: string[]): Promise<AppConfig> => {
+      return invokeIpcWithResult<AppConfig>(CONFIG_REORDER_ROOTS, rootIdsInOrder);
+    },
     addIgnoreRegex: async (pattern: string): Promise<AppConfig> => {
       await invokeIpcWithResult<void>(CONFIG_ADD_IGNORE_REGEX, pattern);
       // Re-fetch config after mutation
@@ -276,10 +299,14 @@ const electronAPI: ElectronAPI = {
     selectFolders: async (): Promise<string[]> => {
       return invokeIpcWithResult<string[]>(CONFIG_SELECT_FOLDERS);
     },
-    selectClaudeRootFolder: async (): Promise<ClaudeRootFolderSelection | null> => {
+    selectClaudeRootFolder: async (rootId?: string): Promise<ClaudeRootFolderSelection | null> => {
       return invokeIpcWithResult<ClaudeRootFolderSelection | null>(
-        CONFIG_SELECT_CLAUDE_ROOT_FOLDER
+        CONFIG_SELECT_CLAUDE_ROOT_FOLDER,
+        rootId
       );
+    },
+    getRootInfo: async (rootId: string): Promise<ClaudeRootInfo> => {
+      return invokeIpcWithResult<ClaudeRootInfo>(CONFIG_GET_ROOT_INFO, rootId);
     },
     getClaudeRootInfo: async (): Promise<ClaudeRootInfo> => {
       return invokeIpcWithResult<ClaudeRootInfo>(CONFIG_GET_CLAUDE_ROOT_INFO);
@@ -383,8 +410,8 @@ const electronAPI: ElectronAPI = {
 
   // SSH API
   ssh: {
-    connect: async (config: SshConnectionConfig): Promise<SshConnectionStatus> => {
-      return invokeIpcWithResult<SshConnectionStatus>(SSH_CONNECT, config);
+    connect: async (config: SshConnectionConfig, rootId?: string): Promise<SshConnectionStatus> => {
+      return invokeIpcWithResult<SshConnectionStatus>(SSH_CONNECT, config, rootId);
     },
     disconnect: async (): Promise<SshConnectionStatus> => {
       return invokeIpcWithResult<SshConnectionStatus>(SSH_DISCONNECT);

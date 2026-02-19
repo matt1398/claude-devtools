@@ -12,10 +12,18 @@
  * - GET /api/ssh/last-connection - Get last connection
  */
 
+import {
+  DEFAULT_LOCAL_ROOT_ID,
+  getContextIdForRoot,
+  getLocalContextId,
+  getSshContextId,
+} from '@main/utils/contextIds';
+import { resolveRemoteWorkspacePaths } from '@main/utils/sshPaths';
 import { createLogger } from '@shared/utils/logger';
 
-import { ConfigManager } from '../services';
+import { ConfigManager, ServiceContext } from '../services';
 
+import type { ServiceContextRegistry } from '../services';
 import type {
   SshConnectionConfig,
   SshConnectionManager,
@@ -28,28 +36,130 @@ const logger = createLogger('HTTP:ssh');
 export function registerSshRoutes(
   app: FastifyInstance,
   connectionManager: SshConnectionManager,
-  modeSwitchCallback: (mode: 'local' | 'ssh') => Promise<void>
+  contextRegistry: ServiceContextRegistry,
+  modeSwitchCallback: (mode: 'local' | 'ssh') => Promise<void>,
+  onContextSwitched?: (context: ServiceContext) => void
 ): void {
   const configManager = ConfigManager.getInstance();
 
   // Connect
-  app.post<{ Body: SshConnectionConfig }>('/api/ssh/connect', async (request) => {
-    try {
-      await connectionManager.connect(request.body);
-      await modeSwitchCallback('ssh');
-      return { success: true, data: connectionManager.getStatus() };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error('SSH connect failed:', message);
-      return { success: false, error: message };
+  app.post<{ Body: { config: SshConnectionConfig; rootId?: string } }>(
+    '/api/ssh/connect',
+    async (request) => {
+      try {
+        const previousActiveContextId = contextRegistry.getActiveContextId();
+
+        await connectionManager.connect(request.body.config);
+
+        const appConfig = configManager.getConfig();
+        const targetRoot =
+          typeof request.body.rootId === 'string'
+            ? appConfig.roots.items.find((root) => root.id === request.body.rootId)
+            : null;
+
+        const provider = connectionManager.getProvider();
+        const resolvedRemoteRootPath =
+          targetRoot?.type === 'ssh' ? targetRoot.remoteClaudeRootPath : null;
+        const { remoteProjectsPath, remoteTodosPath } = resolveRemoteWorkspacePaths(
+          resolvedRemoteRootPath,
+          connectionManager.getRemoteProjectsPath()
+        );
+
+        const contextId =
+          targetRoot?.type === 'ssh'
+            ? getContextIdForRoot(targetRoot, appConfig.ssh.profiles)
+            : getSshContextId(request.body.config.host, request.body.rootId ?? 'adhoc-root');
+
+        if (contextRegistry.has(contextId)) {
+          logger.info(`Destroying existing SSH context: ${contextId}`);
+          contextRegistry.destroy(contextId);
+        }
+
+        const sshContext = new ServiceContext({
+          id: contextId,
+          type: 'ssh',
+          rootId: targetRoot?.type === 'ssh' ? targetRoot.id : request.body.rootId ?? 'adhoc-root',
+          rootName: targetRoot?.type === 'ssh' ? targetRoot.name : request.body.config.host,
+          fsProvider: provider,
+          projectsDir: remoteProjectsPath,
+          todosDir: remoteTodosPath,
+        });
+
+        contextRegistry.registerContext(sshContext);
+        contextRegistry.switch(contextId);
+
+        if (targetRoot?.type === 'ssh') {
+          configManager.setActiveRoot(targetRoot.id);
+        }
+
+        if (
+          previousActiveContextId.startsWith('ssh-') &&
+          previousActiveContextId !== contextId &&
+          contextRegistry.has(previousActiveContextId)
+        ) {
+          contextRegistry.destroy(previousActiveContextId);
+        }
+
+        if (onContextSwitched) {
+          onContextSwitched(sshContext);
+        } else {
+          await modeSwitchCallback('ssh');
+        }
+
+        return { success: true, data: connectionManager.getStatus() };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error('SSH connect failed:', message);
+        return { success: false, error: message };
+      }
     }
-  });
+  );
 
   // Disconnect
   app.post('/api/ssh/disconnect', async () => {
     try {
+      const currentContextId = contextRegistry.getActiveContextId();
+      const isSshContext = currentContextId.startsWith('ssh-');
+
       connectionManager.disconnect();
-      await modeSwitchCallback('local');
+
+      if (isSshContext) {
+        const appConfig = configManager.getConfig();
+        const localRoot =
+          appConfig.roots.items.find(
+            (root) => root.id === DEFAULT_LOCAL_ROOT_ID && root.type === 'local'
+          ) ??
+          appConfig.roots.items.find((root) => root.type === 'local');
+        const fallbackLocalContextId = localRoot ? getLocalContextId(localRoot.id) : 'local';
+
+        if (contextRegistry.has(fallbackLocalContextId)) {
+          contextRegistry.switch(fallbackLocalContextId);
+          if (localRoot) {
+            configManager.setActiveRoot(localRoot.id);
+          }
+
+          const sshContextIds = contextRegistry
+            .list()
+            .filter((context) => context.type === 'ssh')
+            .map((context) => context.id);
+          for (const sshContextId of sshContextIds) {
+            if (contextRegistry.has(sshContextId)) {
+              contextRegistry.destroy(sshContextId);
+            }
+          }
+
+          if (onContextSwitched) {
+            onContextSwitched(contextRegistry.getActive());
+          } else {
+            await modeSwitchCallback('local');
+          }
+        } else {
+          await modeSwitchCallback('local');
+        }
+      } else {
+        await modeSwitchCallback('local');
+      }
+
       return { success: true, data: connectionManager.getStatus() };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

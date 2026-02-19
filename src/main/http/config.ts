@@ -27,6 +27,7 @@ import { createLogger } from '@shared/utils/logger';
 import { validateConfigUpdatePayload } from '../ipc/configValidation';
 import { validateTriggerId } from '../ipc/guards';
 import {
+  type AppConfig,
   ConfigManager,
   type NotificationTrigger,
   type TriggerContentType,
@@ -34,8 +35,14 @@ import {
   type TriggerMode,
   type TriggerTokenType,
 } from '../services';
+import { getAutoDetectedClaudeBasePath } from '../utils/pathDecoder';
+import {
+  applyRootLifecycleCallbacks,
+  type RootLifecycleCallbacks,
+} from '../utils/rootLifecycleCallbacks';
 
 import type { TriggerColor } from '@shared/constants/triggerColors';
+import type { LocalDataRoot, SshDataRoot } from '@shared/types';
 import type { FastifyInstance } from 'fastify';
 
 const logger = createLogger('HTTP:config');
@@ -46,8 +53,105 @@ interface ConfigResult<T = void> {
   error?: string;
 }
 
-export function registerConfigRoutes(app: FastifyInstance): void {
+interface RegisterConfigRouteOptions {
+  mode?: 'electron' | 'standalone';
+  rootLifecycleCallbacks?: RootLifecycleCallbacks;
+  onClaudeRootPathUpdated?: (claudeRootPath: string | null) => Promise<void> | void;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validateAddRootPayload(
+  payload: unknown
+): payload is Omit<LocalDataRoot, 'id' | 'order'> | Omit<SshDataRoot, 'id' | 'order'> {
+  if (!isPlainObject(payload)) {
+    return false;
+  }
+  if (payload.type !== 'local' && payload.type !== 'ssh') {
+    return false;
+  }
+  if (typeof payload.name !== 'string' || payload.name.trim().length === 0) {
+    return false;
+  }
+  if (payload.type === 'local') {
+    return !(
+      Object.prototype.hasOwnProperty.call(payload, 'claudeRootPath') &&
+      payload.claudeRootPath !== null &&
+      typeof payload.claudeRootPath !== 'string'
+    );
+  }
+
+  if (typeof payload.sshProfileId !== 'string' || payload.sshProfileId.trim().length === 0) {
+    return false;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'remoteClaudeRootPath') &&
+    payload.remoteClaudeRootPath !== null &&
+    typeof payload.remoteClaudeRootPath !== 'string'
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function validateUpdateRootPayload(
+  payload: unknown
+): payload is Partial<Omit<LocalDataRoot, 'id'>> | Partial<Omit<SshDataRoot, 'id'>> {
+  if (!isPlainObject(payload)) {
+    return false;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'name') &&
+    (typeof payload.name !== 'string' || payload.name.trim().length === 0)
+  ) {
+    return false;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'type') &&
+    payload.type !== 'local' &&
+    payload.type !== 'ssh'
+  ) {
+    return false;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'claudeRootPath') &&
+    payload.claudeRootPath !== null &&
+    typeof payload.claudeRootPath !== 'string'
+  ) {
+    return false;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'sshProfileId') &&
+    (typeof payload.sshProfileId !== 'string' || payload.sshProfileId.trim().length === 0)
+  ) {
+    return false;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'remoteClaudeRootPath') &&
+    payload.remoteClaudeRootPath !== null &&
+    typeof payload.remoteClaudeRootPath !== 'string'
+  ) {
+    return false;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(payload, 'order') &&
+    (typeof payload.order !== 'number' || !Number.isInteger(payload.order))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function registerConfigRoutes(
+  app: FastifyInstance,
+  options: RegisterConfigRouteOptions = {}
+): void {
   const configManager = ConfigManager.getInstance();
+  const mode = options.mode ?? 'electron';
+  const rootLifecycleCallbacks = options.rootLifecycleCallbacks ?? {};
+  const onClaudeRootPathUpdated = options.onClaudeRootPathUpdated ?? null;
 
   // Get full config
   app.get('/api/config', async () => {
@@ -64,16 +168,185 @@ export function registerConfigRoutes(app: FastifyInstance): void {
   app.post<{ Body: { section: unknown; data: unknown } }>('/api/config/update', async (request) => {
     try {
       const { section, data } = request.body;
-      const validation = validateConfigUpdatePayload(section, data);
+      const validation = validateConfigUpdatePayload(section, data, configManager.getConfig());
       if (!validation.valid) {
         return { success: false, error: validation.error };
       }
+      if (mode === 'standalone' && validation.section === 'roots') {
+        return { success: false, error: 'Root CRUD is not supported in standalone mode' };
+      }
 
+      const isClaudeRootUpdate =
+        validation.section === 'general' &&
+        Object.prototype.hasOwnProperty.call(validation.data, 'claudeRootPath');
+      const previousConfig = validation.section === 'roots' ? configManager.getConfig() : null;
       configManager.updateConfig(validation.section, validation.data);
+      if (isClaudeRootUpdate && onClaudeRootPathUpdated) {
+        const nextClaudeRootPath = (validation.data as { claudeRootPath?: string | null })
+          .claudeRootPath;
+        try {
+          await onClaudeRootPathUpdated(nextClaudeRootPath ?? null);
+        } catch (callbackError) {
+          logger.error('Failed to apply updated Claude root path at runtime:', callbackError);
+        }
+      }
       const updatedConfig = configManager.getConfig();
+      if (validation.section === 'roots' && previousConfig) {
+        await applyRootLifecycleCallbacks(previousConfig, updatedConfig, rootLifecycleCallbacks);
+      }
       return { success: true, data: updatedConfig };
     } catch (error) {
       logger.error('Error in POST /api/config/update:', error);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  });
+
+  app.get('/api/roots', async (): Promise<ConfigResult<AppConfig['roots']['items']>> => {
+    try {
+      return { success: true, data: configManager.getRoots() };
+    } catch (error) {
+      logger.error('Error in GET /api/roots:', error);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  });
+
+  app.get<{ Params: { rootId: string } }>(
+    '/api/roots/:rootId/info',
+    async (request): Promise<ConfigResult<{ defaultPath: string; resolvedPath: string; customPath: string | null }>> => {
+      try {
+        const root = configManager.getRoot(request.params.rootId);
+        if (root?.type !== 'local') {
+          return { success: false, error: `Local root not found: ${request.params.rootId}` };
+        }
+
+        const defaultPath = getAutoDetectedClaudeBasePath();
+        const customPath = root.claudeRootPath;
+        return {
+          success: true,
+          data: {
+            defaultPath,
+            resolvedPath: customPath ?? defaultPath,
+            customPath,
+          },
+        };
+      } catch (error) {
+        logger.error(`Error in GET /api/roots/${request.params.rootId}/info:`, error);
+        return { success: false, error: getErrorMessage(error) };
+      }
+    }
+  );
+
+  app.post<{ Body: Omit<LocalDataRoot, 'id' | 'order'> | Omit<SshDataRoot, 'id' | 'order'> }>(
+    '/api/roots',
+    async (request) => {
+    if (mode === 'standalone') {
+      return { success: false, error: 'Root CRUD is not supported in standalone mode' };
+    }
+    try {
+      if (!validateAddRootPayload(request.body)) {
+        return { success: false, error: 'Invalid root payload' };
+      }
+      const previousIds = new Set(configManager.getRoots().map((root) => root.id));
+      const updatedConfig = configManager.addRoot(request.body);
+      if (rootLifecycleCallbacks.onRootAdded) {
+        const added = updatedConfig.roots.items.find((root) => !previousIds.has(root.id));
+        if (added) {
+          await rootLifecycleCallbacks.onRootAdded(added);
+        }
+      }
+      return { success: true, data: updatedConfig };
+    } catch (error) {
+      logger.error('Error in POST /api/roots:', error);
+      return { success: false, error: getErrorMessage(error) };
+    }
+    }
+  );
+
+  app.put<{
+    Params: { rootId: string };
+    Body: Partial<Omit<LocalDataRoot, 'id'>> | Partial<Omit<SshDataRoot, 'id'>>;
+  }>(
+    '/api/roots/:rootId',
+    async (request) => {
+      if (mode === 'standalone') {
+        return { success: false, error: 'Root CRUD is not supported in standalone mode' };
+      }
+      try {
+        if (!validateUpdateRootPayload(request.body)) {
+          return { success: false, error: 'Invalid root update payload' };
+        }
+        const updatedConfig = configManager.updateRoot(request.params.rootId, request.body);
+        if (rootLifecycleCallbacks.onRootUpdated) {
+          const updatedRoot = updatedConfig.roots.items.find((root) => root.id === request.params.rootId);
+          if (updatedRoot) {
+            await rootLifecycleCallbacks.onRootUpdated(updatedRoot);
+          }
+        }
+        return { success: true, data: updatedConfig };
+      } catch (error) {
+        logger.error(`Error in PUT /api/roots/${request.params.rootId}:`, error);
+        return { success: false, error: getErrorMessage(error) };
+      }
+    }
+  );
+
+  app.delete<{ Params: { rootId: string } }>('/api/roots/:rootId', async (request) => {
+    if (mode === 'standalone') {
+      return { success: false, error: 'Root CRUD is not supported in standalone mode' };
+    }
+    try {
+      const previousActiveRootId = configManager.getConfig().roots.activeRootId;
+      const updatedConfig = configManager.removeRoot(request.params.rootId);
+      if (rootLifecycleCallbacks.onRootRemoved) {
+        await rootLifecycleCallbacks.onRootRemoved(request.params.rootId);
+      }
+      if (
+        previousActiveRootId !== updatedConfig.roots.activeRootId &&
+        rootLifecycleCallbacks.onRootActivated
+      ) {
+        await rootLifecycleCallbacks.onRootActivated(updatedConfig.roots.activeRootId);
+      }
+      return { success: true, data: updatedConfig };
+    } catch (error) {
+      logger.error(`Error in DELETE /api/roots/${request.params.rootId}:`, error);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  });
+
+  app.post<{ Body: { rootIdsInOrder: string[] } }>('/api/roots/reorder', async (request) => {
+    if (mode === 'standalone') {
+      return { success: false, error: 'Root CRUD is not supported in standalone mode' };
+    }
+    try {
+      const { rootIdsInOrder } = request.body;
+      if (
+        !Array.isArray(rootIdsInOrder) ||
+        rootIdsInOrder.length === 0 ||
+        !rootIdsInOrder.every((id) => typeof id === 'string')
+      ) {
+        return { success: false, error: 'rootIdsInOrder must be a non-empty array of strings' };
+      }
+
+      const updatedConfig = configManager.reorderRoots(rootIdsInOrder);
+      return { success: true, data: updatedConfig };
+    } catch (error) {
+      logger.error('Error in POST /api/roots/reorder:', error);
+      return { success: false, error: getErrorMessage(error) };
+    }
+  });
+
+  app.post<{ Params: { rootId: string } }>('/api/roots/:rootId/activate', async (request) => {
+    if (mode === 'standalone') {
+      return { success: false, error: 'Root activation is not supported in standalone mode' };
+    }
+    try {
+      const updatedConfig = configManager.setActiveRoot(request.params.rootId);
+      if (rootLifecycleCallbacks.onRootActivated) {
+        await rootLifecycleCallbacks.onRootActivated(request.params.rootId);
+      }
+      return { success: true, data: updatedConfig };
+    } catch (error) {
+      logger.error(`Error in POST /api/roots/${request.params.rootId}/activate:`, error);
       return { success: false, error: getErrorMessage(error) };
     }
   });

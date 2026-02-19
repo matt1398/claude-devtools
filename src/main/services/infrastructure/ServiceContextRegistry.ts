@@ -30,7 +30,7 @@ const logger = createLogger('Infrastructure:ServiceContextRegistry');
  */
 export class ServiceContextRegistry {
   private contexts = new Map<string, ServiceContext>();
-  private activeContextId: string = 'local';
+  private activeContextId: string = '';
 
   /**
    * Creates a new ServiceContextRegistry.
@@ -51,6 +51,9 @@ export class ServiceContextRegistry {
     }
 
     this.contexts.set(context.id, context);
+    if (!this.activeContextId) {
+      this.activeContextId = context.id;
+    }
     logger.info(`Context registered: ${context.id} (${context.type})`);
   }
 
@@ -102,6 +105,13 @@ export class ServiceContextRegistry {
   }
 
   /**
+   * Gets a context by root ID.
+   */
+  getByRootId(rootId: string): ServiceContext | undefined {
+    return Array.from(this.contexts.values()).find((context) => context.rootId === rootId);
+  }
+
+  /**
    * Checks if a context exists.
    */
   has(contextId: string): boolean {
@@ -147,15 +157,16 @@ export class ServiceContextRegistry {
 
   /**
    * Destroys a context and removes it from the registry.
-   * If the destroyed context was active, switches to 'local'.
+   * If the destroyed context was active, marks the first remaining context as active.
+   * Caller is responsible for re-wiring and starting the new active watcher.
    *
    * @param contextId - ID of context to destroy
    * @throws Error if attempting to destroy the 'local' context
    * @throws Error if context not found
    */
   destroy(contextId: string): void {
-    if (contextId === 'local') {
-      throw new Error('Cannot destroy local context');
+    if (this.contexts.size <= 1) {
+      throw new Error('Cannot destroy the last remaining context');
     }
 
     const context = this.contexts.get(contextId);
@@ -171,13 +182,12 @@ export class ServiceContextRegistry {
     // Remove from map
     this.contexts.delete(contextId);
 
-    // If this was the active context, switch to local
+    // If this was the active context, switch to first remaining context
     if (this.activeContextId === contextId) {
-      logger.info('Destroyed context was active, switching to local');
-      this.activeContextId = 'local';
-      const local = this.contexts.get('local');
-      if (local) {
-        local.startFileWatcher();
+      const fallback = this.contexts.values().next().value;
+      if (fallback) {
+        logger.info(`Destroyed context was active, switching to ${fallback.id}`);
+        this.activeContextId = fallback.id;
       }
     }
 
@@ -188,10 +198,12 @@ export class ServiceContextRegistry {
    * Lists all registered contexts.
    * @returns Array of context metadata
    */
-  list(): { id: string; type: 'local' | 'ssh' }[] {
+  list(): { id: string; type: 'local' | 'ssh'; rootId: string; rootName: string }[] {
     return Array.from(this.contexts.values()).map((context) => ({
       id: context.id,
       type: context.type,
+      rootId: context.rootId,
+      rootName: context.rootName,
     }));
   }
 
