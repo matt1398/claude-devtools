@@ -23,7 +23,7 @@ import { createUpdateSlice } from './slices/updateSlice';
 
 import type { DetectedError } from '../types/data';
 import type { AppState } from './types';
-import type { UpdaterStatus } from '@shared/types';
+import type { ContextInfo, UpdaterStatus } from '@shared/types';
 
 // =============================================================================
 // Store Creation
@@ -314,8 +314,8 @@ export function initializeNotificationListeners(): () => void {
   }
 
   // Listen for SSH connection status changes from main process
-  // NOTE: Only syncs connection status here. Data fetching is handled by
-  // connectionSlice.connectSsh/disconnectSsh and contextSlice.switchContext.
+  // NOTE: Only syncs connection status here. Context switching and data fetching
+  // are handled by contextSlice.switchContext.
   if (api.ssh?.onStatus) {
     const cleanup = api.ssh.onStatus((_event: unknown, status: unknown) => {
       const s = status as { state: string; host: string | null; error: string | null };
@@ -335,12 +335,15 @@ export function initializeNotificationListeners(): () => void {
   // Listen for context changes from main process (e.g., SSH disconnect)
   if (api.context?.onChanged) {
     const cleanup = api.context.onChanged((_event: unknown, data: unknown) => {
-      const { id } = data as { id: string; type: string };
+      const context = data as ContextInfo;
+      const { id } = context;
       const currentContextId = useStore.getState().activeContextId;
       if (id !== currentContextId) {
         // Main process switched context externally (e.g., SSH disconnect)
         // Trigger renderer-side context switch to sync state
         void useStore.getState().switchContext(id);
+      } else {
+        useStore.setState({ connectionMode: context.type === 'ssh' ? 'ssh' : 'local' });
       }
     });
     if (typeof cleanup === 'function') {

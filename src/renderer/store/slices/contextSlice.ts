@@ -14,7 +14,7 @@ import type { AppState } from '../types';
 import type { ContextSnapshot } from '@renderer/services/contextStorage';
 import type { Project, RepositoryGroup } from '@renderer/types/data';
 import type { Pane } from '@renderer/types/panes';
-import type { ContextInfo } from '@shared/types/api';
+import type { ContextInfo, SshConnectionConfig } from '@shared/types/api';
 import type { StateCreator } from 'zustand';
 
 // =============================================================================
@@ -30,9 +30,10 @@ export interface ContextSlice {
   availableContexts: ContextInfo[]; // list of all available contexts (local + SSH)
 
   // Actions
-  switchContext: (targetContextId: string) => Promise<void>;
+  switchContext: (targetContextId: string, sshCredentials?: Partial<SshConnectionConfig>) => Promise<void>;
   initializeContextSystem: () => Promise<void>;
   fetchAvailableContexts: () => Promise<void>;
+  deleteSnapshot: (rootId: string) => Promise<void>;
 }
 
 // =============================================================================
@@ -49,6 +50,7 @@ function getEmptyContextState(): Partial<AppState> {
     projects: [],
     repositoryGroups: [],
     sessions: [],
+    pinnedSessionIds: [],
     notifications: [],
     unreadCount: 0,
     openTabs: [],
@@ -220,6 +222,18 @@ function captureSnapshot(state: AppState, contextId: string): ContextSnapshot {
   };
 }
 
+function findContextById(contexts: ContextInfo[], contextId: string): ContextInfo | null {
+  return contexts.find((context) => context.id === contextId) ?? null;
+}
+
+function getSnapshotRootId(contexts: ContextInfo[], contextId: string): string {
+  return findContextById(contexts, contextId)?.rootId ?? contextId;
+}
+
+function toConnectionMode(context: ContextInfo | null): 'local' | 'ssh' {
+  return context?.type === 'ssh' ? 'ssh' : 'local';
+}
+
 // =============================================================================
 // Slice Creator
 // =============================================================================
@@ -230,7 +244,15 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
   isContextSwitching: false,
   targetContextId: null,
   contextSnapshotsReady: false,
-  availableContexts: [{ id: 'local', type: 'local' as const }],
+  availableContexts: [
+    {
+      id: 'local',
+      type: 'local' as const,
+      rootId: 'default-local',
+      rootName: 'Local',
+      connected: true,
+    },
+  ],
 
   // Initialize context system (called once on app mount)
   initializeContextSystem: async () => {
@@ -240,18 +262,24 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
       if (available) {
         // Clean up expired snapshots
         void contextStorage.cleanupExpired();
+        const config = await api.config.get();
+        const validRootIds = new Set(config.roots.items.map((root) => root.id));
+        void contextStorage.cleanupUnknownSnapshots(validRootIds);
       }
 
       // Fetch active context from main process
       const activeContextId = await api.context.getActive();
 
+      // Fetch available contexts before setting mode
+      const availableContexts = await api.context.list();
+      const activeContext = findContextById(availableContexts, activeContextId);
+
       set({
         contextSnapshotsReady: true,
         activeContextId,
+        availableContexts,
+        connectionMode: toConnectionMode(activeContext),
       });
-
-      // Fetch available contexts
-      await get().fetchAvailableContexts();
     } catch (error) {
       console.error('[contextSlice] Failed to initialize context system:', error);
       set({ contextSnapshotsReady: true }); // Continue anyway
@@ -261,17 +289,35 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
   // Fetch list of available contexts (local + SSH)
   fetchAvailableContexts: async () => {
     try {
-      const result = await api.context.list();
-      set({ availableContexts: result });
+      const contexts = await api.context.list();
+      const activeContext = findContextById(contexts, get().activeContextId);
+      set({
+        availableContexts: contexts,
+        connectionMode: toConnectionMode(activeContext),
+      });
     } catch (error) {
       console.error('[contextSlice] Failed to fetch available contexts:', error);
       // Fallback to local-only
-      set({ availableContexts: [{ id: 'local', type: 'local' }] });
+      set({
+        availableContexts: [
+          {
+            id: 'local',
+            type: 'local',
+            rootId: 'default-local',
+            rootName: 'Local',
+            connected: true,
+          },
+        ],
+        connectionMode: 'local',
+      });
     }
   },
 
   // Switch to a different context
-  switchContext: async (targetContextId: string) => {
+  switchContext: async (
+    targetContextId: string,
+    sshCredentials?: Partial<SshConnectionConfig>
+  ) => {
     const state = get();
 
     // Early return if already on target context
@@ -289,15 +335,78 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
       targetContextId,
     });
 
+    const sourceContextId = state.activeContextId;
+    const sourceContext = findContextById(state.availableContexts, sourceContextId);
+    const targetContext = findContextById(state.availableContexts, targetContextId);
+    if (!targetContext) {
+      set({
+        isContextSwitching: false,
+        targetContextId: null,
+      });
+      return;
+    }
+
+    const sourceSnapshot = captureSnapshot(state, state.activeContextId);
+    const sourceRootId = getSnapshotRootId(state.availableContexts, state.activeContextId);
+    const targetRootId = targetContext.rootId;
+
+    let didSwitchMainContext = false;
     try {
-      // Step 1: Save current snapshot + load target snapshot + switch main process
-      // These are independent — run in parallel for speed
-      const currentSnapshot = captureSnapshot(state, state.activeContextId);
-      const [, targetSnapshot] = await Promise.all([
-        contextStorage.saveSnapshot(state.activeContextId, currentSnapshot),
-        contextStorage.loadSnapshot(targetContextId),
-        api.context.switch(targetContextId),
-      ]);
+      await contextStorage.saveSnapshot(sourceRootId, sourceSnapshot);
+
+      if (targetContext.type === 'ssh') {
+        const config = await api.config.get();
+        const sshRoot = config.roots.items.find(
+          (root): root is Extract<(typeof config.roots.items)[number], { type: 'ssh' }> =>
+            root.id === targetContext.rootId && root.type === 'ssh'
+        );
+        if (!sshRoot) {
+          throw new Error(`SSH root not found: ${targetContext.rootName}`);
+        }
+
+        const profile = config.ssh?.profiles.find((item) => item.id === sshRoot.sshProfileId);
+        if (!profile) {
+          throw new Error(`SSH profile not found for root "${targetContext.rootName}"`);
+        }
+
+        const profileConfig: SshConnectionConfig = {
+          host: profile.host,
+          port: profile.port,
+          username: profile.username,
+          authMethod: profile.authMethod,
+          privateKeyPath: profile.privateKeyPath,
+        };
+        const connectConfig: SshConnectionConfig = {
+          ...profileConfig,
+          ...sshCredentials,
+        };
+
+        get().setConnectionStatus('connecting', connectConfig.host, null);
+        const status = await api.ssh.connect(
+          connectConfig,
+          targetContext.rootId
+        );
+        get().setConnectionStatus(status.state, status.host, status.error);
+        if (status.state !== 'connected') {
+          throw new Error(status.error ?? `Failed to connect to ${targetContext.rootName}`);
+        }
+        const savedConnection = {
+          host: connectConfig.host,
+          port: connectConfig.port,
+          username: connectConfig.username,
+          authMethod: connectConfig.authMethod,
+          privateKeyPath: connectConfig.privateKeyPath,
+        };
+        set({ lastSshConfig: savedConnection });
+        void api.ssh.saveLastConnection(savedConnection);
+      } else if (sourceContext?.type === 'ssh') {
+        const status = await api.ssh.disconnect();
+        get().setConnectionStatus(status.state, status.host, status.error);
+      }
+
+      await api.context.switch(targetContextId);
+      didSwitchMainContext = true;
+      const targetSnapshot = await contextStorage.loadSnapshot(targetRootId);
 
       // Step 2: Apply cached snapshot immediately for instant visual feedback
       if (targetSnapshot) {
@@ -324,6 +433,15 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
           sidebarCollapsed: targetSnapshot.sidebarCollapsed,
           // Finalize switch — overlay disappears, user sees cached data instantly
           activeContextId: targetContextId,
+          connectionMode: toConnectionMode(targetContext),
+          isContextSwitching: false,
+          targetContextId: null,
+        });
+      } else {
+        set({
+          ...getEmptyContextState(),
+          activeContextId: targetContextId,
+          connectionMode: toConnectionMode(targetContext),
           isContextSwitching: false,
           targetContextId: null,
         });
@@ -337,6 +455,10 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
           api.getProjects(),
           api.getRepositoryGroups(),
         ]);
+
+        if (get().activeContextId !== targetContextId) {
+          return;
+        }
 
         if (targetSnapshot) {
           // Guard: don't overwrite snapshot data if fetch returned empty
@@ -353,39 +475,159 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
             set(validateSnapshot(targetSnapshot, freshProjects, freshRepoGroups));
           }
         } else {
-          // No cache (first visit) — apply empty state with fresh data
+          // No cache (first visit) — populate freshly loaded data
           set({
-            ...getEmptyContextState(),
             projects: freshProjects,
             repositoryGroups: freshRepoGroups,
-            activeContextId: targetContextId,
-            isContextSwitching: false,
-            targetContextId: null,
           });
         }
       } catch (fetchError) {
         console.error('[contextSlice] Background data refresh failed:', fetchError);
         // Keep snapshot data as fallback — don't wipe user's view
         if (!targetSnapshot) {
-          // No snapshot and fetch failed — finalize switch with empty state
-          set({
-            ...getEmptyContextState(),
-            activeContextId: targetContextId,
-            isContextSwitching: false,
-            targetContextId: null,
-          });
+          // Keep empty state established above if no snapshot exists.
         }
       }
 
       // Step 4: Fetch notifications in background
+      void get().fetchAvailableContexts();
       void get().fetchNotifications();
     } catch (error) {
       console.error('[contextSlice] Failed to switch context:', error);
-      // Do NOT leave in broken state
+      const message = error instanceof Error ? error.message : String(error);
+      const sourceWasSsh = sourceContext?.type === 'ssh';
+
+      if (didSwitchMainContext && !sourceWasSsh) {
+        try {
+          await api.context.switch(sourceContextId);
+        } catch (rollbackError) {
+          console.error('[contextSlice] Failed to rollback main-process context switch:', rollbackError);
+        }
+      }
+
+      if (targetContext.type === 'ssh') {
+        try {
+          const status = await api.ssh.disconnect();
+          get().setConnectionStatus(status.state, status.host, status.error);
+        } catch {
+          // noop: best-effort rollback cleanup
+        }
+      }
+
+      if (sourceWasSsh) {
+        const localFallback = state.availableContexts.find((context) => context.type === 'local');
+
+        if (localFallback) {
+          try {
+            await api.context.switch(localFallback.id);
+          } catch (fallbackSwitchError) {
+            console.error(
+              '[contextSlice] Failed to align main-process context to local fallback:',
+              fallbackSwitchError
+            );
+          }
+
+          const fallbackSnapshot = await contextStorage.loadSnapshot(localFallback.rootId);
+          if (fallbackSnapshot) {
+            set({
+              projects: fallbackSnapshot.projects,
+              repositoryGroups: fallbackSnapshot.repositoryGroups,
+              selectedProjectId: fallbackSnapshot.selectedProjectId,
+              selectedRepositoryId: fallbackSnapshot.selectedRepositoryId,
+              selectedWorktreeId: fallbackSnapshot.selectedWorktreeId,
+              viewMode: fallbackSnapshot.viewMode,
+              sessions: fallbackSnapshot.sessions,
+              selectedSessionId: fallbackSnapshot.selectedSessionId,
+              sessionsCursor: fallbackSnapshot.sessionsCursor,
+              sessionsHasMore: fallbackSnapshot.sessionsHasMore,
+              sessionsTotalCount: fallbackSnapshot.sessionsTotalCount,
+              pinnedSessionIds: fallbackSnapshot.pinnedSessionIds,
+              notifications: fallbackSnapshot.notifications,
+              unreadCount: fallbackSnapshot.unreadCount,
+              openTabs: fallbackSnapshot.openTabs,
+              activeTabId: fallbackSnapshot.activeTabId,
+              selectedTabIds: fallbackSnapshot.selectedTabIds,
+              activeProjectId: fallbackSnapshot.activeProjectId,
+              paneLayout: fallbackSnapshot.paneLayout,
+              sidebarCollapsed: fallbackSnapshot.sidebarCollapsed,
+              activeContextId: localFallback.id,
+              connectionMode: 'local',
+              connectionError: message,
+              isContextSwitching: false,
+              targetContextId: null,
+            });
+          } else {
+            set({
+              ...getEmptyContextState(),
+              activeContextId: localFallback.id,
+              connectionMode: 'local',
+              connectionError: message,
+              isContextSwitching: false,
+              targetContextId: null,
+            });
+          }
+
+          try {
+            const [freshProjects, freshRepoGroups] = await Promise.all([
+              api.getProjects(),
+              api.getRepositoryGroups(),
+            ]);
+
+            if (get().activeContextId !== localFallback.id) {
+              return;
+            }
+
+            if (fallbackSnapshot) {
+              const snapshotHadData =
+                fallbackSnapshot.projects.length > 0 || fallbackSnapshot.repositoryGroups.length > 0;
+              const freshIsEmpty = freshProjects.length === 0 && freshRepoGroups.length === 0;
+
+              if (snapshotHadData && freshIsEmpty) {
+                console.warn(
+                  '[contextSlice] Local fallback refresh returned empty but snapshot had data — keeping snapshot'
+                );
+              } else {
+                set(validateSnapshot(fallbackSnapshot, freshProjects, freshRepoGroups));
+              }
+            } else {
+              set({
+                projects: freshProjects,
+                repositoryGroups: freshRepoGroups,
+              });
+            }
+          } catch (fetchError) {
+            console.error('[contextSlice] Local fallback data refresh failed:', fetchError);
+          }
+        } else {
+          set({
+            connectionMode: 'local',
+            connectionError: message,
+            isContextSwitching: false,
+            targetContextId: null,
+          });
+        }
+        void get().fetchAvailableContexts();
+        void get().fetchNotifications();
+        return;
+      }
+
       set({
+        ...validateSnapshot(
+          sourceSnapshot,
+          sourceSnapshot.projects,
+          sourceSnapshot.repositoryGroups
+        ),
+        activeContextId: state.activeContextId,
+        connectionMode: toConnectionMode(sourceContext),
+        connectionError: message,
         isContextSwitching: false,
         targetContextId: null,
       });
+      void get().fetchAvailableContexts();
     }
+  },
+
+  deleteSnapshot: async (rootId: string) => {
+    await contextStorage.deleteSnapshot(rootId);
   },
 });

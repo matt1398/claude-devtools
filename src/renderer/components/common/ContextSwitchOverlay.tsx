@@ -8,18 +8,23 @@
 import React from 'react';
 
 import { useStore } from '@renderer/store';
+import { useShallow } from 'zustand/react/shallow';
 
 export const ContextSwitchOverlay: React.FC = () => {
-  const isContextSwitching = useStore((state) => state.isContextSwitching);
-  const targetContextId = useStore((state) => state.targetContextId);
+  const { isContextSwitching, targetContextId, availableContexts } = useStore(
+    useShallow((state) => ({
+      isContextSwitching: state.isContextSwitching,
+      targetContextId: state.targetContextId,
+      availableContexts: state.availableContexts,
+    }))
+  );
 
   if (!isContextSwitching) {
     return null;
   }
 
-  // Format context label for display
   const contextLabel =
-    targetContextId === 'local' ? 'Local' : (targetContextId?.replace(/^ssh-/, '') ?? 'Unknown');
+    availableContexts.find((ctx) => ctx.id === targetContextId)?.rootName ?? 'Unknown';
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-surface">

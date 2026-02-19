@@ -12,6 +12,8 @@
 import { useStore } from '@renderer/store';
 import { Loader2, Monitor, Wifi, WifiOff } from 'lucide-react';
 
+import type { SshConnectionState } from '@shared/types';
+
 interface ConnectionStatusBadgeProps {
   contextId: string;
   className?: string;
@@ -21,21 +23,29 @@ export const ConnectionStatusBadge = ({
   contextId,
   className,
 }: Readonly<ConnectionStatusBadgeProps>): React.JSX.Element => {
-  const { connectionState, connectedHost } = useStore((s) => ({
+  const { connectionState, activeContextId, availableContexts } = useStore((s) => ({
     connectionState: s.connectionState,
-    connectedHost: s.connectedHost,
+    activeContextId: s.activeContextId,
+    availableContexts: s.availableContexts,
   }));
+  const context = availableContexts.find((ctx) => ctx.id === contextId);
 
-  // Local context always shows Monitor icon
-  if (contextId === 'local') {
+  // Local roots always render monitor icon
+  if (context?.type === 'local') {
     return <Monitor className={`size-3.5 text-text-muted ${className ?? ''}`} />;
   }
 
-  // SSH context - determine if this specific SSH context matches connected host
-  const isConnectedToThisHost = connectedHost != null && contextId === `ssh-${connectedHost}`;
+  if (context?.type !== 'ssh') {
+    return <WifiOff className={`size-3.5 text-text-muted ${className ?? ''}`} />;
+  }
 
-  // If this SSH context doesn't match the connected host, treat as disconnected
-  const effectiveState = isConnectedToThisHost ? connectionState : 'disconnected';
+  const isActiveContext = contextId === activeContextId;
+  let effectiveState: SshConnectionState = 'disconnected';
+  if (isActiveContext) {
+    effectiveState = connectionState;
+  } else if (context.connected) {
+    effectiveState = 'connected';
+  }
 
   // Render icon based on connection state
   switch (effectiveState) {

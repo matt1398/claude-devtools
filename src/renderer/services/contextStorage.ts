@@ -76,29 +76,29 @@ interface StoredSnapshot {
 // =============================================================================
 
 /**
- * Save a context snapshot to IndexedDB.
+ * Save a root snapshot to IndexedDB.
  */
-async function saveSnapshot(contextId: string, snapshot: ContextSnapshot): Promise<void> {
+async function saveSnapshot(rootId: string, snapshot: ContextSnapshot): Promise<void> {
   try {
     const stored: StoredSnapshot = {
       snapshot,
       timestamp: Date.now(),
       version: SNAPSHOT_VERSION,
     };
-    const key = `${STORAGE_KEY_PREFIX}${contextId}`;
+    const key = `${STORAGE_KEY_PREFIX}${rootId}`;
     await set(key, stored);
   } catch (error) {
-    console.error(`[contextStorage] Failed to save snapshot for ${contextId}:`, error);
+    console.error(`[contextStorage] Failed to save snapshot for ${rootId}:`, error);
   }
 }
 
 /**
- * Load a context snapshot from IndexedDB.
+ * Load a root snapshot from IndexedDB.
  * Returns null if not found, expired, or invalid.
  */
-async function loadSnapshot(contextId: string): Promise<ContextSnapshot | null> {
+async function loadSnapshot(rootId: string): Promise<ContextSnapshot | null> {
   try {
-    const key = `${STORAGE_KEY_PREFIX}${contextId}`;
+    const key = `${STORAGE_KEY_PREFIX}${rootId}`;
     const stored = await get<StoredSnapshot>(key);
 
     if (!stored) {
@@ -109,35 +109,35 @@ async function loadSnapshot(contextId: string): Promise<ContextSnapshot | null> 
     const age = Date.now() - stored.timestamp;
     if (age > SNAPSHOT_TTL_MS) {
       // Expired - delete and return null
-      void deleteSnapshot(contextId);
+      void deleteSnapshot(rootId);
       return null;
     }
 
     // Check version compatibility (simple check for now)
     if (stored.version !== SNAPSHOT_VERSION) {
       console.warn(
-        `[contextStorage] Snapshot version mismatch for ${contextId}: expected ${SNAPSHOT_VERSION}, got ${stored.version}`
+        `[contextStorage] Snapshot version mismatch for ${rootId}: expected ${SNAPSHOT_VERSION}, got ${stored.version}`
       );
-      void deleteSnapshot(contextId);
+      void deleteSnapshot(rootId);
       return null;
     }
 
     return stored.snapshot;
   } catch (error) {
-    console.error(`[contextStorage] Failed to load snapshot for ${contextId}:`, error);
+    console.error(`[contextStorage] Failed to load snapshot for ${rootId}:`, error);
     return null;
   }
 }
 
 /**
- * Delete a context snapshot from IndexedDB.
+ * Delete a root snapshot from IndexedDB.
  */
-async function deleteSnapshot(contextId: string): Promise<void> {
+async function deleteSnapshot(rootId: string): Promise<void> {
   try {
-    const key = `${STORAGE_KEY_PREFIX}${contextId}`;
+    const key = `${STORAGE_KEY_PREFIX}${rootId}`;
     await del(key);
   } catch (error) {
-    console.error(`[contextStorage] Failed to delete snapshot for ${contextId}:`, error);
+    console.error(`[contextStorage] Failed to delete snapshot for ${rootId}:`, error);
   }
 }
 
@@ -174,6 +174,26 @@ async function cleanupExpired(): Promise<void> {
 }
 
 /**
+ * Remove snapshot keys that do not map to configured root IDs.
+ */
+async function cleanupUnknownSnapshots(validRootIds: Set<string>): Promise<void> {
+  try {
+    const allKeys = await keys();
+    for (const key of allKeys) {
+      if (typeof key !== 'string' || !key.startsWith(STORAGE_KEY_PREFIX)) {
+        continue;
+      }
+      const rootId = key.slice(STORAGE_KEY_PREFIX.length);
+      if (!validRootIds.has(rootId)) {
+        await del(key);
+      }
+    }
+  } catch (error) {
+    console.error('[contextStorage] Failed to cleanup unknown snapshots:', error);
+  }
+}
+
+/**
  * Check if IndexedDB is available.
  * Returns true if storage is accessible, false otherwise.
  */
@@ -197,5 +217,6 @@ export const contextStorage = {
   loadSnapshot,
   deleteSnapshot,
   cleanupExpired,
+  cleanupUnknownSnapshots,
   isAvailable,
 };

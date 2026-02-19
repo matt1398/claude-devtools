@@ -5,7 +5,8 @@
 
 import { useCallback, useRef } from 'react';
 
-import { api } from '@renderer/api';
+import { api, isElectronMode } from '@renderer/api';
+import { confirm } from '@renderer/components/common/ConfirmDialog';
 import { useStore } from '@renderer/store';
 
 import type { RepositoryDropdownItem } from './useSettingsConfig';
@@ -241,7 +242,14 @@ export function useSettingsHandlers({
 
   // Advanced handlers
   const handleResetToDefaults = useCallback(async () => {
-    if (!confirm('Are you sure you want to reset all settings to defaults?')) {
+    const confirmed = await confirm({
+      title: 'Reset to Defaults',
+      message:
+        'This will reset all settings and remove all custom roots and SSH profiles. Continue?',
+      confirmLabel: 'Reset',
+      variant: 'danger',
+    });
+    if (!confirmed) {
       return;
     }
     try {
@@ -297,11 +305,38 @@ export function useSettingsHandlers({
           pinnedSessions: {},
           hiddenSessions: {},
         },
+        roots: {
+          items: [
+            {
+              id: 'default-local',
+              name: 'Local',
+              type: 'local',
+              claudeRootPath: null,
+              order: 0,
+            },
+          ],
+          activeRootId: 'default-local',
+        },
+        ssh: {
+          lastConnection: null,
+          autoReconnect: false,
+          profiles: [],
+          lastActiveContextId: 'local',
+        },
+        httpServer: {
+          enabled: false,
+          port: 3456,
+        },
       };
 
       await api.config.update('notifications', defaultConfig.notifications);
       await api.config.update('general', defaultConfig.general);
-      const updatedConfig = await api.config.update('display', defaultConfig.display);
+      await api.config.update('display', defaultConfig.display);
+      if (isElectronMode()) {
+        await api.config.update('roots', defaultConfig.roots);
+      }
+      await api.config.update('ssh', defaultConfig.ssh ?? {});
+      const updatedConfig = await api.config.update('httpServer', defaultConfig.httpServer ?? {});
       setConfig(updatedConfig);
       setOptimisticConfig(updatedConfig);
       setStoreState({ appConfig: updatedConfig });
@@ -346,6 +381,7 @@ export function useSettingsHandlers({
         setSaving(true);
         const text = await file.text();
         const importedConfig = JSON.parse(text) as AppConfig;
+        const isElectron = isElectronMode();
 
         if (importedConfig.notifications) {
           await api.config.update('notifications', importedConfig.notifications);
@@ -355,6 +391,34 @@ export function useSettingsHandlers({
         }
         if (importedConfig.display) {
           await api.config.update('display', importedConfig.display);
+        }
+        if (importedConfig.httpServer) {
+          await api.config.update('httpServer', importedConfig.httpServer);
+        }
+        if (isElectron) {
+          if (importedConfig.ssh && importedConfig.roots) {
+            const currentConfig = await api.config.get();
+            const currentProfiles = currentConfig.ssh?.profiles ?? [];
+            const importedProfiles = importedConfig.ssh.profiles ?? [];
+            const importedProfileIds = new Set(
+              importedProfiles.map((importedProfile) => importedProfile.id)
+            );
+            const mergedProfiles = [
+              ...currentProfiles.filter((profile) => !importedProfileIds.has(profile.id)),
+              ...importedProfiles,
+            ];
+            await api.config.update('ssh', { ...importedConfig.ssh, profiles: mergedProfiles });
+            await api.config.update('roots', importedConfig.roots);
+          } else {
+            if (importedConfig.ssh) {
+              await api.config.update('ssh', importedConfig.ssh);
+            }
+            if (importedConfig.roots) {
+              await api.config.update('roots', importedConfig.roots);
+            }
+          }
+        } else if (importedConfig.ssh || importedConfig.roots) {
+          setError('Skipped roots/SSH import in standalone mode.');
         }
 
         const updatedConfig = await api.config.get();
