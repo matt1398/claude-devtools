@@ -56,6 +56,10 @@ export interface MockElectronAPI {
   config: {
     get: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
+    addRoot: ReturnType<typeof vi.fn>;
+    updateRoot: ReturnType<typeof vi.fn>;
+    removeRoot: ReturnType<typeof vi.fn>;
+    reorderRoots: ReturnType<typeof vi.fn>;
     addIgnoreRegex: ReturnType<typeof vi.fn>;
     removeIgnoreRegex: ReturnType<typeof vi.fn>;
     addIgnoreRepository: ReturnType<typeof vi.fn>;
@@ -69,11 +73,16 @@ export interface MockElectronAPI {
     testTrigger: ReturnType<typeof vi.fn>;
     selectFolders: ReturnType<typeof vi.fn>;
     selectClaudeRootFolder: ReturnType<typeof vi.fn>;
+    getRootInfo: ReturnType<typeof vi.fn>;
     getClaudeRootInfo: ReturnType<typeof vi.fn>;
     findWslClaudeRoots: ReturnType<typeof vi.fn>;
     openInEditor: ReturnType<typeof vi.fn>;
     pinSession: ReturnType<typeof vi.fn>;
     unpinSession: ReturnType<typeof vi.fn>;
+    hideSession: ReturnType<typeof vi.fn>;
+    unhideSession: ReturnType<typeof vi.fn>;
+    hideSessions: ReturnType<typeof vi.fn>;
+    unhideSessions: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -81,6 +90,57 @@ export interface MockElectronAPI {
  * Create a fresh mock electronAPI instance.
  */
 export function createMockElectronAPI(): MockElectronAPI {
+  const defaultConfig = {
+    notifications: {
+      enabled: true,
+      soundEnabled: true,
+      ignoredRegex: [],
+      ignoredRepositories: [],
+      snoozedUntil: null,
+      snoozeMinutes: 30,
+      triggers: [],
+    },
+    general: {
+      launchAtLogin: false,
+      showDockIcon: true,
+      theme: 'dark',
+      defaultTab: 'dashboard',
+      claudeRootPath: null,
+    },
+    display: {
+      showTimestamps: true,
+      compactMode: false,
+      syntaxHighlighting: true,
+    },
+    sessions: {
+      pinnedSessions: {},
+      hiddenSessions: {},
+    },
+    roots: {
+      items: [
+        {
+          id: 'default-local',
+          name: 'Local',
+          type: 'local',
+          claudeRootPath: null,
+          order: 0,
+        },
+      ],
+      activeRootId: 'default-local',
+    },
+    ssh: {
+      lastConnection: null,
+      autoReconnect: false,
+      profiles: [],
+      lastActiveContextId: 'local',
+    },
+    httpServer: {
+      enabled: false,
+      port: 3456,
+    },
+  };
+  const cloneConfig = () => JSON.parse(JSON.stringify(defaultConfig));
+
   return {
     getProjects: vi.fn().mockResolvedValue([]),
     getSessions: vi.fn().mockResolvedValue([]),
@@ -127,33 +187,12 @@ export function createMockElectronAPI(): MockElectronAPI {
     onFileChange: vi.fn().mockReturnValue(() => undefined),
     onTodoChange: vi.fn().mockReturnValue(() => undefined),
     config: {
-      get: vi.fn().mockResolvedValue({
-        notifications: {
-          enabled: true,
-          soundEnabled: true,
-          ignoredRegex: [],
-          ignoredRepositories: [],
-          snoozedUntil: null,
-          snoozeMinutes: 30,
-          triggers: [],
-        },
-        general: {
-          launchAtLogin: false,
-          showDockIcon: true,
-          theme: 'dark',
-          defaultTab: 'dashboard',
-          claudeRootPath: null,
-        },
-        display: {
-          showTimestamps: true,
-          compactMode: false,
-          syntaxHighlighting: true,
-        },
-        sessions: {
-          pinnedSessions: {},
-        },
-      }),
+      get: vi.fn().mockImplementation(async () => cloneConfig()),
       update: vi.fn(),
+      addRoot: vi.fn().mockImplementation(async () => cloneConfig()),
+      updateRoot: vi.fn().mockImplementation(async () => cloneConfig()),
+      removeRoot: vi.fn().mockImplementation(async () => cloneConfig()),
+      reorderRoots: vi.fn().mockImplementation(async () => cloneConfig()),
       addIgnoreRegex: vi.fn(),
       removeIgnoreRegex: vi.fn(),
       addIgnoreRepository: vi.fn(),
@@ -167,6 +206,11 @@ export function createMockElectronAPI(): MockElectronAPI {
       testTrigger: vi.fn(),
       selectFolders: vi.fn().mockResolvedValue([]),
       selectClaudeRootFolder: vi.fn().mockResolvedValue(null),
+      getRootInfo: vi.fn().mockResolvedValue({
+        defaultPath: '~/.claude',
+        resolvedPath: '~/.claude',
+        customPath: null,
+      }),
       getClaudeRootInfo: vi.fn().mockResolvedValue({
         defaultPath: '~/.claude',
         resolvedPath: '~/.claude',
@@ -176,6 +220,10 @@ export function createMockElectronAPI(): MockElectronAPI {
       openInEditor: vi.fn(),
       pinSession: vi.fn(),
       unpinSession: vi.fn(),
+      hideSession: vi.fn(),
+      unhideSession: vi.fn(),
+      hideSessions: vi.fn(),
+      unhideSessions: vi.fn(),
     },
   };
 }

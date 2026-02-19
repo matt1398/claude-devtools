@@ -2,6 +2,67 @@ import { describe, expect, it } from 'vitest';
 import * as path from 'path';
 
 import { validateConfigUpdatePayload } from '../../../src/main/ipc/configValidation';
+import type { AppConfig } from '../../../src/main/services';
+
+const baseConfig: AppConfig = {
+  notifications: {
+    enabled: true,
+    soundEnabled: true,
+    ignoredRegex: [],
+    ignoredRepositories: [],
+    snoozedUntil: null,
+    snoozeMinutes: 30,
+    includeSubagentErrors: true,
+    triggers: [],
+  },
+  general: {
+    launchAtLogin: false,
+    showDockIcon: true,
+    theme: 'dark',
+    defaultTab: 'dashboard',
+    claudeRootPath: null,
+  },
+  display: {
+    showTimestamps: true,
+    compactMode: false,
+    syntaxHighlighting: true,
+  },
+  sessions: {
+    pinnedSessions: {},
+    hiddenSessions: {},
+  },
+  roots: {
+    items: [
+      {
+        id: 'default-local',
+        name: 'Local',
+        type: 'local',
+        claudeRootPath: null,
+        order: 0,
+      },
+    ],
+    activeRootId: 'default-local',
+  },
+  ssh: {
+    lastConnection: null,
+    autoReconnect: false,
+    profiles: [
+      {
+        id: 'profile-1',
+        name: 'server',
+        host: 'example.com',
+        port: 22,
+        username: 'user',
+        authMethod: 'agent',
+      },
+    ],
+    lastActiveContextId: 'local',
+  },
+  httpServer: {
+    enabled: false,
+    port: 3456,
+  },
+};
 
 describe('configValidation', () => {
   it('accepts valid general updates', () => {
@@ -108,6 +169,181 @@ describe('configValidation', () => {
         compactMode: true,
         syntaxHighlighting: false,
       });
+    }
+  });
+
+  it('accepts valid roots updates with profile references', () => {
+    const result = validateConfigUpdatePayload(
+      'roots',
+      {
+        items: [
+          {
+            id: 'default-local',
+            name: 'Local',
+            type: 'local',
+            claudeRootPath: null,
+            order: 0,
+          },
+          {
+            id: 'ssh-root-1',
+            name: 'Server',
+            type: 'ssh',
+            sshProfileId: 'profile-1',
+            remoteClaudeRootPath: '/home/user/.claude',
+            order: 1,
+          },
+        ],
+        activeRootId: 'default-local',
+      },
+      baseConfig
+    );
+
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects roots updates with missing SSH profile reference', () => {
+    const result = validateConfigUpdatePayload(
+      'roots',
+      {
+        items: [
+          {
+            id: 'default-local',
+            name: 'Local',
+            type: 'local',
+            claudeRootPath: null,
+            order: 0,
+          },
+          {
+            id: 'ssh-root-1',
+            name: 'Server',
+            type: 'ssh',
+            sshProfileId: 'missing-profile',
+            remoteClaudeRootPath: '/home/user/.claude',
+            order: 1,
+          },
+        ],
+      },
+      baseConfig
+    );
+
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain('missing SSH profile');
+    }
+  });
+
+  it('rejects roots updates with duplicate root ids', () => {
+    const result = validateConfigUpdatePayload(
+      'roots',
+      {
+        items: [
+          {
+            id: 'dup-root',
+            name: 'Local 1',
+            type: 'local',
+            claudeRootPath: null,
+            order: 0,
+          },
+          {
+            id: 'dup-root',
+            name: 'Local 2',
+            type: 'local',
+            claudeRootPath: null,
+            order: 1,
+          },
+        ],
+      },
+      baseConfig
+    );
+
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain('unique');
+    }
+  });
+
+  it('rejects roots updates without a local root', () => {
+    const result = validateConfigUpdatePayload(
+      'roots',
+      {
+        items: [
+          {
+            id: 'ssh-root-1',
+            name: 'Server',
+            type: 'ssh',
+            sshProfileId: 'profile-1',
+            remoteClaudeRootPath: '/home/user/.claude',
+            order: 0,
+          },
+        ],
+      },
+      baseConfig
+    );
+
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain('local root');
+    }
+  });
+
+  it('rejects roots.activeRootId that is not present in roots.items', () => {
+    const result = validateConfigUpdatePayload(
+      'roots',
+      {
+        items: [
+          {
+            id: 'default-local',
+            name: 'Local',
+            type: 'local',
+            claudeRootPath: null,
+            order: 0,
+          },
+        ],
+        activeRootId: 'missing-root-id',
+      },
+      baseConfig
+    );
+
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain('activeRootId must reference');
+    }
+  });
+
+  it('rejects roots updates with an empty roots.items array', () => {
+    const result = validateConfigUpdatePayload(
+      'roots',
+      {
+        items: [],
+      },
+      baseConfig
+    );
+
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain('must contain at least one root');
+    }
+  });
+
+  it('rejects roots updates with invalid root type values', () => {
+    const result = validateConfigUpdatePayload(
+      'roots',
+      {
+        items: [
+          {
+            id: 'default-local',
+            name: 'Local',
+            type: 'invalid',
+            order: 0,
+          },
+        ],
+      },
+      baseConfig
+    );
+
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain('type must be "local" or "ssh"');
     }
   });
 });
