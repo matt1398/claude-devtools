@@ -96,17 +96,21 @@ Registered protocol: `claude-devtools://`
 
 | Route | Description |
 |-------|-------------|
-| `claude-devtools://dashboard` | Open dashboard |
-| `claude-devtools://session/{projectId}/{sessionId}` | Open session |
-| `claude-devtools://session/{projectId}/{sessionId}/subagent/{subagentId}` | Open subagent |
+| `claude-devtools://projects` | Open projects list |
+| `claude-devtools://projects?q={substring}` | Open projects list with search pre-filled |
+| `claude-devtools://projects/{project_name}` | Open project by folder name |
+| `claude-devtools://projects/{project_name}?q={substring}` | Open project, session search pre-filled |
+| `claude-devtools://projects/{project_name}/sessions/{sessionId}` | Open session |
+| `claude-devtools://projects/{project_name}/sessions/{sessionId}/subagents/{subagentId}` | Open subagent |
 | `claude-devtools://notifications` | Open notifications |
 | `claude-devtools://settings/{section}` | Open settings section (general/connection/workspace/notifications/advanced) |
-| `claude-devtools://search?q={query}` | Open command palette with query |
 
+- `{project_name}` = folder name as shown on the project card (e.g. `dotfiles`, not `-Users-steven-dotfiles`)
 - Parser: `src/shared/utils/deepLinkParser.ts`
 - Main process handler: `src/main/index.ts` (`handleDeepLinkUrl`, `open-url`, `second-instance`)
 - IPC channel: `deeplink:navigate` (main → renderer push)
 - Renderer listener: `src/renderer/store/index.ts` (in `initializeNotificationListeners`)
+- Deferred name resolution: `repositorySlice.selectRepositoryByName` / `navigateToSessionByProjectName`
 
 ## Troubleshooting
 

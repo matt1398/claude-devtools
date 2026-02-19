@@ -200,24 +200,30 @@ Every tool call is paired with its result in an expandable card. Specialized vie
 Open any view directly from Terminal, scripts, or other apps:
 
 ```bash
-open claude-devtools://dashboard
-open claude-devtools://session/-Users-name-project/session-uuid
-open claude-devtools://session/-Users-name-project/session-uuid/subagent/subagent-uuid
+open claude-devtools://projects
+open 'claude-devtools://projects?q=project_name'
+open claude-devtools://projects/project_name
+open 'claude-devtools://projects/project_name?q=substring'
+open claude-devtools://projects/project_name/sessions/session-uuid
+open claude-devtools://projects/project_name/sessions/session-uuid/subagents/subagent-uuid
 open claude-devtools://notifications
 open claude-devtools://settings/notifications
-open 'claude-devtools://search?q=hello'
 ```
 
 | URL | Opens |
 |-----|-------|
-| `claude-devtools://dashboard` | Dashboard tab |
-| `claude-devtools://session/{projectId}/{sessionId}` | Session view |
-| `claude-devtools://session/{projectId}/{sessionId}/subagent/{subagentId}` | Subagent view |
+| `claude-devtools://projects` | Projects list |
+| `claude-devtools://projects?q={substring}` | Projects list with search pre-filled |
+| `claude-devtools://projects/{project_name}` | Project by folder name |
+| `claude-devtools://projects/{project_name}?q={substring}` | Project selected, session search pre-filled |
+| `claude-devtools://projects/{project_name}/sessions/{sessionId}` | Session view |
+| `claude-devtools://projects/{project_name}/sessions/{sessionId}/subagents/{subagentId}` | Subagent view |
 | `claude-devtools://notifications` | Notifications tab |
 | `claude-devtools://settings/{section}` | Settings (general/connection/workspace/notifications/advanced) |
-| `claude-devtools://search?q={query}` | Command palette with pre-filled query |
 
-> **Note:** Deep links require the installed app. `open` focuses an already-running window or launches a fresh one.
+`{project_name}` is the folder name shown on the project card — e.g. `dotfiles`, not `-Users-steven-dotfiles`.
+
+> **Note:** Deep links require the installed app. `open` focuses an already-running window or launches a fresh one. URLs containing `?` must be quoted in zsh: `open 'claude-devtools://projects?q=foo'`.
 
 ---
 
