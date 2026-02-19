@@ -9,6 +9,7 @@
  * Shared between preload and renderer processes.
  */
 
+import type { DataRoot } from './roots';
 import type { TriggerColor } from '@shared/constants/triggerColors';
 
 // =============================================================================
@@ -278,6 +279,13 @@ export interface AppConfig {
     pinnedSessions: Record<string, { sessionId: string; pinnedAt: number }[]>;
     /** Hidden sessions per project. Key is projectId, value is array of hidden sessions */
     hiddenSessions: Record<string, { sessionId: string; hiddenAt: number }[]>;
+  };
+  /** Data roots (local and SSH) */
+  roots: {
+    /** Ordered root definitions */
+    items: DataRoot[];
+    /** Active root ID */
+    activeRootId: string;
   };
   /** SSH connection settings */
   ssh?: {

@@ -13,6 +13,7 @@ import type {
   NotificationTrigger,
   TriggerTestResult,
 } from './notifications';
+import type { LocalDataRoot, SshDataRoot } from './roots';
 import type { WaterfallData } from './visualization';
 import type {
   ConversationGroup,
@@ -73,6 +74,13 @@ export interface NotificationsAPI {
 export interface ConfigAPI {
   get: () => Promise<AppConfig>;
   update: (section: string, data: object) => Promise<AppConfig>;
+  addRoot: (root: Omit<LocalDataRoot, 'id' | 'order'> | Omit<SshDataRoot, 'id' | 'order'>) => Promise<AppConfig>;
+  updateRoot: (
+    rootId: string,
+    updates: Partial<Omit<LocalDataRoot, 'id'>> | Partial<Omit<SshDataRoot, 'id'>>
+  ) => Promise<AppConfig>;
+  removeRoot: (rootId: string) => Promise<AppConfig>;
+  reorderRoots: (rootIdsInOrder: string[]) => Promise<AppConfig>;
   addIgnoreRegex: (pattern: string) => Promise<AppConfig>;
   removeIgnoreRegex: (pattern: string) => Promise<AppConfig>;
   addIgnoreRepository: (repositoryId: string) => Promise<AppConfig>;
@@ -88,8 +96,10 @@ export interface ConfigAPI {
   /** Opens native folder selection dialog and returns selected paths */
   selectFolders: () => Promise<string[]>;
   /** Open native dialog to select local Claude root folder */
-  selectClaudeRootFolder: () => Promise<ClaudeRootFolderSelection | null>;
-  /** Get resolved Claude root path info for local mode */
+  selectClaudeRootFolder: (rootId?: string) => Promise<ClaudeRootFolderSelection | null>;
+  /** Get resolved Claude root path info for a specific root */
+  getRootInfo: (rootId: string) => Promise<ClaudeRootInfo>;
+  /** @deprecated Use getRootInfo(rootId) */
   getClaudeRootInfo: () => Promise<ClaudeRootInfo>;
   /** Find Windows WSL Claude root candidates (UNC paths) */
   findWslClaudeRoots: () => Promise<WslClaudeRootCandidate[]>;
@@ -196,6 +206,9 @@ export interface UpdaterAPI {
 export interface ContextInfo {
   id: string;
   type: 'local' | 'ssh';
+  rootId: string;
+  rootName: string;
+  connected: boolean;
 }
 
 // =============================================================================
@@ -273,7 +286,7 @@ export interface SshLastConnection {
 }
 
 export interface SshAPI {
-  connect: (config: SshConnectionConfig) => Promise<SshConnectionStatus>;
+  connect: (config: SshConnectionConfig, rootId?: string) => Promise<SshConnectionStatus>;
   disconnect: () => Promise<SshConnectionStatus>;
   getState: () => Promise<SshConnectionStatus>;
   test: (config: SshConnectionConfig) => Promise<{ success: boolean; error?: string }>;
