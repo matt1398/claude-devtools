@@ -423,16 +423,20 @@ export function buildDisplayItemsFromMessages(
         }
         continue;
       }
-      // Plain-text user message (subagent input prompt)
-      if (rawText.trim()) {
+      // Only treat as subagent input if there are NO tool_result blocks in this message
+      const hasToolResults =
+        Array.isArray(msg.content) &&
+        msg.content.some((b) => b.type === 'tool_result');
+      if (rawText.trim() && !hasToolResults) {
         displayItems.push({
           type: 'subagent_input',
           content: rawText.trim(),
           timestamp: msgTimestamp,
           tokenCount: estimateTokens(rawText),
         });
+        continue;
       }
-      continue;
+      // Fall through to tool result processing below if message has tool_results
     }
 
     if (msg.type === 'assistant' && Array.isArray(msg.content)) {
