@@ -354,20 +354,28 @@ export function initializeNotificationListeners(): () => void {
     const cleanup = api.onDeepLinkNavigate((_event: unknown, navigation: DeepLinkNavigation) => {
       const state = useStore.getState();
       switch (navigation.type) {
-        case 'dashboard':
-          state.openDashboard();
+        case 'projects':
+          if (!navigation.projectName) {
+            if (navigation.query) {
+              state.setPendingProjectsQuery(navigation.query);
+            }
+            state.openDashboard();
+          } else {
+            state.selectRepositoryByName(navigation.projectName, navigation.query);
+          }
           break;
         case 'session':
-          state.navigateToSession(navigation.projectId, navigation.sessionId);
+          state.navigateToSessionByProjectName(
+            navigation.projectName,
+            navigation.sessionId,
+            navigation.subagentId
+          );
           break;
         case 'notifications':
           state.openNotificationsTab();
           break;
         case 'settings':
           state.openSettingsTab(navigation.section);
-          break;
-        case 'search':
-          state.openCommandPalette(navigation.query || undefined);
           break;
       }
     });
