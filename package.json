@@ -161,7 +161,8 @@
         "pacman"
       ],
       "icon": "resources/icons/png",
-      "category": "Development"
+      "category": "Development",
+      "afterInstall": "resources/afterInstall.sh"
     },
     "nsis": {
       "oneClick": false,
