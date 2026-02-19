@@ -161,7 +161,9 @@
         "pacman"
       ],
       "icon": "resources/icons/png",
-      "category": "Development",
+      "category": "Development"
+    },
+    "deb": {
       "afterInstall": "resources/afterInstall.sh"
     },
     "nsis": {
