@@ -25,12 +25,18 @@ export interface RepositorySlice {
   repositoryGroupsLoading: boolean;
   repositoryGroupsError: string | null;
   viewMode: 'flat' | 'grouped';
+  pendingDeepLinkNavigation:
+    | { type: 'select-repo'; projectName: string; query?: string }
+    | { type: 'navigate-session'; projectName: string; sessionId: string; subagentId?: string }
+    | null;
 
   // Actions
   fetchRepositoryGroups: () => Promise<void>;
   selectRepository: (repositoryId: string) => void;
   selectWorktree: (worktreeId: string) => void;
   setViewMode: (mode: 'flat' | 'grouped') => void;
+  selectRepositoryByName: (projectName: string, query?: string) => void;
+  navigateToSessionByProjectName: (projectName: string, sessionId: string, subagentId?: string) => void;
 }
 
 // =============================================================================
@@ -48,6 +54,7 @@ export const createRepositorySlice: StateCreator<AppState, [], [], RepositorySli
   repositoryGroupsLoading: false,
   repositoryGroupsError: null,
   viewMode: 'grouped', // Default to grouped view
+  pendingDeepLinkNavigation: null,
 
   // Fetch all repository groups (projects grouped by git repo)
   fetchRepositoryGroups: async () => {
@@ -56,6 +63,17 @@ export const createRepositorySlice: StateCreator<AppState, [], [], RepositorySli
       const groups = await api.getRepositoryGroups();
       // Already sorted by most recent session in the scanner
       set({ repositoryGroups: groups, repositoryGroupsLoading: false });
+
+      // Resolve any deferred deep-link navigation
+      const pending = get().pendingDeepLinkNavigation;
+      if (pending) {
+        set({ pendingDeepLinkNavigation: null });
+        if (pending.type === 'select-repo') {
+          get().selectRepositoryByName(pending.projectName, pending.query);
+        } else {
+          get().navigateToSessionByProjectName(pending.projectName, pending.sessionId, pending.subagentId);
+        }
+      }
     } catch (error) {
       set({
         repositoryGroupsError:
@@ -130,5 +148,44 @@ export const createRepositorySlice: StateCreator<AppState, [], [], RepositorySli
     } else {
       void get().fetchProjects();
     }
+  },
+
+  // Find a repository by display name and select it; defers if repos not loaded
+  selectRepositoryByName: (projectName: string, query?: string) => {
+    const { repositoryGroups } = get();
+    const repo = repositoryGroups.find(
+      (r) => r.name.toLowerCase() === projectName.toLowerCase()
+    );
+    if (!repo) {
+      set({ pendingDeepLinkNavigation: { type: 'select-repo', projectName, ...(query !== undefined && { query }) } });
+      return;
+    }
+    get().selectRepository(repo.id);
+    get().openDashboard();
+    if (query) {
+      get().openCommandPalette(query);
+    }
+  },
+
+  // Find a repository by display name and navigate to a session; defers if repos not loaded
+  navigateToSessionByProjectName: (projectName: string, sessionId: string, subagentId?: string) => {
+    const { repositoryGroups } = get();
+    const repo = repositoryGroups.find(
+      (r) => r.name.toLowerCase() === projectName.toLowerCase()
+    );
+    if (!repo) {
+      set({
+        pendingDeepLinkNavigation: {
+          type: 'navigate-session',
+          projectName,
+          sessionId,
+          ...(subagentId !== undefined && { subagentId }),
+        },
+      });
+      return;
+    }
+    const worktree = repo.worktrees.find((w) => w.isMainWorktree) ?? repo.worktrees[0];
+    if (!worktree) return;
+    get().navigateToSession(worktree.id, sessionId);
   },
 });

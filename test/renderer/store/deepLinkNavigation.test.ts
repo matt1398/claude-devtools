@@ -76,4 +76,108 @@ describe('Deep Link Navigation', () => {
     store.getState().clearPendingProjectsQuery();
     expect(store.getState().pendingProjectsQuery).toBeNull();
   });
+
+  it('selectRepositoryByName selects matching repo', () => {
+    store.setState({
+      repositoryGroups: [
+        {
+          id: 'repo-1',
+          name: 'dotfiles',
+          identity: null,
+          worktrees: [
+            {
+              id: '-Users-test-dotfiles',
+              path: '/Users/test/dotfiles',
+              name: 'main',
+              isMainWorktree: true,
+              source: 'standard' as const,
+              sessions: ['s1'],
+              createdAt: 0,
+              mostRecentSession: 0,
+            },
+          ],
+          totalSessions: 1,
+          mostRecentSession: 0,
+        },
+      ],
+    });
+
+    store.getState().selectRepositoryByName('dotfiles');
+
+    expect(store.getState().selectedRepositoryId).toBe('repo-1');
+    // dashboard tab should open
+    const tabs = store.getState().openTabs;
+    expect(tabs.some((t) => t.type === 'dashboard')).toBe(true);
+  });
+
+  it('selectRepositoryByName with query opens command palette', () => {
+    store.setState({
+      repositoryGroups: [
+        {
+          id: 'repo-1',
+          name: 'dotfiles',
+          identity: null,
+          worktrees: [
+            {
+              id: '-Users-test-dotfiles',
+              path: '/Users/test/dotfiles',
+              name: 'main',
+              isMainWorktree: true,
+              source: 'standard' as const,
+              sessions: ['s1'],
+              createdAt: 0,
+              mostRecentSession: 0,
+            },
+          ],
+          totalSessions: 1,
+          mostRecentSession: 0,
+        },
+      ],
+    });
+
+    store.getState().selectRepositoryByName('dotfiles', 'clock');
+
+    expect(store.getState().commandPaletteOpen).toBe(true);
+    expect(store.getState().pendingSearchQuery).toBe('clock');
+  });
+
+  it('selectRepositoryByName defers when repos not loaded', () => {
+    store.setState({ repositoryGroups: [] });
+    store.getState().selectRepositoryByName('dotfiles');
+    expect(store.getState().pendingDeepLinkNavigation).toMatchObject({
+      type: 'select-repo',
+      projectName: 'dotfiles',
+    });
+  });
+
+  it('navigateToSessionByProjectName uses worktree id', () => {
+    store.setState({
+      repositoryGroups: [
+        {
+          id: 'repo-1',
+          name: 'dotfiles',
+          identity: null,
+          worktrees: [
+            {
+              id: '-Users-test-dotfiles',
+              path: '/Users/test/dotfiles',
+              name: 'main',
+              isMainWorktree: true,
+              source: 'standard' as const,
+              sessions: ['s1'],
+              createdAt: 0,
+              mostRecentSession: 0,
+            },
+          ],
+          totalSessions: 1,
+          mostRecentSession: 0,
+        },
+      ],
+    });
+
+    store.getState().navigateToSessionByProjectName('dotfiles', 'session-abc');
+
+    const tabs = store.getState().openTabs;
+    expect(tabs.some((t) => t.type === 'session' && t.sessionId === 'session-abc')).toBe(true);
+  });
 });
