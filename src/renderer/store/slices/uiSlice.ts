@@ -1,5 +1,5 @@
 /**
- * UI slice - manages command palette and sidebar state.
+ * UI slice - manages command palette, sidebar, and pending query state.
  */
 
 import type { AppState } from '../types';
