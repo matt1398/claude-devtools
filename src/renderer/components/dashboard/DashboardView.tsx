@@ -395,6 +395,19 @@ const ProjectsGrid = ({
 export const DashboardView = (): React.JSX.Element => {
   const [searchQuery, setSearchQuery] = useState('');
   const openSettingsTab = useStore((s) => s.openSettingsTab);
+  const { pendingProjectsQuery, clearPendingProjectsQuery } = useStore(
+    useShallow((s) => ({
+      pendingProjectsQuery: s.pendingProjectsQuery,
+      clearPendingProjectsQuery: s.clearPendingProjectsQuery,
+    }))
+  );
+
+  useEffect(() => {
+    if (pendingProjectsQuery !== null) {
+      setSearchQuery(pendingProjectsQuery);
+      clearPendingProjectsQuery();
+    }
+  }, [pendingProjectsQuery, clearPendingProjectsQuery]);
 
   return (
     <div className="relative flex-1 overflow-auto bg-surface">
