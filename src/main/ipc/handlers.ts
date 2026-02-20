@@ -57,6 +57,7 @@ import type {
   SshConnectionManager,
   UpdaterService,
 } from '../services';
+import type { CombinedWatcherManager } from '@main/utils/combinedWatcherManager';
 import type { DataRoot } from '@shared/types';
 
 /**
@@ -66,6 +67,7 @@ export function initializeIpcHandlers(
   registry: ServiceContextRegistry,
   updater: UpdaterService,
   sshManager: SshConnectionManager,
+  combinedWatcherManager: CombinedWatcherManager,
   contextCallbacks: {
     rewire: (context: ServiceContext) => void;
     full: (context: ServiceContext) => void;
@@ -78,12 +80,12 @@ export function initializeIpcHandlers(
 ): void {
   // Initialize domain handlers with registry
   initializeProjectHandlers(registry);
-  initializeSessionHandlers(registry);
+  initializeSessionHandlers(registry, combinedWatcherManager);
   initializeSearchHandlers(registry);
   initializeSubagentHandlers(registry);
   initializeUpdaterHandlers(updater);
   initializeSshHandlers(sshManager, registry, contextCallbacks.rewire);
-  initializeContextHandlers(registry, contextCallbacks.rewire);
+  initializeContextHandlers(registry, contextCallbacks.rewire, combinedWatcherManager);
   initializeConfigHandlers({
     onClaudeRootPathUpdated: contextCallbacks.onClaudeRootPathUpdated,
     onRootAdded: contextCallbacks.onRootAdded,

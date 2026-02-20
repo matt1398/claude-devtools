@@ -203,6 +203,18 @@ export class HttpAPIClient implements ElectronAPI {
     return this.get<PaginatedSessionsResult>(qs ? `${path}?${qs}` : path);
   };
 
+  getCombinedSessionsPaginated = (
+    cursor: string | null,
+    limit?: number
+  ): Promise<PaginatedSessionsResult> => {
+    const params = new URLSearchParams();
+    if (cursor) params.set('cursor', cursor);
+    if (limit) params.set('limit', String(limit));
+    const queryString = params.toString();
+    const path = '/api/sessions/combined';
+    return this.get<PaginatedSessionsResult>(queryString ? `${path}?${queryString}` : path);
+  };
+
   searchSessions = (
     projectId: string,
     query: string,
@@ -523,6 +535,10 @@ export class HttpAPIClient implements ElectronAPI {
 
   onTodoChange = (callback: (event: FileChangeEvent) => void): (() => void) =>
     this.addEventListener('todo-change', callback);
+
+  setCombinedWatchers = async (enabled: boolean): Promise<void> => {
+    await this.post<{ success: true }>('/api/contexts/combined-watchers', { enabled });
+  };
 
   // ---------------------------------------------------------------------------
   // Shell operations (browser fallbacks)

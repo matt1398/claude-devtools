@@ -22,22 +22,35 @@ import {
   type SessionsByIdsOptions,
   type SessionsPaginationOptions,
 } from '../types';
+import {
+  decodeCombinedCursor,
+  isContextExhausted,
+  mergeCombinedResults,
+} from '../utils/combinedSessionsMerge';
 
 import { coercePageLimit, validateProjectId, validateSessionId } from './guards';
 
 import type { ServiceContextRegistry } from '../services';
+import type { GlobalSessionFileInfo } from '../services/discovery/ProjectScanner';
+import type { ContextFetchResult } from '../utils/combinedSessionsMerge';
+import type { CombinedWatcherManager } from '@main/utils/combinedWatcherManager';
 import type { WaterfallData } from '@shared/types';
 
 const logger = createLogger('IPC:sessions');
 
 // Service registry - set via initialize
 let registry: ServiceContextRegistry;
+let combinedWatcherManager: CombinedWatcherManager | null = null;
 
 /**
  * Initializes session handlers with service registry.
  */
-export function initializeSessionHandlers(contextRegistry: ServiceContextRegistry): void {
+export function initializeSessionHandlers(
+  contextRegistry: ServiceContextRegistry,
+  watcherManager?: CombinedWatcherManager
+): void {
   registry = contextRegistry;
+  combinedWatcherManager = watcherManager ?? null;
 }
 
 /**
@@ -46,6 +59,7 @@ export function initializeSessionHandlers(contextRegistry: ServiceContextRegistr
 export function registerSessionHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('get-sessions', handleGetSessions);
   ipcMain.handle('get-sessions-paginated', handleGetSessionsPaginated);
+  ipcMain.handle('get-combined-sessions-paginated', handleGetCombinedSessionsPaginated);
   ipcMain.handle('get-sessions-by-ids', handleGetSessionsByIds);
   ipcMain.handle('get-session-detail', handleGetSessionDetail);
   ipcMain.handle('get-session-groups', handleGetSessionGroups);
@@ -61,6 +75,7 @@ export function registerSessionHandlers(ipcMain: IpcMain): void {
 export function removeSessionHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler('get-sessions');
   ipcMain.removeHandler('get-sessions-paginated');
+  ipcMain.removeHandler('get-combined-sessions-paginated');
   ipcMain.removeHandler('get-sessions-by-ids');
   ipcMain.removeHandler('get-session-detail');
   ipcMain.removeHandler('get-session-groups');
@@ -129,6 +144,114 @@ async function handleGetSessionsPaginated(
     return result;
   } catch (error) {
     logger.error(`Error in get-sessions-paginated for project ${projectId}:`, error);
+    return { sessions: [], nextCursor: null, hasMore: false, totalCount: 0 };
+  }
+}
+
+/**
+ * Handler for 'get-combined-sessions-paginated' IPC call.
+ * Lists sessions across all contexts using a composite cursor.
+ */
+async function handleGetCombinedSessionsPaginated(
+  _event: IpcMainInvokeEvent,
+  cursor: string | null,
+  limit?: number
+): Promise<PaginatedSessionsResult> {
+  try {
+    const safeLimit = coercePageLimit(limit, 20);
+    const perContextLimit = safeLimit + 5;
+    const contexts = registry.getAll();
+    const decodedComposite = decodeCombinedCursor(cursor);
+    const cacheLimit = combinedWatcherManager?.getCacheTopK() ?? 0;
+
+    const contextResults: ContextFetchResult[] = await Promise.all(
+      contexts.map(async (context) => {
+        // Skip contexts marked exhausted in the cursor map
+        const rawCursor = decodedComposite?.perContext[context.id];
+        const persistedTotalCount = decodedComposite?.perContextTotals?.[context.id] ?? 0;
+        if (isContextExhausted(rawCursor)) {
+          return {
+            contextId: context.id,
+            previousCursor: rawCursor ?? null,
+            sessions: [] as Session[],
+            nextCursor: null,
+            hasMore: false,
+            totalCount: persistedTotalCount,
+          };
+        }
+        // Contexts absent from cursor map (new since cursor was built) start from page 1
+        const contextCursor = rawCursor ?? null;
+        try {
+          let cachedFileInfos: GlobalSessionFileInfo[] | undefined;
+          let cacheMayBeTruncated = false;
+          if (combinedWatcherManager && contextCursor === null && perContextLimit <= cacheLimit) {
+            const cached = await combinedWatcherManager.getCachedSessionFileInfos(context);
+            if (cached && cached.length > 0) {
+              cachedFileInfos = cached;
+              cacheMayBeTruncated = cached.length === cacheLimit;
+            }
+          }
+
+          const result = await context.projectScanner.listRecentSessionsGlobal(
+            contextCursor,
+            perContextLimit,
+            'light',
+            cachedFileInfos
+          );
+          let nextCursor = result.nextCursor;
+          let hasMore = result.hasMore;
+
+          // Top-K cache can be a prefix of the full corpus. If we hit the cache ceiling,
+          // avoid marking this context exhausted until we page once without cache.
+          if (
+            cacheMayBeTruncated &&
+            !hasMore &&
+            nextCursor === null &&
+            cachedFileInfos &&
+            cachedFileInfos.length > 0
+          ) {
+            const tail = cachedFileInfos[cachedFileInfos.length - 1];
+            nextCursor = Buffer.from(
+              JSON.stringify({
+                timestamp: tail.mtimeMs,
+                sessionId: tail.sessionId,
+                projectId: tail.projectId,
+              })
+            ).toString('base64');
+            hasMore = true;
+          }
+
+          return {
+            contextId: context.id,
+            previousCursor: contextCursor,
+            sessions: result.sessions.map((session) => ({
+              ...session,
+              contextId: context.id,
+              rootName: context.rootName,
+              rootType: context.type,
+            })),
+            nextCursor,
+            hasMore,
+            totalCount: result.totalCount,
+          };
+        } catch (error) {
+          logger.debug(`Combined sessions fetch failed for context "${context.id}"`, error);
+          return {
+            contextId: context.id,
+            previousCursor: contextCursor,
+            sessions: [] as Session[],
+            nextCursor: null,
+            hasMore: false,
+            totalCount: persistedTotalCount,
+            errored: true,
+          };
+        }
+      })
+    );
+
+    return mergeCombinedResults(contextResults, safeLimit);
+  } catch (error) {
+    logger.error('Error in get-combined-sessions-paginated:', error);
     return { sessions: [], nextCursor: null, hasMore: false, totalCount: 0 };
   }
 }

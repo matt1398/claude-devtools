@@ -183,6 +183,7 @@ export interface GeneralConfig {
   theme: 'dark' | 'light' | 'system';
   defaultTab: 'dashboard' | 'last-session';
   claudeRootPath: string | null;
+  combinedSessionsEnabled: boolean;
 }
 
 export interface DisplayConfig {
@@ -270,6 +271,7 @@ const DEFAULT_CONFIG: AppConfig = {
     theme: 'dark',
     defaultTab: 'dashboard',
     claudeRootPath: null,
+    combinedSessionsEnabled: false,
   },
   display: {
     showTimestamps: true,

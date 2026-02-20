@@ -3,6 +3,7 @@
  * Contains the combined AppState interface and shared types used across slices.
  */
 
+import type { CombinedSessionsSlice } from './slices/combinedSessionsSlice';
 import type { ConfigSlice } from './slices/configSlice';
 import type { ConnectionSlice } from './slices/connectionSlice';
 import type { ContextSlice } from './slices/contextSlice';
@@ -78,6 +79,7 @@ export interface SearchNavigationContext {
  */
 export type AppState = ProjectSlice &
   RepositorySlice &
+  CombinedSessionsSlice &
   SessionSlice &
   SessionDetailSlice &
   SubagentSlice &

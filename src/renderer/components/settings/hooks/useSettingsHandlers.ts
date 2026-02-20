@@ -295,6 +295,7 @@ export function useSettingsHandlers({
           theme: 'dark',
           defaultTab: 'dashboard',
           claudeRootPath: null,
+          combinedSessionsEnabled: false,
         },
         display: {
           showTimestamps: true,

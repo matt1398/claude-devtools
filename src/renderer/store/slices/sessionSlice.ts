@@ -48,7 +48,7 @@ export interface SessionSlice {
   fetchSessionsInitial: (projectId: string) => Promise<void>;
   fetchSessionsMore: () => Promise<void>;
   resetSessionsPagination: () => void;
-  selectSession: (id: string) => void;
+  selectSession: (id: string, projectId?: string) => void;
   clearSelection: () => void;
   /** Refresh sessions list without loading states - for real-time updates */
   refreshSessionsInPlace: (projectId: string) => Promise<void>;
@@ -213,21 +213,26 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
     });
   },
 
-  // Select a session and fetch its detail
-  selectSession: (id: string) => {
+  // Select a session and fetch its detail.
+  // Optional projectId overrides selectedProjectId — required in combined mode
+  // where the clicked session's project may differ from the active selection.
+  selectSession: (id: string, projectId?: string) => {
     set({
       selectedSessionId: id,
       sessionDetail: null,
       sessionContextStats: null,
       sessionDetailError: null,
+      // Sync selectedProjectId when an explicit project is provided (combined mode).
+      // This ensures isSessionRowActive highlights the correct row.
+      ...(projectId ? { selectedProjectId: projectId } : {}),
     });
 
     // Fetch detail for this session, passing the active tabId for per-tab data
     const state = get();
-    const projectId = state.selectedProjectId;
-    if (projectId) {
+    const effectiveProjectId = projectId ?? state.selectedProjectId;
+    if (effectiveProjectId) {
       const activeTabId = state.activeTabId ?? undefined;
-      void state.fetchSessionDetail(projectId, id, activeTabId);
+      void state.fetchSessionDetail(effectiveProjectId, id, activeTabId);
     } else {
       logger.warn('Cannot fetch session detail: no project selected');
     }
@@ -287,6 +292,7 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
   // Toggle pin/unpin for a session (optimistic update)
   togglePinSession: async (sessionId: string) => {
     const state = get();
+    if (state.combinedModeEnabled) return;
     const projectId = state.selectedProjectId;
     if (!projectId) return;
 
@@ -363,6 +369,7 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
   // Toggle hide/unhide for a session (optimistic update)
   toggleHideSession: async (sessionId: string) => {
     const state = get();
+    if (state.combinedModeEnabled) return;
     const projectId = state.selectedProjectId;
     if (!projectId) return;
 

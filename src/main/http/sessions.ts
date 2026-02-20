@@ -14,14 +14,27 @@ import { createLogger } from '@shared/utils/logger';
 
 import { coercePageLimit, validateProjectId, validateSessionId } from '../ipc/guards';
 import { DataCache } from '../services';
+import {
+  decodeCombinedCursor,
+  isContextExhausted,
+  mergeCombinedResults,
+} from '../utils/combinedSessionsMerge';
 
+import type { GlobalSessionFileInfo } from '../services/discovery/ProjectScanner';
+import type { PaginatedSessionsResult, Session } from '../types';
 import type { SessionsByIdsOptions, SessionsPaginationOptions } from '../types';
+import type { ContextFetchResult } from '../utils/combinedSessionsMerge';
+import type { CombinedWatcherManager } from '../utils/combinedWatcherManager';
 import type { HttpServices } from './index';
 import type { FastifyInstance } from 'fastify';
 
 const logger = createLogger('HTTP:sessions');
 
-export function registerSessionRoutes(app: FastifyInstance, services: HttpServices): void {
+export function registerSessionRoutes(
+  app: FastifyInstance,
+  services: HttpServices,
+  watcherManager?: CombinedWatcherManager
+): void {
   // List sessions
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/sessions',
@@ -80,6 +93,110 @@ export function registerSessionRoutes(app: FastifyInstance, services: HttpServic
       return result;
     } catch (error) {
       logger.error(`Error in GET sessions-paginated for ${request.params.projectId}:`, error);
+      return { sessions: [], nextCursor: null, hasMore: false, totalCount: 0 };
+    }
+  });
+
+  app.get<{
+    Querystring: { cursor?: string; limit?: string };
+  }>('/api/sessions/combined', async (request): Promise<PaginatedSessionsResult> => {
+    try {
+      const safeLimit = coercePageLimit(
+        request.query.limit ? Number(request.query.limit) : undefined,
+        20
+      );
+      const perContextLimit = safeLimit + 5;
+      const decodedComposite = decodeCombinedCursor(request.query.cursor ?? null);
+      const contexts = services.contextRegistry.getAll();
+      const cacheLimit = watcherManager?.getCacheTopK() ?? 0;
+
+      const contextResults: ContextFetchResult[] = await Promise.all(
+        contexts.map(async (context) => {
+          // Skip contexts marked exhausted in the cursor map
+          const rawCursor = decodedComposite?.perContext[context.id];
+          const persistedTotalCount = decodedComposite?.perContextTotals?.[context.id] ?? 0;
+          if (isContextExhausted(rawCursor)) {
+            return {
+              contextId: context.id,
+              previousCursor: rawCursor ?? null,
+              sessions: [] as Session[],
+              nextCursor: null,
+              hasMore: false,
+              totalCount: persistedTotalCount,
+            };
+          }
+          // Contexts absent from cursor map (new since cursor was built) start from page 1
+          const contextCursor = rawCursor ?? null;
+          try {
+            let cachedFileInfos: GlobalSessionFileInfo[] | undefined;
+            let cacheMayBeTruncated = false;
+            if (watcherManager && contextCursor === null && perContextLimit <= cacheLimit) {
+              const cached = await watcherManager.getCachedSessionFileInfos(context);
+              if (cached && cached.length > 0) {
+                cachedFileInfos = cached;
+                cacheMayBeTruncated = cached.length === cacheLimit;
+              }
+            }
+
+            const result = await context.projectScanner.listRecentSessionsGlobal(
+              contextCursor,
+              perContextLimit,
+              'light',
+              cachedFileInfos
+            );
+            let nextCursor = result.nextCursor;
+            let hasMore = result.hasMore;
+
+            // Top-K cache can be a prefix of the full corpus. If we hit the cache ceiling,
+            // avoid marking this context exhausted until we page once without cache.
+            if (
+              cacheMayBeTruncated &&
+              !hasMore &&
+              nextCursor === null &&
+              cachedFileInfos &&
+              cachedFileInfos.length > 0
+            ) {
+              const tail = cachedFileInfos[cachedFileInfos.length - 1];
+              nextCursor = Buffer.from(
+                JSON.stringify({
+                  timestamp: tail.mtimeMs,
+                  sessionId: tail.sessionId,
+                  projectId: tail.projectId,
+                })
+              ).toString('base64');
+              hasMore = true;
+            }
+            return {
+              contextId: context.id,
+              previousCursor: contextCursor,
+              sessions: result.sessions.map((session) => ({
+                ...session,
+                contextId: context.id,
+                rootName: context.rootName,
+                rootType: context.type,
+              })),
+              nextCursor,
+              hasMore,
+              totalCount: result.totalCount,
+            };
+          } catch (error) {
+            logger.debug(`Combined HTTP fetch failed for context "${context.id}"`, error);
+            return {
+              contextId: context.id,
+              previousCursor: contextCursor,
+              sessions: [] as Session[],
+              nextCursor: null,
+              hasMore: false,
+              totalCount: persistedTotalCount,
+              errored: true,
+            };
+          }
+        })
+      );
+
+      return mergeCombinedResults(contextResults, safeLimit);
+    } catch (error) {
+      logger.error('Error in GET /api/sessions/combined:', error);
       return { sessions: [], nextCursor: null, hasMore: false, totalCount: 0 };
     }
   });

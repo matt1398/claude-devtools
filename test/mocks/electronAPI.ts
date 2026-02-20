@@ -25,6 +25,20 @@ export interface MockElectronAPI {
       }>
     >
   >;
+  getCombinedSessionsPaginated: ReturnType<
+    typeof vi.fn<
+      (
+        cursor: string | null,
+        limit?: number
+      ) => Promise<{
+        sessions: Session[];
+        nextCursor: string | null;
+        hasMore: boolean;
+        totalCount: number;
+      }>
+    >
+  >;
+  setCombinedWatchers: ReturnType<typeof vi.fn<(enabled: boolean) => Promise<void>>>;
   getSessionDetail: ReturnType<
     typeof vi.fn<(projectId: string, sessionId: string) => Promise<SessionDetail | null>>
   >;
@@ -106,6 +120,7 @@ export function createMockElectronAPI(): MockElectronAPI {
       theme: 'dark',
       defaultTab: 'dashboard',
       claudeRootPath: null,
+      combinedSessionsEnabled: false,
     },
     display: {
       showTimestamps: true,
@@ -150,6 +165,13 @@ export function createMockElectronAPI(): MockElectronAPI {
       hasMore: false,
       totalCount: 0,
     }),
+    getCombinedSessionsPaginated: vi.fn().mockResolvedValue({
+      sessions: [],
+      nextCursor: null,
+      hasMore: false,
+      totalCount: 0,
+    }),
+    setCombinedWatchers: vi.fn().mockResolvedValue(undefined),
     getSessionDetail: vi.fn().mockResolvedValue(null),
     getRepositoryGroups: vi.fn().mockResolvedValue([]),
     getWorktreeSessions: vi.fn().mockResolvedValue([]),

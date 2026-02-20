@@ -280,6 +280,13 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
         availableContexts,
         connectionMode: toConnectionMode(activeContext),
       });
+
+      try {
+        const config = await api.config.get();
+        await get().initCombinedModeFromConfig(config);
+      } catch (initError) {
+        console.error('[contextSlice] Failed to initialize combined mode:', initError);
+      }
     } catch (error) {
       console.error('[contextSlice] Failed to initialize context system:', error);
       set({ contextSnapshotsReady: true }); // Continue anyway
@@ -295,6 +302,13 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
         availableContexts: contexts,
         connectionMode: toConnectionMode(activeContext),
       });
+
+      // Auto-disable combined mode if contexts drop below 2.
+      // Uses forceDisableCombinedMode to bypass the toggling guard — if a toggle
+      // is in-flight when a root is removed, toggleCombinedMode would no-op.
+      if (get().combinedModeEnabled && contexts.length < 2) {
+        void get().forceDisableCombinedMode();
+      }
     } catch (error) {
       console.error('[contextSlice] Failed to fetch available contexts:', error);
       // Fallback to local-only
@@ -492,6 +506,9 @@ export const createContextSlice: StateCreator<AppState, [], [], ContextSlice> = 
       // Step 4: Fetch notifications in background
       void get().fetchAvailableContexts();
       void get().fetchNotifications();
+      if (get().combinedModeEnabled) {
+        void get().fetchCombinedSessionsInitial().catch(() => undefined);
+      }
     } catch (error) {
       console.error('[contextSlice] Failed to switch context:', error);
       const message = error instanceof Error ? error.message : String(error);

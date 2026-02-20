@@ -30,6 +30,7 @@ export interface SafeConfig {
     theme: 'dark' | 'light' | 'system';
     defaultTab: 'dashboard' | 'last-session';
     claudeRootPath: string | null;
+    combinedSessionsEnabled: boolean;
   };
   notifications: {
     enabled: boolean;
@@ -154,6 +155,7 @@ export function useSettingsConfig(): UseSettingsConfigReturn {
         theme: displayConfig?.general?.theme ?? 'dark',
         defaultTab: displayConfig?.general?.defaultTab ?? 'dashboard',
         claudeRootPath: displayConfig?.general?.claudeRootPath ?? null,
+        combinedSessionsEnabled: displayConfig?.general?.combinedSessionsEnabled ?? false,
       },
       notifications: {
         enabled: displayConfig?.notifications?.enabled ?? true,

@@ -12,7 +12,8 @@ const logger = createLogger('HTTP:contexts');
 export function registerContextRoutes(
   app: FastifyInstance,
   contextRegistry: ServiceContextRegistry,
-  onContextSwitched?: (context: ServiceContext) => void
+  onContextSwitched?: (context: ServiceContext) => void,
+  onSetCombinedWatchers?: (enabled: boolean) => void
 ): void {
   const configManager = ConfigManager.getInstance();
 
@@ -69,6 +70,26 @@ export function registerContextRoutes(
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logger.error('Error in POST /api/contexts/switch:', message);
+        return reply.status(400).send({ error: message });
+      }
+    }
+  );
+
+  app.post<{ Body: { enabled: boolean } }>(
+    '/api/contexts/combined-watchers',
+    async (request, reply): Promise<{ success: true } | { error: string }> => {
+      try {
+        if (typeof request.body?.enabled !== 'boolean') {
+          return reply.status(400).send({ error: 'enabled must be a boolean' });
+        }
+        if (!onSetCombinedWatchers) {
+          return reply.status(400).send({ error: 'Combined watchers are unavailable in this mode' });
+        }
+        onSetCombinedWatchers(request.body.enabled);
+        return { success: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('Error in POST /api/contexts/combined-watchers:', message);
         return reply.status(400).send({ error: message });
       }
     }

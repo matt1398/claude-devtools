@@ -5,6 +5,7 @@
 import { api } from '@renderer/api';
 import { create } from 'zustand';
 
+import { createCombinedSessionsSlice } from './slices/combinedSessionsSlice';
 import { createConfigSlice } from './slices/configSlice';
 import { createConnectionSlice } from './slices/connectionSlice';
 import { createContextSlice } from './slices/contextSlice';
@@ -23,6 +24,7 @@ import { createUpdateSlice } from './slices/updateSlice';
 
 import type { DetectedError } from '../types/data';
 import type { AppState } from './types';
+import type { Tab } from '@renderer/types/tabs';
 import type { ContextInfo, UpdaterStatus } from '@shared/types';
 
 // =============================================================================
@@ -32,6 +34,7 @@ import type { ContextInfo, UpdaterStatus } from '@shared/types';
 export const useStore = create<AppState>()((...args) => ({
   ...createProjectSlice(...args),
   ...createRepositorySlice(...args),
+  ...createCombinedSessionsSlice(...args),
   ...createSessionSlice(...args),
   ...createSessionDetailSlice(...args),
   ...createSubagentSlice(...args),
@@ -63,8 +66,10 @@ export function initializeNotificationListeners(): () => void {
   const cleanupFns: (() => void)[] = [];
   const pendingSessionRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const pendingProjectRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let pendingCombinedRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   const SESSION_REFRESH_DEBOUNCE_MS = 150;
   const PROJECT_REFRESH_DEBOUNCE_MS = 300;
+  const COMBINED_REFRESH_DEBOUNCE_MS = 1000;
   const getBaseProjectId = (projectId: string | null | undefined): string | null => {
     if (!projectId) return null;
     const separatorIndex = projectId.indexOf('::');
@@ -97,6 +102,17 @@ export function initializeNotificationListeners(): () => void {
       void state.refreshSessionsInPlace(projectId);
     }, PROJECT_REFRESH_DEBOUNCE_MS);
     pendingProjectRefreshTimers.set(projectId, timer);
+  };
+
+  const scheduleCombinedRefresh = (): void => {
+    if (pendingCombinedRefreshTimer) {
+      clearTimeout(pendingCombinedRefreshTimer);
+    }
+    pendingCombinedRefreshTimer = setTimeout(() => {
+      pendingCombinedRefreshTimer = null;
+      const state = useStore.getState();
+      void state.refreshCombinedSessionsInPlace();
+    }, COMBINED_REFRESH_DEBOUNCE_MS);
   };
 
   // Listen for new notifications from main process
@@ -155,17 +171,59 @@ export function initializeNotificationListeners(): () => void {
    * Check if a session is visible in any pane (not just the focused pane's active tab).
    * This ensures file change and task-list listeners refresh sessions shown in any split pane.
    */
-  const isSessionVisibleInAnyPane = (sessionId: string): boolean => {
+  const doesSessionTabMatchEventIdentity = (
+    tab: {
+      id: string;
+      type: string;
+      sessionId?: string;
+      projectId?: string;
+      contextId?: string;
+    },
+    sessionId: string,
+    projectId?: string,
+    contextId?: string,
+    combinedModeEnabled = false
+  ): boolean =>
+    tab.type === 'session' &&
+    tab.sessionId === sessionId &&
+    (projectId == null || tab.projectId === projectId) &&
+    (!contextId ||
+      tab.contextId === contextId ||
+      (!combinedModeEnabled && tab.contextId == null));
+
+  const getVisibleSessionTab = (
+    sessionId: string,
+    projectId?: string,
+    contextId?: string,
+    combinedModeEnabled = false
+  ): Tab | null => {
     const { paneLayout } = useStore.getState();
-    return paneLayout.panes.some(
-      (pane) =>
-        pane.activeTabId != null &&
-        pane.tabs.some(
-          (tab) =>
-            tab.id === pane.activeTabId && tab.type === 'session' && tab.sessionId === sessionId
+    for (const pane of paneLayout.panes) {
+      if (!pane.activeTabId) {
+        continue;
+      }
+      const activeTab = pane.tabs.find((tab) => tab.id === pane.activeTabId);
+      if (
+        activeTab &&
+        doesSessionTabMatchEventIdentity(
+          activeTab,
+          sessionId,
+          projectId,
+          contextId,
+          combinedModeEnabled
         )
-    );
+      ) {
+        return activeTab;
+      }
+    }
+    return null;
   };
+  const isSessionVisibleInAnyPane = (
+    sessionId: string,
+    projectId?: string,
+    contextId?: string,
+    combinedModeEnabled = false
+  ): boolean => getVisibleSessionTab(sessionId, projectId, contextId, combinedModeEnabled) !== null;
 
   // Listen for task-list file changes to refresh currently viewed session metadata
   if (api.onTodoChange) {
@@ -173,19 +231,52 @@ export function initializeNotificationListeners(): () => void {
       if (!event.sessionId || event.type === 'unlink') {
         return;
       }
+      const sessionId = event.sessionId;
 
       const state = useStore.getState();
-      const isViewingSession =
-        state.selectedSessionId === event.sessionId || isSessionVisibleInAnyPane(event.sessionId);
+      const isActiveContextEvent = !event.contextId || event.contextId === state.activeContextId;
+      // Skip non-active-context events entirely — session detail refresh requires
+      // the active context's scanner, so cross-context task-list refreshes would
+      // target the wrong backend. In combined mode, the detail will refresh when
+      // the user opens/switches to that session's context.
+      if (!isActiveContextEvent) {
+        return;
+      }
+
+      const selectedSessionMatchesIdentity =
+        state.selectedSessionId === sessionId &&
+        (event.projectId == null || state.selectedProjectId === event.projectId) &&
+        (!state.combinedModeEnabled || !event.contextId || state.activeContextId === event.contextId);
+      const visibleSessionTab = getVisibleSessionTab(
+        sessionId,
+        event.projectId,
+        event.contextId,
+        state.combinedModeEnabled
+      );
+      const isViewingSession = selectedSessionMatchesIdentity || visibleSessionTab !== null;
 
       if (isViewingSession) {
-        // Find the project ID from any pane's tab that shows this session
+        // Find a matching session tab identity across panes (active or background)
+        const canDisambiguateByEventIdentity = event.projectId != null || !!event.contextId;
         const allTabs = state.getAllPaneTabs();
-        const sessionTab = allTabs.find(
-          (t) => t.type === 'session' && t.sessionId === event.sessionId
-        );
-        if (sessionTab?.projectId) {
-          scheduleSessionRefresh(sessionTab.projectId, event.sessionId);
+        const sessionTab = canDisambiguateByEventIdentity
+          ? allTabs.find((t) =>
+              doesSessionTabMatchEventIdentity(
+                t,
+                sessionId,
+                event.projectId,
+                event.contextId,
+                state.combinedModeEnabled
+              )
+            )
+          : null;
+        const projectIdForRefresh =
+          visibleSessionTab?.projectId ??
+          (selectedSessionMatchesIdentity ? state.selectedProjectId : null) ??
+          sessionTab?.projectId ??
+          event.projectId;
+        if (projectIdForRefresh) {
+          scheduleSessionRefresh(projectIdForRefresh, sessionId);
         }
       }
 
@@ -207,12 +298,26 @@ export function initializeNotificationListeners(): () => void {
   // Listen for file changes to auto-refresh current session and detect new sessions
   if (api.onFileChange) {
     const cleanup = api.onFileChange((event) => {
-      // Skip unlink events
+      const state = useStore.getState();
+
+      // Combined mode: handle all event types including unlink (for ghost session cleanup).
+      // Must run before the single-context unlink guard below.
+      if (state.combinedModeEnabled && event.contextId && !event.isSubagent) {
+        if (event.type === 'add' || event.type === 'change' || event.type === 'unlink') {
+          scheduleCombinedRefresh();
+        }
+      }
+
+      // Skip unlink events for single-context handling
       if (event.type === 'unlink') {
         return;
       }
 
-      const state = useStore.getState();
+      const isActiveContextEvent = !event.contextId || event.contextId === state.activeContextId;
+      if (!isActiveContextEvent) {
+        return;
+      }
+
       const selectedProjectId = state.selectedProjectId;
       const selectedProjectBaseId = getBaseProjectId(selectedProjectId);
       const eventProjectBaseId = getBaseProjectId(event.projectId);
@@ -222,7 +327,14 @@ export function initializeNotificationListeners(): () => void {
       const isTopLevelSessionEvent = !event.isSubagent;
       const isUnknownSessionInSidebar =
         event.sessionId == null ||
-        !state.sessions.some((session) => session.id === event.sessionId);
+        (state.combinedModeEnabled
+          ? !state.combinedSessions.some(
+              (session) =>
+                session.id === event.sessionId &&
+                session.projectId === event.projectId &&
+                (!event.contextId || session.contextId === event.contextId)
+            )
+          : !state.sessions.some((session) => session.id === event.sessionId));
       const shouldRefreshForPotentialNewSession =
         isTopLevelSessionEvent &&
         matchesSelectedProject &&
@@ -242,9 +354,31 @@ export function initializeNotificationListeners(): () => void {
       if ((event.type === 'change' || event.type === 'add') && selectedProjectId) {
         const activeSessionId = state.selectedSessionId;
         const eventSessionId = event.sessionId;
+        const selectedSessionMatchesIdentity =
+          !!eventSessionId &&
+          state.selectedSessionId === eventSessionId &&
+          (event.projectId == null || state.selectedProjectId === event.projectId) &&
+          (!state.combinedModeEnabled ||
+            !event.contextId ||
+            state.activeContextId === event.contextId);
+        const visibleEventSessionTab =
+          eventSessionId != null
+            ? getVisibleSessionTab(
+                eventSessionId,
+                event.projectId,
+                event.contextId,
+                state.combinedModeEnabled
+              )
+            : null;
         const isViewingEventSession =
           !!eventSessionId &&
-          (activeSessionId === eventSessionId || isSessionVisibleInAnyPane(eventSessionId));
+          (selectedSessionMatchesIdentity ||
+            isSessionVisibleInAnyPane(
+              eventSessionId,
+              event.projectId,
+              event.contextId,
+              state.combinedModeEnabled
+            ));
         const shouldFallbackRefreshActiveSession =
           matchesSelectedProject && !eventSessionId && !!activeSessionId;
         const sessionIdToRefresh =
@@ -253,10 +387,24 @@ export function initializeNotificationListeners(): () => void {
 
         if (sessionIdToRefresh) {
           const allTabs = state.getAllPaneTabs();
-          const visibleSessionTab = allTabs.find(
-            (tab) => tab.type === 'session' && tab.sessionId === sessionIdToRefresh
-          );
-          const refreshProjectId = visibleSessionTab?.projectId ?? selectedProjectId;
+          const matchingSessionTab =
+            eventSessionId != null
+              ? allTabs.find((tab) =>
+                  doesSessionTabMatchEventIdentity(
+                    tab,
+                    eventSessionId,
+                    event.projectId,
+                    event.contextId,
+                    state.combinedModeEnabled
+                  )
+                )
+              : null;
+          const refreshProjectId =
+            visibleEventSessionTab?.projectId ??
+            (selectedSessionMatchesIdentity ? state.selectedProjectId : null) ??
+            matchingSessionTab?.projectId ??
+            event.projectId ??
+            selectedProjectId;
 
           // Use refreshSessionInPlace to avoid flickering and preserve UI state
           scheduleSessionRefresh(refreshProjectId, sessionIdToRefresh);
@@ -361,6 +509,10 @@ export function initializeNotificationListeners(): () => void {
       clearTimeout(timer);
     }
     pendingProjectRefreshTimers.clear();
+    if (pendingCombinedRefreshTimer) {
+      clearTimeout(pendingCombinedRefreshTimer);
+      pendingCombinedRefreshTimer = null;
+    }
     cleanupFns.forEach((fn) => fn());
   };
 }

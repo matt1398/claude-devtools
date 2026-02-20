@@ -6,9 +6,11 @@ import {
   CONTEXT_GET_ACTIVE,
   CONTEXT_LIST,
   CONTEXT_SWITCH,
+  GET_COMBINED_SESSIONS_PAGINATED,
   HTTP_SERVER_GET_STATUS,
   HTTP_SERVER_START,
   HTTP_SERVER_STOP,
+  SET_COMBINED_WATCHERS,
   SSH_CONNECT,
   SSH_DISCONNECT,
   SSH_GET_CONFIG_HOSTS,
@@ -98,6 +100,7 @@ interface IpcFileChangePayload {
   projectId?: string;
   sessionId?: string;
   isSubagent: boolean;
+  contextId?: string;
 }
 
 /**
@@ -139,6 +142,9 @@ const electronAPI: ElectronAPI = {
     limit?: number,
     options?: SessionsPaginationOptions
   ) => ipcRenderer.invoke('get-sessions-paginated', projectId, cursor, limit, options),
+  getCombinedSessionsPaginated: (cursor: string | null, limit?: number) =>
+    ipcRenderer.invoke(GET_COMBINED_SESSIONS_PAGINATED, cursor, limit),
+  setCombinedWatchers: (enabled: boolean) => ipcRenderer.invoke(SET_COMBINED_WATCHERS, enabled),
   searchSessions: (projectId: string, query: string, maxResults?: number) =>
     ipcRenderer.invoke('search-sessions', projectId, query, maxResults),
   getSessionDetail: (projectId: string, sessionId: string) =>

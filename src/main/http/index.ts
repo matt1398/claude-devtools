@@ -31,6 +31,7 @@ import type {
   UpdaterService,
 } from '../services';
 import type { SshConnectionManager } from '../services/infrastructure/SshConnectionManager';
+import type { CombinedWatcherManager } from '../utils/combinedWatcherManager';
 import type { DataRoot } from '@shared/types';
 import type { FastifyInstance } from 'fastify';
 
@@ -59,6 +60,8 @@ interface RegisterHttpRouteOptions {
   rootLifecycleCallbacks?: RootLifecycleCallbacks;
   onClaudeRootPathUpdated?: (claudeRootPath: string | null) => Promise<void> | void;
   onContextSwitched?: (context: ServiceContext) => void;
+  onSetCombinedWatchers?: (enabled: boolean) => void;
+  combinedWatcherManager?: CombinedWatcherManager;
 }
 
 export function registerHttpRoutes(
@@ -70,7 +73,7 @@ export function registerHttpRoutes(
   const mode = options.mode ?? 'electron';
 
   registerProjectRoutes(app, services);
-  registerSessionRoutes(app, services);
+  registerSessionRoutes(app, services, options.combinedWatcherManager);
   registerSearchRoutes(app, services);
   registerSubagentRoutes(app, services);
   registerNotificationRoutes(app);
@@ -79,7 +82,12 @@ export function registerHttpRoutes(
     rootLifecycleCallbacks: options.rootLifecycleCallbacks,
     onClaudeRootPathUpdated: options.onClaudeRootPathUpdated,
   });
-  registerContextRoutes(app, services.contextRegistry, options.onContextSwitched);
+  registerContextRoutes(
+    app,
+    services.contextRegistry,
+    options.onContextSwitched,
+    options.onSetCombinedWatchers
+  );
   registerValidationRoutes(app);
   registerUtilityRoutes(app);
   registerSshRoutes(

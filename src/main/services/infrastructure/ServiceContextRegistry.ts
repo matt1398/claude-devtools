@@ -31,6 +31,16 @@ const logger = createLogger('Infrastructure:ServiceContextRegistry');
 export class ServiceContextRegistry {
   private contexts = new Map<string, ServiceContext>();
   private activeContextId: string = '';
+  private _combinedMode = false;
+  private destroyListeners = new Set<(contextId: string, context: ServiceContext) => void>();
+
+  get combinedMode(): boolean {
+    return this._combinedMode;
+  }
+
+  set combinedMode(value: boolean) {
+    this._combinedMode = value;
+  }
 
   /**
    * Creates a new ServiceContextRegistry.
@@ -39,6 +49,17 @@ export class ServiceContextRegistry {
    */
   constructor() {
     logger.info('ServiceContextRegistry created');
+  }
+
+  /**
+   * Registers a listener invoked before a context is disposed and removed via destroy().
+   * Returns an unsubscribe function.
+   */
+  onWillDestroy(listener: (contextId: string, context: ServiceContext) => void): () => void {
+    this.destroyListeners.add(listener);
+    return () => {
+      this.destroyListeners.delete(listener);
+    };
   }
 
   /**
@@ -105,6 +126,13 @@ export class ServiceContextRegistry {
   }
 
   /**
+   * Gets all contexts.
+   */
+  getAll(): ServiceContext[] {
+    return Array.from(this.contexts.values());
+  }
+
+  /**
    * Gets a context by root ID.
    */
   getByRootId(rootId: string): ServiceContext | undefined {
@@ -142,13 +170,17 @@ export class ServiceContextRegistry {
     logger.info(`Switching context: ${previous.id} → ${current.id}`);
 
     // Stop file watcher on previous context (pause, don't dispose)
-    previous.stopFileWatcher();
+    if (!this.combinedMode) {
+      previous.stopFileWatcher();
+    }
 
     // Update active context
     this.activeContextId = contextId;
 
     // Start file watcher on new context
-    current.startFileWatcher();
+    if (!this.combinedMode) {
+      current.startFileWatcher();
+    }
 
     logger.info(`Context switched: ${current.id} is now active`);
 
@@ -175,6 +207,14 @@ export class ServiceContextRegistry {
     }
 
     logger.info(`Destroying context: ${contextId}`);
+
+    for (const listener of this.destroyListeners) {
+      try {
+        listener(contextId, context);
+      } catch (error) {
+        logger.error(`Destroy listener failed for context "${contextId}":`, error);
+      }
+    }
 
     // Dispose the context
     context.dispose();

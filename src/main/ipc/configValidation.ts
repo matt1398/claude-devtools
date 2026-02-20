@@ -206,6 +206,7 @@ function validateGeneralSection(data: unknown): ValidationSuccess<'general'> | V
     'theme',
     'defaultTab',
     'claudeRootPath',
+    'combinedSessionsEnabled',
   ];
 
   const result: Partial<GeneralConfig> = {};
@@ -269,6 +270,12 @@ function validateGeneralSection(data: unknown): ValidationSuccess<'general'> | V
           }
           result.claudeRootPath = path.resolve(normalized);
         }
+        break;
+      case 'combinedSessionsEnabled':
+        if (typeof value !== 'boolean') {
+          return { valid: false, error: 'general.combinedSessionsEnabled must be a boolean' };
+        }
+        result.combinedSessionsEnabled = value;
         break;
       default:
         return { valid: false, error: `Unsupported general key: ${key}` };

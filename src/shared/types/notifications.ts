@@ -263,6 +263,8 @@ export interface AppConfig {
     defaultTab: 'dashboard' | 'last-session';
     /** Optional custom Claude root folder (auto-detected when null) */
     claudeRootPath: string | null;
+    /** Whether the sidebar should show sessions merged across all roots */
+    combinedSessionsEnabled: boolean;
   };
   /** Display and UI settings */
   display: {

@@ -120,6 +120,37 @@ describe('ServiceContextRegistry', () => {
     expect(() => registry.destroy(local.id)).toThrow('last remaining context');
   });
 
+  it('notifies destroy listeners when a context is destroyed', () => {
+    const registry = new ServiceContextRegistry();
+    const local = createMockContext('local', 'local', 'default-local');
+    const ssh = createMockContext('ssh-server-1234', 'ssh', 'ssh-root-1');
+    const onWillDestroy = vi.fn();
+    registry.registerContext(local);
+    registry.registerContext(ssh);
+    registry.onWillDestroy(onWillDestroy);
+
+    registry.destroy(ssh.id);
+
+    expect(onWillDestroy).toHaveBeenCalledTimes(1);
+    expect(onWillDestroy).toHaveBeenCalledWith(ssh.id, ssh);
+    expect(ssh.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows destroy listeners to unsubscribe', () => {
+    const registry = new ServiceContextRegistry();
+    const local = createMockContext('local', 'local', 'default-local');
+    const ssh = createMockContext('ssh-server-1234', 'ssh', 'ssh-root-1');
+    const onWillDestroy = vi.fn();
+    registry.registerContext(local);
+    registry.registerContext(ssh);
+    const unsubscribe = registry.onWillDestroy(onWillDestroy);
+    unsubscribe();
+
+    registry.destroy(ssh.id);
+
+    expect(onWillDestroy).not.toHaveBeenCalled();
+  });
+
   it('finds contexts by root id', () => {
     const registry = new ServiceContextRegistry();
     const local = createMockContext('local', 'local', 'default-local');
@@ -148,5 +179,34 @@ describe('ServiceContextRegistry', () => {
         rootName: 'ssh-root-1',
       },
     ]);
+  });
+
+  it('returns all registered contexts with getAll()', () => {
+    const registry = new ServiceContextRegistry();
+    const local = createMockContext('local', 'local', 'default-local');
+    const ssh = createMockContext('ssh-server-1234', 'ssh', 'ssh-root-1');
+    registry.registerContext(local);
+    registry.registerContext(ssh);
+
+    const contexts = registry.getAll();
+    expect(contexts).toHaveLength(2);
+    expect(contexts.map((context) => context.id)).toEqual(['local', 'ssh-server-1234']);
+  });
+
+  it('switch skips watcher stop/start when combinedMode is enabled', () => {
+    const registry = new ServiceContextRegistry();
+    const local = createMockContext('local', 'local', 'default-local');
+    const ssh = createMockContext('ssh-server-1234', 'ssh', 'ssh-root-1');
+    registry.registerContext(local);
+    registry.registerContext(ssh);
+    registry.combinedMode = true;
+
+    const result = registry.switch(ssh.id);
+
+    expect(result.previous.id).toBe(local.id);
+    expect(result.current.id).toBe(ssh.id);
+    expect(registry.getActiveContextId()).toBe(ssh.id);
+    expect(local.stopFileWatcher).not.toHaveBeenCalled();
+    expect(ssh.startFileWatcher).not.toHaveBeenCalled();
   });
 });

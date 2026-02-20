@@ -23,6 +23,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
+import { CombinedWatcherManager } from './utils/combinedWatcherManager';
 import {
   getAutoDetectedClaudeBasePath,
   setClaudeBasePathOverride,
@@ -73,6 +74,7 @@ import {
   UpdaterService,
 } from './services';
 
+import type { FileChangeEvent } from '@main/types';
 import type { DataRoot, LocalDataRoot } from '@shared/types/roots';
 
 // =============================================================================
@@ -87,6 +89,7 @@ let notificationManager: NotificationManager;
 let updaterService: UpdaterService;
 let sshConnectionManager: SshConnectionManager;
 let httpServer: HttpServer;
+let combinedWatcherManager: CombinedWatcherManager | null = null;
 
 // File watcher event cleanup functions
 let fileChangeCleanup: (() => void) | null = null;
@@ -142,21 +145,29 @@ function wireFileWatcherEvents(context: ServiceContext): void {
   }
 
   // Wire file-change events to renderer and HTTP SSE
-  const fileChangeHandler = (event: unknown): void => {
+  const fileChangeHandler = (event: FileChangeEvent): void => {
+    const enriched: FileChangeEvent = {
+      ...event,
+      contextId: context.id,
+    };
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('file-change', event);
+      mainWindow.webContents.send('file-change', enriched);
     }
-    httpServer?.broadcast('file-change', event);
+    httpServer?.broadcast('file-change', enriched);
   };
   context.fileWatcher.on('file-change', fileChangeHandler);
   fileChangeCleanup = () => context.fileWatcher.off('file-change', fileChangeHandler);
 
   // Forward checklist-change events to renderer and HTTP SSE (mirrors file-change pattern above)
-  const todoChangeHandler = (event: unknown): void => {
+  const todoChangeHandler = (event: FileChangeEvent): void => {
+    const enriched: FileChangeEvent = {
+      ...event,
+      contextId: context.id,
+    };
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('todo-change', event);
+      mainWindow.webContents.send('todo-change', enriched);
     }
-    httpServer?.broadcast('todo-change', event);
+    httpServer?.broadcast('todo-change', enriched);
   };
   context.fileWatcher.on('todo-change', todoChangeHandler);
   todoChangeCleanup = () => context.fileWatcher.off('todo-change', todoChangeHandler);
@@ -205,6 +216,10 @@ export function rewireContextEvents(context: ServiceContext): void {
   if (notificationManager) {
     context.fileWatcher.setNotificationManager(notificationManager);
   }
+  if (combinedWatcherManager?.isEnabled()) {
+    combinedWatcherManager.handleContextRewire(context);
+    return;
+  }
   wireFileWatcherEvents(context);
 }
 
@@ -213,20 +228,24 @@ export function rewireContextEvents(context: ServiceContext): void {
  * Used for external/unexpected switches (e.g., HTTP server mode switch).
  */
 function onContextSwitched(context: ServiceContext): void {
-  context.startFileWatcher();
+  if (!combinedWatcherManager?.isEnabled()) {
+    context.startFileWatcher();
+  }
   rewireContextEvents(context);
 
   // Notify renderer of context change
+  const payload = {
+    id: context.id,
+    type: context.type,
+    rootId: context.rootId,
+    rootName: context.rootName,
+    connected: true,
+  };
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(SSH_STATUS, sshConnectionManager.getStatus());
-    mainWindow.webContents.send(CONTEXT_CHANGED, {
-      id: context.id,
-      type: context.type,
-      rootId: context.rootId,
-      rootName: context.rootName,
-      connected: true,
-    });
+    mainWindow.webContents.send(CONTEXT_CHANGED, payload);
   }
+  httpServer?.broadcast(CONTEXT_CHANGED, payload);
 }
 
 function handleClaudeRootPathUpdated(_claudeRootPath: string | null): void {
@@ -255,10 +274,14 @@ function reconfigureRootContext(rootId: string): void {
     if (notificationManager) {
       replacementContext.fileWatcher.setNotificationManager(notificationManager);
     }
+    combinedWatcherManager?.handleContextRemoved(contextId);
     contextRegistry.replaceContext(contextId, replacementContext);
+    combinedWatcherManager?.handleContextAdded(replacementContext);
     if (wasActive) {
       rewireContextEvents(replacementContext);
-      replacementContext.startFileWatcher();
+      if (!combinedWatcherManager?.isEnabled()) {
+        replacementContext.startFileWatcher();
+      }
     }
   } catch (error) {
     logger.error(`Failed to reconfigure context for root ${rootId}:`, error);
@@ -276,7 +299,11 @@ function handleRootAdded(root: DataRoot): void {
   }
 
   const context = buildLocalContext(root);
+  if (notificationManager) {
+    context.fileWatcher.setNotificationManager(notificationManager);
+  }
   contextRegistry.registerContext(context);
+  combinedWatcherManager?.handleContextAdded(context);
 }
 
 function handleRootRemoved(rootId: string): void {
@@ -391,9 +418,31 @@ function initializeServices(): void {
   const initialContext = contextRegistry.get(activeContextId) ?? contextRegistry.getActive();
   logger.info(`Projects directory: ${initialContext.projectScanner.getProjectsDir()}`);
 
+  combinedWatcherManager = new CombinedWatcherManager(contextRegistry, {
+    teardownSingleContextListeners: () => {
+      if (fileChangeCleanup) {
+        fileChangeCleanup();
+        fileChangeCleanup = null;
+      }
+      if (todoChangeCleanup) {
+        todoChangeCleanup();
+        todoChangeCleanup = null;
+      }
+    },
+    restoreSingleContextListeners: (context) => {
+      wireFileWatcherEvents(context);
+    },
+    getMainWindow: () => mainWindow,
+    getHttpServer: () => httpServer,
+  });
+
   // Initialize notification manager (singleton, not context-scoped)
   notificationManager = NotificationManager.getInstance();
-  initialContext.fileWatcher.setNotificationManager(notificationManager);
+  // Wire notification manager to ALL contexts, not just the initial one.
+  // Combined mode may start watchers for non-active contexts.
+  for (const context of contextRegistry.getAll()) {
+    context.fileWatcher.setNotificationManager(notificationManager);
+  }
   wireFileWatcherEvents(initialContext);
 
   // Initialize updater service
@@ -401,7 +450,7 @@ function initializeServices(): void {
   httpServer = new HttpServer();
 
   // Initialize IPC handlers with registry
-  initializeIpcHandlers(contextRegistry, updaterService, sshConnectionManager, {
+  initializeIpcHandlers(contextRegistry, updaterService, sshConnectionManager, combinedWatcherManager, {
     rewire: rewireContextEvents,
     full: onContextSwitched,
     onClaudeRootPathUpdated: handleClaudeRootPathUpdated,
@@ -520,6 +569,17 @@ async function startHttpServer(
         },
         onClaudeRootPathUpdated: handleClaudeRootPathUpdated,
         onContextSwitched,
+        onSetCombinedWatchers: (enabled: boolean) => {
+          if (!combinedWatcherManager) {
+            return;
+          }
+          if (enabled) {
+            combinedWatcherManager.enable();
+          } else {
+            combinedWatcherManager.disable();
+          }
+        },
+        combinedWatcherManager: combinedWatcherManager ?? undefined,
       }
     );
     logger.info(`HTTP sidecar server running on port ${port}`);
@@ -538,6 +598,11 @@ function shutdownServices(): void {
   if (httpServer?.isRunning()) {
     void httpServer.stop();
   }
+
+  if (combinedWatcherManager?.isEnabled()) {
+    combinedWatcherManager.disable();
+  }
+  combinedWatcherManager = null;
 
   // Clean up file watcher event listeners
   if (fileChangeCleanup) {

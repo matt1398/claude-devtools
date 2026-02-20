@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 import type { ServiceContext } from './ServiceContext';
+import type { CombinedWatcherManager } from '@main/utils/combinedWatcherManager';
 import type { DataRoot } from '@shared/types';
 
 const logger = createLogger('Service:HttpServer');
@@ -72,6 +73,8 @@ export class HttpServer {
       };
       onClaudeRootPathUpdated?: (claudeRootPath: string | null) => Promise<void> | void;
       onContextSwitched?: (context: ServiceContext) => void;
+      onSetCombinedWatchers?: (enabled: boolean) => void;
+      combinedWatcherManager?: CombinedWatcherManager;
     } = {}
   ): Promise<number> {
     this.app = Fastify({ logger: false });

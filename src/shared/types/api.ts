@@ -335,6 +335,11 @@ export interface ElectronAPI {
     limit?: number,
     options?: SessionsPaginationOptions
   ) => Promise<PaginatedSessionsResult>;
+  getCombinedSessionsPaginated: (
+    cursor: string | null,
+    limit?: number
+  ) => Promise<PaginatedSessionsResult>;
+  setCombinedWatchers: (enabled: boolean) => Promise<void>;
   searchSessions: (
     projectId: string,
     query: string,

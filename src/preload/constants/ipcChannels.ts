@@ -158,6 +158,12 @@ export const CONTEXT_SWITCH = 'context:switch';
 /** Context changed event channel (main -> renderer) */
 export const CONTEXT_CHANGED = 'context:changed';
 
+/** Fetch merged sessions across all contexts */
+export const GET_COMBINED_SESSIONS_PAGINATED = 'get-combined-sessions-paginated';
+
+/** Enable/disable multi-context watcher wiring */
+export const SET_COMBINED_WATCHERS = 'set-combined-watchers';
+
 // =============================================================================
 // HTTP Server API Channels
 // =============================================================================

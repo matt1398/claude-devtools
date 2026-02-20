@@ -29,6 +29,19 @@ interface SessionItemProps {
   onToggleSelect?: () => void;
 }
 
+let latestSessionOpenIntent = 0;
+const CONTEXT_SWITCH_WAIT_INTERVAL_MS = 50;
+const CONTEXT_SWITCH_WAIT_TIMEOUT_MS = 15_000;
+
+function beginSessionOpenIntent(): number {
+  latestSessionOpenIntent += 1;
+  return latestSessionOpenIntent;
+}
+
+function isLatestSessionOpenIntent(intentId: number): boolean {
+  return intentId === latestSessionOpenIntent;
+}
+
 /**
  * Format time distance in short form (e.g., "4m", "2h", "1d")
  */
@@ -141,8 +154,10 @@ export const SessionItem = ({
 }: Readonly<SessionItemProps>): React.JSX.Element => {
   const {
     openTab,
-    activeProjectId,
     selectSession,
+    activeProjectId,
+    switchContext,
+    combinedModeEnabled,
     paneCount,
     splitPane,
     togglePinSession,
@@ -150,8 +165,10 @@ export const SessionItem = ({
   } = useStore(
     useShallow((s) => ({
       openTab: s.openTab,
-      activeProjectId: s.activeProjectId,
       selectSession: s.selectSession,
+      activeProjectId: s.activeProjectId,
+      switchContext: s.switchContext,
+      combinedModeEnabled: s.combinedModeEnabled,
       paneCount: s.paneLayout.panes.length,
       splitPane: s.splitPane,
       togglePinSession: s.togglePinSession,
@@ -161,29 +178,145 @@ export const SessionItem = ({
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
-  const handleClick = (event: React.MouseEvent): void => {
-    if (!activeProjectId) return;
+  const resolveProjectId = useCallback(
+    (): string | null => session.projectId || activeProjectId || null,
+    [session.projectId, activeProjectId]
+  );
+  const sessionLabel = session.firstMessage?.slice(0, 50) ?? 'Session';
 
+  const waitForContextSwitchToSettle = useCallback(async (intentId: number): Promise<boolean> => {
+    const startMs = Date.now();
+    while (Date.now() - startMs < CONTEXT_SWITCH_WAIT_TIMEOUT_MS) {
+      if (!isLatestSessionOpenIntent(intentId)) {
+        return false;
+      }
+      if (!useStore.getState().isContextSwitching) {
+        return true;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, CONTEXT_SWITCH_WAIT_INTERVAL_MS);
+      });
+    }
+    if (!isLatestSessionOpenIntent(intentId)) {
+      return false;
+    }
+    return !useStore.getState().isContextSwitching;
+  }, []);
+
+  const ensureSessionContextReady = useCallback(async (intentId: number): Promise<boolean> => {
+    if (!session.contextId) {
+      return true;
+    }
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (!isLatestSessionOpenIntent(intentId)) {
+        return false;
+      }
+
+      const state = useStore.getState();
+      if (state.activeContextId === session.contextId) {
+        return true;
+      }
+
+      if (state.isContextSwitching) {
+        const settled = await waitForContextSwitchToSettle(intentId);
+        if (!settled) {
+          return false;
+        }
+        continue;
+      }
+
+      await switchContext(session.contextId);
+      if (!isLatestSessionOpenIntent(intentId)) {
+        return false;
+      }
+      if (useStore.getState().activeContextId === session.contextId) {
+        return true;
+      }
+      const settled = await waitForContextSwitchToSettle(intentId);
+      if (!settled) {
+        return false;
+      }
+    }
+
+    return useStore.getState().activeContextId === session.contextId;
+  }, [session.contextId, switchContext, waitForContextSwitchToSettle]);
+
+  const openInCurrentPaneWithContextSwitch = useCallback(async (intentId: number): Promise<boolean> => {
+    if (!isLatestSessionOpenIntent(intentId)) return false;
+    const effectiveProjectId = resolveProjectId();
+    if (!effectiveProjectId) return false;
+    if (!(await ensureSessionContextReady(intentId))) {
+      return false;
+    }
+    if (!isLatestSessionOpenIntent(intentId)) return false;
+    openTab(
+      {
+        type: 'session',
+        sessionId: session.id,
+        projectId: effectiveProjectId,
+        contextId: session.contextId,
+        label: sessionLabel,
+      },
+      { replaceActiveTab: true }
+    );
+    if (!isLatestSessionOpenIntent(intentId)) return false;
+    selectSession(session.id, effectiveProjectId);
+    return true;
+  }, [
+    resolveProjectId,
+    session.id,
+    session.contextId,
+    ensureSessionContextReady,
+    openTab,
+    selectSession,
+    sessionLabel,
+  ]);
+
+  const openInNewTabWithContextSwitch = useCallback(async (intentId: number): Promise<void> => {
+    if (!isLatestSessionOpenIntent(intentId)) return;
+    const effectiveProjectId = resolveProjectId();
+    if (!effectiveProjectId) return;
+    if (!(await ensureSessionContextReady(intentId))) {
+      return;
+    }
+    if (!isLatestSessionOpenIntent(intentId)) return;
+    openTab(
+      {
+        type: 'session',
+        sessionId: session.id,
+        projectId: effectiveProjectId,
+        contextId: session.contextId,
+        label: sessionLabel,
+      },
+      { forceNewTab: true }
+    );
+    if (!isLatestSessionOpenIntent(intentId)) return;
+    selectSession(session.id, effectiveProjectId);
+  }, [
+    resolveProjectId,
+    session.contextId,
+    ensureSessionContextReady,
+    openTab,
+    selectSession,
+    session.id,
+    sessionLabel,
+  ]);
+
+  const handleClick = (event: React.MouseEvent): void => {
     // In multi-select mode, clicks toggle selection
     if (multiSelectActive && onToggleSelect) {
       onToggleSelect();
       return;
     }
 
-    // Cmd/Ctrl+click: open in new tab; plain click: replace current tab
-    const forceNewTab = event.ctrlKey || event.metaKey;
-
-    openTab(
-      {
-        type: 'session',
-        sessionId: session.id,
-        projectId: activeProjectId,
-        label: session.firstMessage?.slice(0, 50) ?? 'Session',
-      },
-      forceNewTab ? { forceNewTab } : { replaceActiveTab: true }
-    );
-
-    selectSession(session.id);
+    event.preventDefault();
+    const intentId = beginSessionOpenIntent();
+    if (event.ctrlKey || event.metaKey) {
+      void openInNewTabWithContextSwitch(intentId);
+      return;
+    }
+    void openInCurrentPaneWithContextSwitch(intentId);
   };
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -191,54 +324,57 @@ export const SessionItem = ({
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const sessionLabel = session.firstMessage?.slice(0, 50) ?? 'Session';
-
   const handleOpenInCurrentPane = useCallback(() => {
-    if (!activeProjectId) return;
-    openTab(
-      {
-        type: 'session',
-        sessionId: session.id,
-        projectId: activeProjectId,
-        label: sessionLabel,
-      },
-      { replaceActiveTab: true }
-    );
-    selectSession(session.id);
-  }, [activeProjectId, openTab, selectSession, session.id, sessionLabel]);
+    const intentId = beginSessionOpenIntent();
+    void openInCurrentPaneWithContextSwitch(intentId);
+  }, [openInCurrentPaneWithContextSwitch]);
 
   const handleOpenInNewTab = useCallback(() => {
-    if (!activeProjectId) return;
-    openTab(
-      {
-        type: 'session',
-        sessionId: session.id,
-        projectId: activeProjectId,
-        label: sessionLabel,
-      },
-      { forceNewTab: true }
-    );
-    selectSession(session.id);
-  }, [activeProjectId, openTab, selectSession, session.id, sessionLabel]);
+    const intentId = beginSessionOpenIntent();
+    void openInNewTabWithContextSwitch(intentId);
+  }, [openInNewTabWithContextSwitch]);
 
   const handleSplitRightAndOpen = useCallback(() => {
-    if (!activeProjectId) return;
-    // First open the tab in the focused pane
-    openTab({
-      type: 'session',
-      sessionId: session.id,
-      projectId: activeProjectId,
-      label: sessionLabel,
-    });
-    selectSession(session.id);
-    // Then split it to the right
-    const state = useStore.getState();
-    const focusedPaneId = state.paneLayout.focusedPaneId;
-    const activeTabId = state.activeTabId;
-    if (activeTabId) {
-      splitPane(focusedPaneId, activeTabId, 'right');
-    }
-  }, [activeProjectId, openTab, selectSession, session.id, sessionLabel, splitPane]);
+    const intentId = beginSessionOpenIntent();
+    void (async () => {
+      if (!isLatestSessionOpenIntent(intentId)) return;
+      // Use forceNewTab (not replaceActiveTab) so the original tab stays in the left pane
+      const effectiveProjectId = resolveProjectId();
+      if (!effectiveProjectId) return;
+      if (!(await ensureSessionContextReady(intentId))) {
+        return;
+      }
+      if (!isLatestSessionOpenIntent(intentId)) return;
+      openTab(
+        {
+          type: 'session',
+          sessionId: session.id,
+          projectId: effectiveProjectId,
+          contextId: session.contextId,
+          label: sessionLabel,
+        },
+        { forceNewTab: true }
+      );
+      if (!isLatestSessionOpenIntent(intentId)) return;
+      selectSession(session.id, effectiveProjectId);
+      const state = useStore.getState();
+      const focusedPaneId = state.paneLayout.focusedPaneId;
+      const tabId = state.activeTabId;
+      if (!isLatestSessionOpenIntent(intentId)) return;
+      if (tabId) {
+        splitPane(focusedPaneId, tabId, 'right');
+      }
+    })();
+  }, [
+    resolveProjectId,
+    session.contextId,
+    session.id,
+    ensureSessionContextReady,
+    openTab,
+    selectSession,
+    sessionLabel,
+    splitPane,
+  ]);
 
   // Height must match SESSION_HEIGHT (48px) in DateGroupedSessions.tsx for virtual scroll
   return (
@@ -286,6 +422,17 @@ export const SessionItem = ({
           </span>
           <span style={{ opacity: 0.5 }}>·</span>
           <span className="tabular-nums">{formatShortTime(new Date(session.createdAt))}</span>
+          {session.rootName && (
+            <>
+              <span style={{ opacity: 0.5 }}>·</span>
+              <span
+                className="max-w-[60px] truncate text-[10px]"
+                style={{ color: 'var(--color-text-muted)', opacity: 0.7 }}
+              >
+                {session.rootName}
+              </span>
+            </>
+          )}
           {session.contextConsumption != null && session.contextConsumption > 0 && (
             <>
               <span style={{ opacity: 0.5 }}>·</span>
@@ -299,13 +446,13 @@ export const SessionItem = ({
       </button>
 
       {contextMenu &&
-        activeProjectId &&
+        resolveProjectId() &&
         createPortal(
           <SessionContextMenu
             x={contextMenu.x}
             y={contextMenu.y}
             sessionId={session.id}
-            projectId={activeProjectId}
+            projectId={resolveProjectId()!}
             sessionLabel={sessionLabel}
             paneCount={paneCount}
             isPinned={isPinned ?? false}
@@ -314,8 +461,10 @@ export const SessionItem = ({
             onOpenInCurrentPane={handleOpenInCurrentPane}
             onOpenInNewTab={handleOpenInNewTab}
             onSplitRightAndOpen={handleSplitRightAndOpen}
-            onTogglePin={() => void togglePinSession(session.id)}
-            onToggleHide={() => void toggleHideSession(session.id)}
+            onTogglePin={combinedModeEnabled ? undefined : () => void togglePinSession(session.id)}
+            onToggleHide={
+              combinedModeEnabled ? undefined : () => void toggleHideSession(session.id)
+            }
           />,
           document.body
         )}

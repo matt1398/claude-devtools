@@ -15,8 +15,10 @@ import { createLogger } from '@shared/utils/logger';
 const CONTEXT_LIST = 'context:list';
 const CONTEXT_GET_ACTIVE = 'context:getActive';
 const CONTEXT_SWITCH = 'context:switch';
+const SET_COMBINED_WATCHERS = 'set-combined-watchers';
 
 import type { ServiceContext, ServiceContextRegistry } from '../services';
+import type { CombinedWatcherManager } from '@main/utils/combinedWatcherManager';
 import type { IpcMain } from 'electron';
 
 const logger = createLogger('IPC:context');
@@ -27,6 +29,7 @@ const logger = createLogger('IPC:context');
 
 let registry: ServiceContextRegistry;
 let onContextRewire: (context: ServiceContext) => void;
+let combinedWatcherManager: CombinedWatcherManager | null = null;
 
 // =============================================================================
 // Initialization
@@ -39,10 +42,12 @@ let onContextRewire: (context: ServiceContext) => void;
  */
 export function initializeContextHandlers(
   contextRegistry: ServiceContextRegistry,
-  onRewire: (context: ServiceContext) => void
+  onRewire: (context: ServiceContext) => void,
+  watcherManager?: CombinedWatcherManager
 ): void {
   registry = contextRegistry;
   onContextRewire = onRewire;
+  combinedWatcherManager = watcherManager ?? null;
 }
 
 // =============================================================================
@@ -105,6 +110,20 @@ export function registerContextHandlers(ipcMain: IpcMain): void {
     }
   });
 
+  ipcMain.handle(SET_COMBINED_WATCHERS, async (_event, enabled: boolean) => {
+    if (typeof enabled !== 'boolean') {
+      throw new Error('enabled must be a boolean');
+    }
+    if (!combinedWatcherManager) {
+      throw new Error('Combined watcher manager is not available');
+    }
+    if (enabled) {
+      combinedWatcherManager.enable();
+    } else {
+      combinedWatcherManager.disable();
+    }
+  });
+
   logger.info('Context handlers registered');
 }
 
@@ -112,4 +131,5 @@ export function removeContextHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler(CONTEXT_LIST);
   ipcMain.removeHandler(CONTEXT_GET_ACTIVE);
   ipcMain.removeHandler(CONTEXT_SWITCH);
+  ipcMain.removeHandler(SET_COMBINED_WATCHERS);
 }

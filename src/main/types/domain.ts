@@ -83,6 +83,12 @@ export interface Session {
   id: string;
   /** Parent project ID */
   projectId: string;
+  /** Context ID for multi-root combined views (set only in combined mode) */
+  contextId?: string;
+  /** Root display name for multi-root combined views */
+  rootName?: string;
+  /** Root type for multi-root combined views */
+  rootType?: 'local' | 'ssh';
   /** Project filesystem path */
   projectPath: string;
   /** Task list data from ~/.claude/todos/{id}.json if exists */
@@ -270,10 +276,12 @@ export interface SearchSessionsResult {
  * Uses timestamp + sessionId as a composite cursor for stable pagination.
  */
 export interface SessionCursor {
-  /** Unix timestamp (birthtimeMs) of the session file */
+  /** Unix timestamp (mtimeMs) of the session file */
   timestamp: number;
   /** Session ID for tie-breaking when timestamps are equal */
   sessionId: string;
+  /** Project ID for deterministic tie-breaking when timestamps/session IDs are equal */
+  projectId?: string;
 }
 
 /**
