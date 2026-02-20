@@ -37,21 +37,18 @@ export function registerContextRoutes(
     }
   });
 
-  app.get('/api/contexts/active', async (): Promise<string> => {
+  app.get('/api/contexts/active', async (): Promise<{ contextId: string }> => {
     try {
-      return contextRegistry.getActiveContextId();
+      return { contextId: contextRegistry.getActiveContextId() };
     } catch (error) {
       logger.error('Error in GET /api/contexts/active:', error);
-      return 'local';
+      return { contextId: 'local' };
     }
   });
 
   app.post<{ Body: { contextId: string } }>(
     '/api/contexts/switch',
-    async (
-      request,
-      reply
-    ): Promise<{ contextId: string } | { error: string }> => {
+    async (request, reply): Promise<{ contextId: string } | { error: string }> => {
       try {
         const contextId = request.body?.contextId;
         if (typeof contextId !== 'string' || contextId.trim().length === 0) {
@@ -83,7 +80,9 @@ export function registerContextRoutes(
           return reply.status(400).send({ error: 'enabled must be a boolean' });
         }
         if (!onSetCombinedWatchers) {
-          return reply.status(400).send({ error: 'Combined watchers are unavailable in this mode' });
+          return reply
+            .status(400)
+            .send({ error: 'Combined watchers are unavailable in this mode' });
         }
         onSetCombinedWatchers(request.body.enabled);
         return { success: true };

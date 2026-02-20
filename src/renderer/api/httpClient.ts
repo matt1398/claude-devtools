@@ -652,7 +652,10 @@ export class HttpAPIClient implements ElectronAPI {
 
   context = {
     list: (): Promise<ContextInfo[]> => this.get<ContextInfo[]>('/api/contexts'),
-    getActive: (): Promise<string> => this.get<string>('/api/contexts/active'),
+    getActive: async (): Promise<string> => {
+      const res = await this.get<{ contextId: string }>('/api/contexts/active');
+      return res.contextId;
+    },
     switch: (contextId: string): Promise<{ contextId: string }> =>
       this.post<{ contextId: string }>('/api/contexts/switch', { contextId }),
     onChanged: (callback: (event: unknown, data: ContextInfo) => void): (() => void) =>
