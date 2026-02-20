@@ -5,9 +5,15 @@
 
 import React, { useMemo, useState } from 'react';
 
-import { COLOR_BORDER, COLOR_SURFACE, COLOR_TEXT_MUTED } from '@renderer/constants/cssVariables';
+import {
+  COLOR_BORDER,
+  COLOR_SURFACE,
+  COLOR_SURFACE_OVERLAY,
+  COLOR_TEXT_MUTED,
+} from '@renderer/constants/cssVariables';
 
 import { ClaudeMdFilesSection } from './components/ClaudeMdFilesSection';
+import { FlatInjectionList } from './components/FlatInjectionList';
 import { MentionedFilesSection } from './components/MentionedFilesSection';
 import { RankedInjectionList } from './components/RankedInjectionList';
 import { SessionContextHeader } from './components/SessionContextHeader';
@@ -46,8 +52,10 @@ export const SessionContextPanel = ({
   selectedPhase,
   onPhaseChange,
 }: Readonly<SessionContextPanelProps>): React.ReactElement => {
-  // View mode: category sections or flat ranked list
+  // View mode: category sections or ranked list
   const [viewMode, setViewMode] = useState<ContextViewMode>('category');
+  // Flat sub-toggle within "By Size" view
+  const [flatMode, setFlatMode] = useState(false);
 
   // Track which main sections are expanded
   const [expandedSections, setExpandedSections] = useState<Set<SectionType>>(
@@ -252,12 +260,46 @@ export const SessionContextPanel = ({
             />
           </>
         ) : (
-          <RankedInjectionList
-            injections={injections}
-            onNavigateToTurn={onNavigateToTurn}
-            onNavigateToTool={onNavigateToTool}
-            onNavigateToUserGroup={onNavigateToUserGroup}
-          />
+          <>
+            {/* Grouped / Flat sub-toggle */}
+            <div className="flex items-center gap-1 pb-1">
+              <button
+                onClick={() => setFlatMode(false)}
+                className="rounded px-1.5 py-0.5 text-[10px] transition-colors"
+                style={{
+                  backgroundColor: !flatMode ? 'rgba(99, 102, 241, 0.2)' : COLOR_SURFACE_OVERLAY,
+                  color: !flatMode ? '#818cf8' : COLOR_TEXT_MUTED,
+                }}
+              >
+                Grouped
+              </button>
+              <button
+                onClick={() => setFlatMode(true)}
+                className="rounded px-1.5 py-0.5 text-[10px] transition-colors"
+                style={{
+                  backgroundColor: flatMode ? 'rgba(99, 102, 241, 0.2)' : COLOR_SURFACE_OVERLAY,
+                  color: flatMode ? '#818cf8' : COLOR_TEXT_MUTED,
+                }}
+              >
+                Flat
+              </button>
+            </div>
+            {flatMode ? (
+              <FlatInjectionList
+                injections={injections}
+                onNavigateToTurn={onNavigateToTurn}
+                onNavigateToTool={onNavigateToTool}
+                onNavigateToUserGroup={onNavigateToUserGroup}
+              />
+            ) : (
+              <RankedInjectionList
+                injections={injections}
+                onNavigateToTurn={onNavigateToTurn}
+                onNavigateToTool={onNavigateToTool}
+                onNavigateToUserGroup={onNavigateToUserGroup}
+              />
+            )}
+          </>
         )}
       </div>
     </div>
