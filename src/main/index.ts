@@ -310,7 +310,7 @@ function initializeServices(): void {
   });
 
   ipcMain.handle(HTTP_SERVER_GET_STATUS, () => {
-    return { running: httpServer.isRunning(), port: httpServer.getPort() };
+    return { success: true, data: { running: httpServer.isRunning(), port: httpServer.getPort() } };
   });
 
   // Forward SSH state changes to renderer and HTTP SSE clients
