@@ -128,15 +128,21 @@ export const NotificationsView = (): React.JSX.Element => {
     rowVirtualizer.scrollToIndex(0);
   }, [activeFilter, rowVirtualizer]);
 
-  // Handle mark all read
+  // Derive filtered unread count for scoped button visibility
+  const filteredUnreadCount = useMemo(() => {
+    if (activeFilter === null) return unreadCount;
+    return filteredNotifications.filter((n) => !n.isRead).length;
+  }, [activeFilter, filteredNotifications, unreadCount]);
+
+  // Handle mark all read (scoped to active filter)
   const handleMarkAllRead = async (): Promise<void> => {
-    await markAllNotificationsRead();
+    await markAllNotificationsRead(activeFilter ?? undefined);
   };
 
-  // Handle clear all with confirmation
+  // Handle clear all with confirmation (scoped to active filter)
   const handleClearAll = async (): Promise<void> => {
     if (showClearConfirm) {
-      await clearNotifications();
+      await clearNotifications(activeFilter ?? undefined);
       setShowClearConfirm(false);
     } else {
       setShowClearConfirm(true);
@@ -205,7 +211,13 @@ export const NotificationsView = (): React.JSX.Element => {
             </span>
             {notifications.length > 0 && (
               <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                {unreadCount > 0 ? `${unreadCount} unread` : `${notifications.length} total`}
+                {activeFilter !== null
+                  ? filteredUnreadCount > 0
+                    ? `${filteredUnreadCount} unread in filter`
+                    : `${filteredNotifications.length} in filter`
+                  : unreadCount > 0
+                    ? `${unreadCount} unread`
+                    : `${notifications.length} total`}
               </span>
             )}
           </div>
@@ -213,19 +225,21 @@ export const NotificationsView = (): React.JSX.Element => {
           {/* Action Buttons */}
           {notifications.length > 0 && (
             <div className="flex items-center gap-1">
-              {/* Mark all read */}
-              {unreadCount > 0 && (
+              {/* Mark all/filtered read */}
+              {filteredUnreadCount > 0 && (
                 <button
                   onClick={handleMarkAllRead}
                   className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors hover:opacity-80"
                   style={{ color: 'var(--color-text-muted)' }}
-                  title="Mark all as read"
+                  title={activeFilter !== null ? 'Mark filtered as read' : 'Mark all as read'}
                 >
                   <CheckCheck className="size-4" />
-                  <span className="hidden sm:inline">Mark all read</span>
+                  <span className="hidden sm:inline">
+                    {activeFilter !== null ? 'Mark filtered read' : 'Mark all read'}
+                  </span>
                 </button>
               )}
-              {/* Clear all */}
+              {/* Clear all/filtered */}
               <button
                 onClick={handleClearAll}
                 className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors ${
@@ -234,11 +248,17 @@ export const NotificationsView = (): React.JSX.Element => {
                     : 'hover:opacity-80'
                 }`}
                 style={showClearConfirm ? undefined : { color: 'var(--color-text-muted)' }}
-                title="Clear all notifications"
+                title={
+                  activeFilter !== null ? 'Clear filtered notifications' : 'Clear all notifications'
+                }
               >
                 <Trash2 className="size-4" />
                 <span className="hidden sm:inline">
-                  {showClearConfirm ? 'Click to confirm' : 'Clear all'}
+                  {showClearConfirm
+                    ? 'Click to confirm'
+                    : activeFilter !== null
+                      ? 'Clear filtered'
+                      : 'Clear all'}
                 </span>
               </button>
             </div>

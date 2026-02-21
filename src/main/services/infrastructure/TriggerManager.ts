@@ -31,7 +31,7 @@ export const DEFAULT_TRIGGERS: NotificationTrigger[] = [
   {
     id: 'builtin-bash-command',
     name: '.env File Access Alert',
-    enabled: true,
+    enabled: false,
     contentType: 'tool_use',
     mode: 'content_match',
     matchPattern: '/.env',
@@ -41,7 +41,7 @@ export const DEFAULT_TRIGGERS: NotificationTrigger[] = [
   {
     id: 'builtin-tool-result-error',
     name: 'Tool Result Error',
-    enabled: true,
+    enabled: false,
     contentType: 'tool_result',
     mode: 'error_status',
     requireError: true,
@@ -55,7 +55,7 @@ export const DEFAULT_TRIGGERS: NotificationTrigger[] = [
   {
     id: 'builtin-high-token-usage',
     name: 'High Token Usage',
-    enabled: true,
+    enabled: false,
     contentType: 'tool_result',
     mode: 'token_threshold',
     tokenThreshold: 8000,

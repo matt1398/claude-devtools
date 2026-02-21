@@ -43,6 +43,9 @@
   </a>&nbsp;&nbsp;
   <a href="#docker--standalone-deployment">
     <img src="https://img.shields.io/badge/Docker-Deploy-2496ED?logo=docker&logoColor=white&style=flat" alt="Deploy with Docker" height="30" />
+  </a>&nbsp;&nbsp;
+  <a href="#installation">
+    <img src="https://img.shields.io/badge/Homebrew-Install-FBB040?logo=homebrew&logoColor=white&style=flat" alt="Install with Homebrew" height="30" />
   </a>
 </p>
 
@@ -61,6 +64,14 @@
 ---
 
 ## Installation
+
+### Homebrew (macOS)
+
+```bash
+brew install --cask claude-devtools
+```
+
+### Direct Download
 
 | Platform | Download | Notes |
 |----------|----------|-------|

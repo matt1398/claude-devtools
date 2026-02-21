@@ -267,8 +267,11 @@ export class ProjectScanner {
         cwdGroups.set(key, group);
       }
 
-      // If only 1 unique cwd, return single project (current behavior)
-      if (cwdGroups.size <= 1) {
+      // If only 1 unique real cwd, return single project (current behavior)
+      // Sessions without cwd (older format) are implicitly from the same project,
+      // so we only count distinct real cwds to decide whether to split.
+      const realCwdKeys = [...cwdGroups.keys()].filter((k) => !k.startsWith('__decoded__'));
+      if (realCwdKeys.length <= 1) {
         const allSessionIds = sessionInfos.map((s) => s.sessionId);
         let mostRecentSession: number | undefined;
         let createdAt = Date.now();

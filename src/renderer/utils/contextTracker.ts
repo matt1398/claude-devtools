@@ -836,13 +836,13 @@ function computeContextStats(params: ComputeContextStatsParams): ContextStats {
         newCounts.mentionedFiles++;
         break;
       case 'tool-output':
-        newCounts.toolOutputs += (injection).toolCount;
+        newCounts.toolOutputs += injection.toolCount;
         break;
       case 'thinking-text':
         newCounts.thinkingText++;
         break;
       case 'task-coordination':
-        newCounts.taskCoordination += (injection).breakdown.length;
+        newCounts.taskCoordination += injection.breakdown.length;
         break;
       case 'user-message':
         newCounts.userMessages++;

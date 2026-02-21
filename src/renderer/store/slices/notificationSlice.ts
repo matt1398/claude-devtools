@@ -29,9 +29,9 @@ export interface NotificationSlice {
   // Actions
   fetchNotifications: () => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
-  markAllNotificationsRead: () => Promise<void>;
+  markAllNotificationsRead: (triggerName?: string) => Promise<void>;
   deleteNotification: (id: string) => Promise<void>;
-  clearNotifications: () => Promise<void>;
+  clearNotifications: (triggerName?: string) => Promise<void>;
   navigateToError: (error: DetectedError) => void;
   openNotificationsTab: () => void;
 }
@@ -99,19 +99,41 @@ export const createNotificationSlice: StateCreator<AppState, [], [], Notificatio
     }
   },
 
-  // Mark all notifications as read
-  markAllNotificationsRead: async () => {
+  // Mark all notifications as read (optionally scoped to a trigger)
+  markAllNotificationsRead: async (triggerName?: string) => {
     try {
-      const success = await api.notifications.markAllRead();
-      if (!success) {
-        await get().fetchNotifications();
-        return;
+      if (triggerName !== undefined) {
+        // Scoped: mark only matching unread notifications
+        const { notifications } = get();
+        const matching = notifications.filter((n) => {
+          const label = n.triggerName ?? 'Other';
+          return label === triggerName && !n.isRead;
+        });
+        if (matching.length === 0) return;
+        const results = await Promise.all(matching.map((n) => api.notifications.markRead(n.id)));
+        if (results.some((r) => !r)) {
+          await get().fetchNotifications();
+          return;
+        }
+        const matchingIds = new Set(matching.map((n) => n.id));
+        set((state) => {
+          const updated = state.notifications.map((n) =>
+            matchingIds.has(n.id) ? { ...n, isRead: true } : n
+          );
+          return { notifications: updated, unreadCount: updated.filter((n) => !n.isRead).length };
+        });
+      } else {
+        // Unscoped: mark all
+        const success = await api.notifications.markAllRead();
+        if (!success) {
+          await get().fetchNotifications();
+          return;
+        }
+        set((state) => ({
+          notifications: state.notifications.map((n) => ({ ...n, isRead: true })),
+          unreadCount: 0,
+        }));
       }
-      // Optimistically update local state
-      set((state) => ({
-        notifications: state.notifications.map((n) => ({ ...n, isRead: true })),
-        unreadCount: 0,
-      }));
     } catch (error) {
       logger.error('Failed to mark all notifications as read:', error);
     }
@@ -136,18 +158,42 @@ export const createNotificationSlice: StateCreator<AppState, [], [], Notificatio
     }
   },
 
-  // Clear all notifications
-  clearNotifications: async () => {
+  // Clear all notifications (optionally scoped to a trigger)
+  clearNotifications: async (triggerName?: string) => {
     try {
-      const success = await api.notifications.clear();
-      if (!success) {
-        await get().fetchNotifications();
-        return;
+      if (triggerName !== undefined) {
+        // Scoped: delete only matching notifications
+        const { notifications } = get();
+        const matching = notifications.filter((n) => {
+          const label = n.triggerName ?? 'Other';
+          return label === triggerName;
+        });
+        if (matching.length === 0) return;
+        const results = await Promise.all(matching.map((n) => api.notifications.delete(n.id)));
+        if (results.some((r) => !r)) {
+          await get().fetchNotifications();
+          return;
+        }
+        const matchingIds = new Set(matching.map((n) => n.id));
+        set((state) => {
+          const remaining = state.notifications.filter((n) => !matchingIds.has(n.id));
+          return {
+            notifications: remaining,
+            unreadCount: remaining.filter((n) => !n.isRead).length,
+          };
+        });
+      } else {
+        // Unscoped: clear all
+        const success = await api.notifications.clear();
+        if (!success) {
+          await get().fetchNotifications();
+          return;
+        }
+        set({
+          notifications: [],
+          unreadCount: 0,
+        });
       }
-      set({
-        notifications: [],
-        unreadCount: 0,
-      });
     } catch (error) {
       logger.error('Failed to clear notifications:', error);
     }

@@ -489,7 +489,10 @@ export const ContextBadge = ({
               {newToolOutputInjections.length > 0 && (
                 <PopoverSection
                   title="Tool Outputs"
-                  count={toolOutputCount}
+                  count={newToolOutputInjections.reduce(
+                    (sum, inj) => sum + inj.toolBreakdown.length,
+                    0
+                  )}
                   tokenCount={toolOutputTokens}
                 >
                   {newToolOutputInjections.map((injection) =>
@@ -512,7 +515,10 @@ export const ContextBadge = ({
               {newTaskCoordinationInjections.length > 0 && (
                 <PopoverSection
                   title="Task Coordination"
-                  count={taskCoordinationCount}
+                  count={newTaskCoordinationInjections.reduce(
+                    (sum, inj) => sum + inj.breakdown.length,
+                    0
+                  )}
                   tokenCount={taskCoordinationTokens}
                 >
                   {newTaskCoordinationInjections.map((injection) =>

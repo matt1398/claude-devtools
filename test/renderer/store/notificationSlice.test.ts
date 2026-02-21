@@ -70,6 +70,221 @@ describe('notificationSlice', () => {
     });
   });
 
+  describe('scoped markAllNotificationsRead', () => {
+    const makeNotification = (
+      id: string,
+      triggerName: string | undefined,
+      isRead: boolean
+    ): DetectedError => ({
+      id,
+      sessionId: 's1',
+      projectId: 'p1',
+      lineNumber: 1,
+      timestamp: Date.now(),
+      triggerName,
+      severity: 'error',
+      message: `msg-${id}`,
+      isRead,
+    });
+
+    it('marks only matching trigger notifications as read', async () => {
+      const n1 = makeNotification('n1', 'tool result error', false);
+      const n2 = makeNotification('n2', 'high token usage', false);
+      const n3 = makeNotification('n3', 'tool result error', false);
+      store.setState({ notifications: [n1, n2, n3] as never[], unreadCount: 3 });
+
+      await store.getState().markAllNotificationsRead('tool result error');
+
+      const state = store.getState();
+      expect(state.notifications.find((n) => n.id === 'n1')!.isRead).toBe(true);
+      expect(state.notifications.find((n) => n.id === 'n2')!.isRead).toBe(false);
+      expect(state.notifications.find((n) => n.id === 'n3')!.isRead).toBe(true);
+      expect(state.unreadCount).toBe(1);
+    });
+
+    it('calls markRead individually for each matching notification', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', false);
+      const n2 = makeNotification('n2', 'trigger-a', false);
+      store.setState({ notifications: [n1, n2] as never[], unreadCount: 2 });
+
+      await store.getState().markAllNotificationsRead('trigger-a');
+
+      expect(mockAPI.notifications.markRead).toHaveBeenCalledWith('n1');
+      expect(mockAPI.notifications.markRead).toHaveBeenCalledWith('n2');
+      expect(mockAPI.notifications.markAllRead).not.toHaveBeenCalled();
+    });
+
+    it('uses markAllRead API when no triggerName is provided', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', false);
+      store.setState({ notifications: [n1] as never[], unreadCount: 1 });
+
+      await store.getState().markAllNotificationsRead();
+
+      expect(mockAPI.notifications.markAllRead).toHaveBeenCalled();
+      expect(mockAPI.notifications.markRead).not.toHaveBeenCalled();
+    });
+
+    it('treats notifications without triggerName as "Other"', async () => {
+      const n1 = makeNotification('n1', undefined, false);
+      const n2 = makeNotification('n2', 'trigger-a', false);
+      store.setState({ notifications: [n1, n2] as never[], unreadCount: 2 });
+
+      await store.getState().markAllNotificationsRead('Other');
+
+      expect(store.getState().notifications.find((n) => n.id === 'n1')!.isRead).toBe(true);
+      expect(store.getState().notifications.find((n) => n.id === 'n2')!.isRead).toBe(false);
+      expect(store.getState().unreadCount).toBe(1);
+    });
+
+    it('skips already-read notifications in scoped mode', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', true);
+      const n2 = makeNotification('n2', 'trigger-a', false);
+      store.setState({ notifications: [n1, n2] as never[], unreadCount: 1 });
+
+      await store.getState().markAllNotificationsRead('trigger-a');
+
+      // Only n2 should be sent to API (n1 already read)
+      expect(mockAPI.notifications.markRead).toHaveBeenCalledTimes(1);
+      expect(mockAPI.notifications.markRead).toHaveBeenCalledWith('n2');
+    });
+
+    it('no-ops when no unread notifications match the trigger', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', true);
+      store.setState({ notifications: [n1] as never[], unreadCount: 0 });
+
+      await store.getState().markAllNotificationsRead('trigger-a');
+
+      expect(mockAPI.notifications.markRead).not.toHaveBeenCalled();
+    });
+
+    it('re-fetches when any scoped markRead call fails', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', false);
+      const n2 = makeNotification('n2', 'trigger-a', false);
+      store.setState({ notifications: [n1, n2] as never[], unreadCount: 2 });
+
+      mockAPI.notifications.markRead.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      mockAPI.notifications.get.mockResolvedValue({ notifications: [] });
+
+      await store.getState().markAllNotificationsRead('trigger-a');
+
+      expect(mockAPI.notifications.get).toHaveBeenCalled();
+    });
+  });
+
+  describe('scoped clearNotifications', () => {
+    const makeNotification = (
+      id: string,
+      triggerName: string | undefined,
+      isRead: boolean
+    ): DetectedError => ({
+      id,
+      sessionId: 's1',
+      projectId: 'p1',
+      lineNumber: 1,
+      timestamp: Date.now(),
+      triggerName,
+      severity: 'error',
+      message: `msg-${id}`,
+      isRead,
+    });
+
+    it('deletes only matching trigger notifications', async () => {
+      const n1 = makeNotification('n1', 'tool result error', false);
+      const n2 = makeNotification('n2', 'high token usage', false);
+      const n3 = makeNotification('n3', 'tool result error', true);
+      store.setState({ notifications: [n1, n2, n3] as never[], unreadCount: 2 });
+
+      await store.getState().clearNotifications('tool result error');
+
+      const state = store.getState();
+      expect(state.notifications).toHaveLength(1);
+      expect(state.notifications[0].id).toBe('n2');
+      expect(state.unreadCount).toBe(1);
+    });
+
+    it('calls delete individually for each matching notification', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', false);
+      const n2 = makeNotification('n2', 'trigger-a', true);
+      store.setState({ notifications: [n1, n2] as never[], unreadCount: 1 });
+
+      await store.getState().clearNotifications('trigger-a');
+
+      expect(mockAPI.notifications.delete).toHaveBeenCalledWith('n1');
+      expect(mockAPI.notifications.delete).toHaveBeenCalledWith('n2');
+      expect(mockAPI.notifications.clear).not.toHaveBeenCalled();
+    });
+
+    it('uses clear API when no triggerName is provided', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', false);
+      store.setState({ notifications: [n1] as never[], unreadCount: 1 });
+
+      await store.getState().clearNotifications();
+
+      expect(mockAPI.notifications.clear).toHaveBeenCalled();
+      expect(mockAPI.notifications.delete).not.toHaveBeenCalled();
+    });
+
+    it('treats notifications without triggerName as "Other"', async () => {
+      const n1 = makeNotification('n1', undefined, false);
+      const n2 = makeNotification('n2', 'trigger-a', false);
+      store.setState({ notifications: [n1, n2] as never[], unreadCount: 2 });
+
+      await store.getState().clearNotifications('Other');
+
+      const state = store.getState();
+      expect(state.notifications).toHaveLength(1);
+      expect(state.notifications[0].id).toBe('n2');
+      expect(state.unreadCount).toBe(1);
+    });
+
+    it('clears both read and unread notifications for the trigger', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', false);
+      const n2 = makeNotification('n2', 'trigger-a', true);
+      store.setState({ notifications: [n1, n2] as never[], unreadCount: 1 });
+
+      await store.getState().clearNotifications('trigger-a');
+
+      expect(store.getState().notifications).toHaveLength(0);
+      expect(store.getState().unreadCount).toBe(0);
+    });
+
+    it('no-ops when no notifications match the trigger', async () => {
+      const n1 = makeNotification('n1', 'trigger-b', false);
+      store.setState({ notifications: [n1] as never[], unreadCount: 1 });
+
+      await store.getState().clearNotifications('trigger-a');
+
+      expect(mockAPI.notifications.delete).not.toHaveBeenCalled();
+      expect(store.getState().notifications).toHaveLength(1);
+    });
+
+    it('re-fetches when any scoped delete call fails', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', false);
+      const n2 = makeNotification('n2', 'trigger-a', false);
+      store.setState({ notifications: [n1, n2] as never[], unreadCount: 2 });
+
+      mockAPI.notifications.delete.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      mockAPI.notifications.get.mockResolvedValue({ notifications: [] });
+
+      await store.getState().clearNotifications('trigger-a');
+
+      expect(mockAPI.notifications.get).toHaveBeenCalled();
+    });
+
+    it('correctly recalculates unreadCount after scoped clear', async () => {
+      const n1 = makeNotification('n1', 'trigger-a', false);
+      const n2 = makeNotification('n2', 'trigger-b', false);
+      const n3 = makeNotification('n3', 'trigger-b', true);
+      store.setState({ notifications: [n1, n2, n3] as never[], unreadCount: 2 });
+
+      await store.getState().clearNotifications('trigger-a');
+
+      // n1 removed (trigger-a, unread), n2+n3 remain
+      expect(store.getState().notifications).toHaveLength(2);
+      expect(store.getState().unreadCount).toBe(1); // only n2 is unread
+    });
+  });
+
   describe('navigateToError', () => {
     const createMockError = (overrides?: Partial<DetectedError>): DetectedError => ({
       id: 'error-1',

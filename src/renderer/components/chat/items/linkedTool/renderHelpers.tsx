@@ -95,19 +95,92 @@ export function renderInput(toolName: string, input: Record<string, unknown>): R
     );
   }
 
-  // Default: JSON format
+  // Default: key-value format with readable string values
   return (
-    <pre className="whitespace-pre-wrap break-all" style={{ color: COLOR_TEXT }}>
-      {JSON.stringify(input, null, 2)}
-    </pre>
+    <div className="space-y-2" style={{ color: COLOR_TEXT }}>
+      {Object.entries(input).map(([key, value]) => (
+        <div key={key}>
+          <div className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
+            {key}
+          </div>
+          <pre className="whitespace-pre-wrap break-all">{formatInputValue(value)}</pre>
+        </div>
+      ))}
+    </div>
   );
+}
+
+function formatInputValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return JSON.stringify(value, null, 2);
 }
 
 /**
  * Renders the output section with theme-aware styling.
  */
+/**
+ * Extracts display text from tool output content.
+ * Handles content block arrays from the API by extracting text fields
+ * and pretty-printing JSON when possible.
+ */
+export function extractOutputText(content: string | unknown[]): string {
+  let displayText: string;
+
+  // Normalize: if content is a string that parses to an array of content blocks, treat as array
+  let normalizedContent: string | unknown[] = content;
+  if (typeof content === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(content);
+      if (Array.isArray(parsed) && parsed.length > 0 && isContentBlock(parsed[0])) {
+        normalizedContent = parsed as unknown[];
+      }
+    } catch {
+      // Not JSON, keep as string
+    }
+  }
+
+  if (typeof normalizedContent === 'string') {
+    displayText = normalizedContent;
+  } else if (Array.isArray(normalizedContent)) {
+    // Extract text from content blocks (e.g. [{"type":"text","text":"..."}])
+    displayText = normalizedContent
+      .map((block) =>
+        typeof block === 'object' && block !== null && 'text' in block
+          ? (block as { text: string }).text
+          : JSON.stringify(block, null, 2),
+      )
+      .join('\n');
+  } else {
+    displayText = JSON.stringify(normalizedContent, null, 2);
+  }
+
+  // Try to pretty-print if the extracted text is valid JSON
+  try {
+    const parsed: unknown = JSON.parse(displayText);
+    displayText = JSON.stringify(parsed, null, 2);
+  } catch {
+    // Not JSON, use as-is
+  }
+
+  return displayText;
+}
+
+function isContentBlock(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    typeof (value as Record<string, unknown>).type === 'string'
+  );
+}
+
 export function renderOutput(content: string | unknown[]): React.ReactElement {
-  const displayText = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+  const displayText = extractOutputText(content);
   return (
     <pre className="whitespace-pre-wrap break-all" style={{ color: COLOR_TEXT }}>
       {displayText}

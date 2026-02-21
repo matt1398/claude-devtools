@@ -4,10 +4,10 @@
  * Shows keyboard shortcut hints for actions that have them.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { MAX_PANES } from '@renderer/types/panes';
-import { Eye, EyeOff, Pin, PinOff } from 'lucide-react';
+import { Check, ClipboardCopy, Eye, EyeOff, Pin, PinOff, Terminal } from 'lucide-react';
 
 interface SessionContextMenuProps {
   x: number;
@@ -29,6 +29,7 @@ interface SessionContextMenuProps {
 export const SessionContextMenu = ({
   x,
   y,
+  sessionId,
   paneCount,
   isPinned,
   isHidden,
@@ -40,6 +41,7 @@ export const SessionContextMenu = ({
   onToggleHide,
 }: SessionContextMenuProps): React.JSX.Element => {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [copiedField, setCopiedField] = useState<'id' | 'command' | null>(null);
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent): void => {
@@ -59,13 +61,26 @@ export const SessionContextMenu = ({
   }, [onClose]);
 
   const menuWidth = 240;
-  const menuHeight = 204;
+  const menuHeight = 290;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
   const handleClick = (action: () => void) => () => {
     action();
     onClose();
+  };
+
+  const handleCopy = (text: string, field: 'id' | 'command') => async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => {
+        setCopiedField(null);
+        onClose();
+      }, 600);
+    } catch {
+      // Silently fail
+    }
   };
 
   const atMaxPanes = paneCount >= MAX_PANES;
@@ -100,6 +115,29 @@ export const SessionContextMenu = ({
         label={isHidden ? 'Unhide Session' : 'Hide Session'}
         icon={isHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
         onClick={handleClick(onToggleHide)}
+      />
+      <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
+      <MenuItem
+        label={copiedField === 'id' ? 'Copied!' : 'Copy Session ID'}
+        icon={
+          copiedField === 'id' ? (
+            <Check className="size-4 text-green-400" />
+          ) : (
+            <ClipboardCopy className="size-4" />
+          )
+        }
+        onClick={handleCopy(sessionId, 'id')}
+      />
+      <MenuItem
+        label={copiedField === 'command' ? 'Copied!' : 'Copy Resume Command'}
+        icon={
+          copiedField === 'command' ? (
+            <Check className="size-4 text-green-400" />
+          ) : (
+            <Terminal className="size-4" />
+          )
+        }
+        onClick={handleCopy(`claude --resume ${sessionId}`, 'command')}
       />
     </div>
   );
