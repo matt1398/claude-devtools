@@ -31,6 +31,30 @@ const DEFAULT_COLOR: TeamColorSet = TEAMMATE_COLORS.blue;
  * Get a TeamColorSet from a color name or hex string.
  * Falls back to blue if unrecognized.
  */
+const COLOR_NAMES = Object.keys(TEAMMATE_COLORS);
+
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+export function getSubagentTypeColorSet(
+  subagentType: string,
+  agentConfigs?: Record<string, { color?: string }>
+): TeamColorSet {
+  // Use color from agent config if available
+  const configColor = agentConfigs?.[subagentType]?.color;
+  if (configColor) {
+    return getTeamColorSet(configColor);
+  }
+  // Fallback: deterministic hash-based color
+  const index = hashString(subagentType) % COLOR_NAMES.length;
+  return TEAMMATE_COLORS[COLOR_NAMES[index]];
+}
+
 export function getTeamColorSet(colorName: string): TeamColorSet {
   if (!colorName) return DEFAULT_COLOR;
 

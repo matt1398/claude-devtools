@@ -14,7 +14,7 @@ import { createLogger } from '@shared/utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { type ClaudeMdFileInfo, readAllClaudeMdFiles, readDirectoryClaudeMd } from '../services';
+import { type ClaudeMdFileInfo, readAgentConfigs, readAllClaudeMdFiles, readDirectoryClaudeMd } from '../services';
 import { validateFilePath } from '../utils/pathValidation';
 import { countTokens } from '../utils/tokenizer';
 
@@ -122,5 +122,16 @@ export function registerUtilityRoutes(app: FastifyInstance): void {
   // Open external - no-op in browser mode
   app.post<{ Body: { url: string } }>('/api/open-external', async () => {
     return { success: false, error: 'Not available in browser mode' };
+  });
+
+  // Read agent configs
+  app.post<{ Body: { projectRoot: string } }>('/api/read-agent-configs', async (request) => {
+    try {
+      const { projectRoot } = request.body;
+      return await readAgentConfigs(projectRoot);
+    } catch (error) {
+      logger.error('Error in POST /api/read-agent-configs:', error);
+      return {};
+    }
   });
 }

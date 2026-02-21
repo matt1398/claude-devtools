@@ -30,6 +30,15 @@ import type {
 } from '@main/types';
 
 // =============================================================================
+// Agent Config
+// =============================================================================
+
+export interface AgentConfig {
+  name: string;
+  color?: string;
+}
+
+// =============================================================================
 // Notifications API
 // =============================================================================
 
@@ -365,6 +374,9 @@ export interface ElectronAPI {
     projectRoot: string,
     maxTokens?: number
   ) => Promise<ClaudeMdFileInfo | null>;
+
+  // Agent config reading
+  readAgentConfigs: (projectRoot: string) => Promise<Record<string, AgentConfig>>;
 
   // Notifications API
   notifications: NotificationsAPI;
