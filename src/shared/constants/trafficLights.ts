@@ -22,7 +22,7 @@ const MACOS_TRAFFIC_LIGHT_GROUP_HEIGHT = 16;
 const MACOS_TRAFFIC_LIGHT_GROUP_WIDTH = 52;
 
 /** Visual gap between traffic lights and first left-aligned content */
-const MACOS_TRAFFIC_LIGHT_CONTENT_GAP = 8;
+const MACOS_TRAFFIC_LIGHT_CONTENT_GAP = 16;
 
 const MIN_ZOOM_FACTOR = 0.25;
 
