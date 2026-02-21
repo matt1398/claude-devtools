@@ -8,6 +8,13 @@
  * - ssh:test - Test connection without switching
  */
 
+import {
+  DEFAULT_LOCAL_ROOT_ID,
+  getContextIdForRoot,
+  getLocalContextId,
+  getSshContextId,
+} from '@main/utils/contextIds';
+import { resolveRemoteWorkspacePaths } from '@main/utils/sshPaths';
 import { createLogger } from '@shared/utils/logger';
 
 // Channel constants (mirrored from preload/constants/ipcChannels.ts to respect module boundaries)
@@ -19,7 +26,6 @@ const SSH_GET_CONFIG_HOSTS = 'ssh:getConfigHosts';
 const SSH_RESOLVE_HOST = 'ssh:resolveHost';
 const SSH_SAVE_LAST_CONNECTION = 'ssh:saveLastConnection';
 const SSH_GET_LAST_CONNECTION = 'ssh:getLastConnection';
-import * as path from 'path';
 
 import { configManager, ServiceContext } from '../services';
 
@@ -27,7 +33,6 @@ import type {
   ServiceContextRegistry,
   SshConnectionConfig,
   SshConnectionManager,
-  SshConnectionStatus,
 } from '../services';
 import type { SshLastConnection } from '@shared/types';
 import type { IpcMain } from 'electron';
@@ -67,20 +72,31 @@ export function initializeSshHandlers(
 // =============================================================================
 
 export function registerSshHandlers(ipcMain: IpcMain): void {
-  ipcMain.handle(SSH_CONNECT, async (_event, config: SshConnectionConfig) => {
+  ipcMain.handle(SSH_CONNECT, async (_event, config: SshConnectionConfig, rootId?: string) => {
     try {
+      const previousActiveContextId = registry.getActiveContextId();
+
       // Connect to SSH host
       await connectionManager.connect(config);
 
+      const appConfig = configManager.getConfig();
+      const targetRoot =
+        typeof rootId === 'string' ? appConfig.roots.items.find((root) => root.id === rootId) : null;
+
       // Get provider and remote path
       const provider = connectionManager.getProvider();
-      const remoteProjectsPath = connectionManager.getRemoteProjectsPath() ?? undefined;
-      const remoteTodosPath = remoteProjectsPath
-        ? path.join(path.dirname(remoteProjectsPath), 'todos')
-        : undefined;
+      const resolvedRemoteRootPath =
+        targetRoot?.type === 'ssh' ? targetRoot.remoteClaudeRootPath : null;
+      const { remoteProjectsPath, remoteTodosPath } = resolveRemoteWorkspacePaths(
+        resolvedRemoteRootPath,
+        connectionManager.getRemoteProjectsPath()
+      );
 
       // Generate context ID
-      const contextId = `ssh-${config.host}`;
+      const contextId =
+        targetRoot?.type === 'ssh'
+          ? getContextIdForRoot(targetRoot, appConfig.ssh.profiles)
+          : getSshContextId(config.host, rootId ?? 'adhoc-root');
 
       // Destroy existing SSH context if any (reconnection case)
       if (registry.has(contextId)) {
@@ -92,19 +108,32 @@ export function registerSshHandlers(ipcMain: IpcMain): void {
       const sshContext = new ServiceContext({
         id: contextId,
         type: 'ssh',
+        rootId: targetRoot?.type === 'ssh' ? targetRoot.id : rootId ?? 'adhoc-root',
+        rootName: targetRoot?.type === 'ssh' ? targetRoot.name : config.host,
         fsProvider: provider,
         projectsDir: remoteProjectsPath,
         todosDir: remoteTodosPath,
       });
 
-      // Register and start SSH context
+      // Register SSH context and activate via switch
       registry.registerContext(sshContext);
-      sshContext.start();
 
       // Switch to SSH context
       registry.switch(contextId);
 
-      // Re-wire file watcher events only (renderer's connectSsh() handles state)
+      if (targetRoot?.type === 'ssh') {
+        configManager.setActiveRoot(targetRoot.id);
+      }
+
+      if (
+        previousActiveContextId.startsWith('ssh-') &&
+        previousActiveContextId !== contextId &&
+        registry.has(previousActiveContextId)
+      ) {
+        registry.destroy(previousActiveContextId);
+      }
+
+      // Re-wire file watcher events only (renderer updates connection state via context switch flow)
       onContextRewire(sshContext);
 
       return { success: true, data: connectionManager.getStatus() };
@@ -126,13 +155,32 @@ export function registerSshHandlers(ipcMain: IpcMain): void {
 
       // If we were on an SSH context, destroy it
       if (isSshContext) {
+        const appConfig = configManager.getConfig();
+        const localRoot =
+          appConfig.roots.items.find(
+            (root) => root.id === DEFAULT_LOCAL_ROOT_ID && root.type === 'local'
+          ) ??
+          appConfig.roots.items.find((root) => root.type === 'local');
+        const fallbackLocalContextId = localRoot ? getLocalContextId(localRoot.id) : 'local';
+
         // Switch back to local first (this also starts local file watcher)
-        registry.switch('local');
+        registry.switch(fallbackLocalContextId);
+        if (localRoot) {
+          configManager.setActiveRoot(localRoot.id);
+        }
 
-        // Destroy the SSH context
-        registry.destroy(currentContextId);
+        // Destroy all SSH contexts (active and any stale disconnected remnants)
+        const sshContextIds = registry
+          .list()
+          .filter((context) => context.type === 'ssh')
+          .map((context) => context.id);
+        for (const sshContextId of sshContextIds) {
+          if (registry.has(sshContextId)) {
+            registry.destroy(sshContextId);
+          }
+        }
 
-        // Re-wire file watcher events only (renderer's disconnectSsh() handles state)
+        // Re-wire file watcher events only (renderer updates connection state via context switch flow)
         const localContext = registry.getActive();
         onContextRewire(localContext);
       }
@@ -145,8 +193,8 @@ export function registerSshHandlers(ipcMain: IpcMain): void {
     }
   });
 
-  ipcMain.handle(SSH_GET_STATE, async (): Promise<SshConnectionStatus> => {
-    return connectionManager.getStatus();
+  ipcMain.handle(SSH_GET_STATE, async () => {
+    return { success: true, data: connectionManager.getStatus() };
   });
 
   ipcMain.handle(SSH_TEST, async (_event, config: SshConnectionConfig) => {

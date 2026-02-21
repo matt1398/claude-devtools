@@ -57,6 +57,8 @@ import type {
   SshConnectionManager,
   UpdaterService,
 } from '../services';
+import type { CombinedWatcherManager } from '@main/utils/combinedWatcherManager';
+import type { DataRoot } from '@shared/types';
 
 /**
  * Initializes IPC handlers with service registry.
@@ -65,22 +67,31 @@ export function initializeIpcHandlers(
   registry: ServiceContextRegistry,
   updater: UpdaterService,
   sshManager: SshConnectionManager,
+  combinedWatcherManager: CombinedWatcherManager,
   contextCallbacks: {
     rewire: (context: ServiceContext) => void;
     full: (context: ServiceContext) => void;
     onClaudeRootPathUpdated: (claudeRootPath: string | null) => Promise<void> | void;
+    onRootAdded: (root: DataRoot) => Promise<void> | void;
+    onRootRemoved: (rootId: string) => Promise<void> | void;
+    onRootUpdated: (root: DataRoot) => Promise<void> | void;
+    onRootActivated: (rootId: string) => Promise<void> | void;
   }
 ): void {
   // Initialize domain handlers with registry
   initializeProjectHandlers(registry);
-  initializeSessionHandlers(registry);
+  initializeSessionHandlers(registry, combinedWatcherManager);
   initializeSearchHandlers(registry);
   initializeSubagentHandlers(registry);
   initializeUpdaterHandlers(updater);
   initializeSshHandlers(sshManager, registry, contextCallbacks.rewire);
-  initializeContextHandlers(registry, contextCallbacks.rewire);
+  initializeContextHandlers(registry, contextCallbacks.rewire, combinedWatcherManager);
   initializeConfigHandlers({
     onClaudeRootPathUpdated: contextCallbacks.onClaudeRootPathUpdated,
+    onRootAdded: contextCallbacks.onRootAdded,
+    onRootRemoved: contextCallbacks.onRootRemoved,
+    onRootUpdated: contextCallbacks.onRootUpdated,
+    onRootActivated: contextCallbacks.onRootActivated,
   });
 
   // Register all handlers

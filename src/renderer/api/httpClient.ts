@@ -41,6 +41,7 @@ import type {
   WaterfallData,
   WslClaudeRootCandidate,
 } from '@shared/types';
+import type { LocalDataRoot, SshDataRoot } from '@shared/types/roots';
 
 export class HttpAPIClient implements ElectronAPI {
   private baseUrl: string;
@@ -202,6 +203,18 @@ export class HttpAPIClient implements ElectronAPI {
     return this.get<PaginatedSessionsResult>(qs ? `${path}?${qs}` : path);
   };
 
+  getCombinedSessionsPaginated = (
+    cursor: string | null,
+    limit?: number
+  ): Promise<PaginatedSessionsResult> => {
+    const params = new URLSearchParams();
+    if (cursor) params.set('cursor', cursor);
+    if (limit) params.set('limit', String(limit));
+    const queryString = params.toString();
+    const path = '/api/sessions/combined';
+    return this.get<PaginatedSessionsResult>(queryString ? `${path}?${queryString}` : path);
+  };
+
   searchSessions = (
     projectId: string,
     query: string,
@@ -357,6 +370,42 @@ export class HttpAPIClient implements ElectronAPI {
       if (!result.success) throw new Error(result.error ?? 'Failed to update config');
       return result.data!;
     },
+    addRoot: async (
+      root: Omit<LocalDataRoot, 'id' | 'order'> | Omit<SshDataRoot, 'id' | 'order'>
+    ): Promise<AppConfig> => {
+      const result = await this.post<{ success: boolean; data?: AppConfig; error?: string }>(
+        '/api/roots',
+        root
+      );
+      if (!result.success) throw new Error(result.error ?? 'Failed to add root');
+      return result.data!;
+    },
+    updateRoot: async (
+      rootId: string,
+      updates: Partial<Omit<LocalDataRoot, 'id'>> | Partial<Omit<SshDataRoot, 'id'>>
+    ): Promise<AppConfig> => {
+      const result = await this.put<{ success: boolean; data?: AppConfig; error?: string }>(
+        `/api/roots/${encodeURIComponent(rootId)}`,
+        updates
+      );
+      if (!result.success) throw new Error(result.error ?? 'Failed to update root');
+      return result.data!;
+    },
+    removeRoot: async (rootId: string): Promise<AppConfig> => {
+      const result = await this.del<{ success: boolean; data?: AppConfig; error?: string }>(
+        `/api/roots/${encodeURIComponent(rootId)}`
+      );
+      if (!result.success) throw new Error(result.error ?? 'Failed to remove root');
+      return result.data!;
+    },
+    reorderRoots: async (rootIdsInOrder: string[]): Promise<AppConfig> => {
+      const result = await this.post<{ success: boolean; data?: AppConfig; error?: string }>(
+        '/api/roots/reorder',
+        { rootIdsInOrder }
+      );
+      if (!result.success) throw new Error(result.error ?? 'Failed to reorder roots');
+      return result.data!;
+    },
     addIgnoreRegex: async (pattern: string): Promise<AppConfig> => {
       await this.post('/api/config/ignore-regex', { pattern });
       return this.config.get();
@@ -412,17 +461,28 @@ export class HttpAPIClient implements ElectronAPI {
       console.warn('[HttpAPIClient] selectFolders is not available in browser mode');
       return [];
     },
-    selectClaudeRootFolder: async (): Promise<ClaudeRootFolderSelection | null> => {
+    selectClaudeRootFolder: async (_rootId?: string): Promise<ClaudeRootFolderSelection | null> => {
       console.warn('[HttpAPIClient] selectClaudeRootFolder is not available in browser mode');
       return null;
     },
+    getRootInfo: async (rootId: string): Promise<ClaudeRootInfo> => {
+      const result = await this.get<{ success: boolean; data?: ClaudeRootInfo; error?: string }>(
+        `/api/roots/${encodeURIComponent(rootId)}/info`
+      );
+      if (!result.success) throw new Error(result.error ?? 'Failed to get root info');
+      return result.data!;
+    },
     getClaudeRootInfo: async (): Promise<ClaudeRootInfo> => {
       const config = await this.config.get();
-      const fallbackPath = config.general.claudeRootPath ?? '~/.claude';
+      const activeRoot =
+        config.roots.items.find((root) => root.id === config.roots.activeRootId) ??
+        config.roots.items[0];
+      const fallbackPath =
+        activeRoot?.type === 'local' ? (activeRoot.claudeRootPath ?? '~/.claude') : '~/.claude';
       return {
         defaultPath: fallbackPath,
         resolvedPath: fallbackPath,
-        customPath: config.general.claudeRootPath,
+        customPath: activeRoot?.type === 'local' ? activeRoot.claudeRootPath : null,
       };
     },
     findWslClaudeRoots: async (): Promise<WslClaudeRootCandidate[]> => {
@@ -476,6 +536,10 @@ export class HttpAPIClient implements ElectronAPI {
   onTodoChange = (callback: (event: FileChangeEvent) => void): (() => void) =>
     this.addEventListener('todo-change', callback);
 
+  setCombinedWatchers = async (enabled: boolean): Promise<void> => {
+    await this.post<{ success: true }>('/api/contexts/combined-watchers', { enabled });
+  };
+
   // ---------------------------------------------------------------------------
   // Shell operations (browser fallbacks)
   // ---------------------------------------------------------------------------
@@ -524,12 +588,36 @@ export class HttpAPIClient implements ElectronAPI {
   // ---------------------------------------------------------------------------
 
   ssh: SshAPI = {
-    connect: (config: SshConnectionConfig): Promise<SshConnectionStatus> =>
-      this.post('/api/ssh/connect', config),
-    disconnect: (): Promise<SshConnectionStatus> => this.post('/api/ssh/disconnect'),
+    connect: async (config: SshConnectionConfig, rootId?: string): Promise<SshConnectionStatus> => {
+      const result = await this.post<{
+        success: boolean;
+        data?: SshConnectionStatus;
+        error?: string;
+      }>('/api/ssh/connect', { config, rootId });
+      if (!result.success) throw new Error(result.error ?? 'Failed to connect SSH');
+      return result.data!;
+    },
+    disconnect: async (): Promise<SshConnectionStatus> => {
+      const result = await this.post<{
+        success: boolean;
+        data?: SshConnectionStatus;
+        error?: string;
+      }>('/api/ssh/disconnect');
+      if (!result.success) throw new Error(result.error ?? 'Failed to disconnect SSH');
+      return result.data!;
+    },
     getState: (): Promise<SshConnectionStatus> => this.get('/api/ssh/state'),
-    test: (config: SshConnectionConfig): Promise<{ success: boolean; error?: string }> =>
-      this.post('/api/ssh/test', config),
+    test: async (config: SshConnectionConfig): Promise<{ success: boolean; error?: string }> => {
+      const result = await this.post<{
+        success: boolean;
+        data?: { success: boolean; error?: string };
+        error?: string;
+      }>('/api/ssh/test', config);
+      if (!result.success) {
+        return { success: false, error: result.error };
+      }
+      return result.data ?? { success: false, error: 'Unknown SSH test failure' };
+    },
     getConfigHosts: async (): Promise<SshConfigHostEntry[]> => {
       const result = await this.get<{ success: boolean; data?: SshConfigHostEntry[] }>(
         '/api/ssh/config-hosts'
@@ -564,7 +652,10 @@ export class HttpAPIClient implements ElectronAPI {
 
   context = {
     list: (): Promise<ContextInfo[]> => this.get<ContextInfo[]>('/api/contexts'),
-    getActive: (): Promise<string> => this.get<string>('/api/contexts/active'),
+    getActive: async (): Promise<string> => {
+      const res = await this.get<{ contextId: string }>('/api/contexts/active');
+      return res.contextId;
+    },
     switch: (contextId: string): Promise<{ contextId: string }> =>
       this.post<{ contextId: string }>('/api/contexts/switch', { contextId }),
     onChanged: (callback: (event: unknown, data: ContextInfo) => void): (() => void) =>

@@ -444,6 +444,7 @@ export interface FileChangeEvent {
   projectId?: string;
   sessionId?: string;
   isSubagent: boolean;
+  contextId?: string;
 }
 
 // =============================================================================

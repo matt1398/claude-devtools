@@ -50,6 +50,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
     pinnedSessionIds,
     toggleHideSession,
     hiddenSessionIds,
+    combinedModeEnabled,
   } = useStore(
     useShallow((s) => ({
       pane: s.paneLayout.panes.find((p) => p.id === paneId),
@@ -76,6 +77,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
       pinnedSessionIds: s.pinnedSessionIds,
       toggleHideSession: s.toggleHideSession,
       hiddenSessionIds: s.hiddenSessionIds,
+      combinedModeEnabled: s.combinedModeEnabled,
     }))
   );
 
@@ -429,13 +431,13 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
           isSessionTab={isContextMenuTabSession}
           isPinned={isContextMenuTabPinned}
           onTogglePin={
-            isContextMenuTabSession && contextMenuTab?.sessionId
+            !combinedModeEnabled && isContextMenuTabSession && contextMenuTab?.sessionId
               ? () => togglePinSession(contextMenuTab.sessionId!)
               : undefined
           }
           isHidden={isContextMenuTabHidden}
           onToggleHide={
-            isContextMenuTabSession && contextMenuTab?.sessionId
+            !combinedModeEnabled && isContextMenuTabSession && contextMenuTab?.sessionId
               ? () => toggleHideSession(contextMenuTab.sessionId!)
               : undefined
           }

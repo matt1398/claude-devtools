@@ -1,22 +1,31 @@
 /**
- * GeneralSection - General settings including startup, appearance, browser access, and local Claude root.
+ * GeneralSection - General settings including startup, appearance, browser access, and data roots.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, isElectronMode } from '@renderer/api';
-import { confirm } from '@renderer/components/common/ConfirmDialog';
+import { confirm, prompt } from '@renderer/components/common/ConfirmDialog';
 import { useStore } from '@renderer/store';
-import { getFullResetState } from '@renderer/store/utils/stateResetHelpers';
-import { Check, Copy, FolderOpen, Laptop, Loader2, RotateCcw } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Copy,
+  FolderOpen,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+  Wifi,
+} from 'lucide-react';
 
 import { SettingRow, SettingsSectionHeader, SettingsSelect, SettingsToggle } from '../components';
 
 import type { SafeConfig } from '../hooks/useSettingsConfig';
-import type { ClaudeRootInfo, WslClaudeRootCandidate } from '@shared/types';
+import type { DataRoot, SshConnectionProfile } from '@shared/types';
 import type { HttpServerStatus } from '@shared/types/api';
 
-// Theme options
 const THEME_OPTIONS = [
   { value: 'dark', label: 'Dark' },
   { value: 'light', label: 'Light' },
@@ -43,37 +52,63 @@ export const GeneralSection = ({
   const [serverLoading, setServerLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Claude Root state
-  const connectionMode = useStore((s) => s.connectionMode);
-  const fetchProjects = useStore((s) => s.fetchProjects);
-  const fetchRepositoryGroups = useStore((s) => s.fetchRepositoryGroups);
+  const [roots, setRoots] = useState<DataRoot[]>([]);
+  const [sshProfiles, setSshProfiles] = useState<SshConnectionProfile[]>([]);
+  const [rootsLoading, setRootsLoading] = useState(false);
+  const [rootsError, setRootsError] = useState<string | null>(null);
 
-  const [claudeRootInfo, setClaudeRootInfo] = useState<ClaudeRootInfo | null>(null);
-  const [updatingClaudeRoot, setUpdatingClaudeRoot] = useState(false);
-  const [claudeRootError, setClaudeRootError] = useState<string | null>(null);
-  const [findingWslRoots, setFindingWslRoots] = useState(false);
-  const [wslCandidates, setWslCandidates] = useState<WslClaudeRootCandidate[]>([]);
-  const [showWslModal, setShowWslModal] = useState(false);
+  const [newSshRootName, setNewSshRootName] = useState('');
+  const [newSshProfileId, setNewSshProfileId] = useState('');
+  const [newSshRemotePath, setNewSshRemotePath] = useState('');
 
-  // Fetch server status and Claude root info on mount
+  const fetchAvailableContexts = useStore((s) => s.fetchAvailableContexts);
+  const deleteSnapshot = useStore((s) => s.deleteSnapshot);
+
+  const isElectron = useMemo(() => isElectronMode(), []);
+
   useEffect(() => {
     void api.httpServer.getStatus().then(setServerStatus);
   }, []);
 
-  const loadClaudeRootInfo = useCallback(async () => {
+  const loadRoots = useCallback(async () => {
     try {
-      const info = await api.config.getClaudeRootInfo();
-      setClaudeRootInfo(info);
+      setRootsLoading(true);
+      setRootsError(null);
+      const config = await api.config.get();
+      const sortedRoots = [...config.roots.items].sort((a, b) => a.order - b.order);
+      setRoots(sortedRoots);
+      const profiles = config.ssh?.profiles ?? [];
+      setSshProfiles(profiles);
+      setNewSshProfileId((currentProfileId) => {
+        if (profiles.length === 0) return '';
+        if (currentProfileId && profiles.some((profile) => profile.id === currentProfileId)) {
+          return currentProfileId;
+        }
+        return profiles[0].id;
+      });
     } catch (error) {
-      setClaudeRootError(
-        error instanceof Error ? error.message : 'Failed to load local Claude root settings'
-      );
+      setRootsError(error instanceof Error ? error.message : 'Failed to load roots');
+    } finally {
+      setRootsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadClaudeRootInfo();
-  }, [loadClaudeRootInfo]);
+    if (!isElectron) return;
+    void loadRoots();
+  }, [isElectron, loadRoots]);
+
+  const runRootMutation = useCallback(
+    async (operation: () => Promise<void>, fallbackMessage: string) => {
+      try {
+        setRootsError(null);
+        await operation();
+      } catch (error) {
+        setRootsError(error instanceof Error ? error.message : fallbackMessage);
+      }
+    },
+    []
+  );
 
   const handleServerToggle = useCallback(async (enabled: boolean) => {
     setServerLoading(true);
@@ -81,7 +116,7 @@ export const GeneralSection = ({
       const status = enabled ? await api.httpServer.start() : await api.httpServer.stop();
       setServerStatus(status);
     } catch {
-      // Status didn't change
+      // Toggle failed — status unchanged, loading cleared below
     } finally {
       setServerLoading(false);
     }
@@ -95,157 +130,166 @@ export const GeneralSection = ({
     setTimeout(() => setCopied(false), 2000);
   }, [serverUrl]);
 
-  // Claude Root handlers
-  const resetWorkspaceForRootChange = useCallback((): void => {
-    useStore.setState({
-      projects: [],
-      repositoryGroups: [],
-      openTabs: [],
-      activeTabId: null,
-      selectedTabIds: [],
-      paneLayout: {
-        panes: [
-          {
-            id: 'pane-default',
-            tabs: [],
-            activeTabId: null,
-            selectedTabIds: [],
-            widthFraction: 1,
-          },
-        ],
-        focusedPaneId: 'pane-default',
-      },
-      ...getFullResetState(),
-    });
-  }, []);
-
-  const applyClaudeRootPath = useCallback(
-    async (claudeRootPath: string | null): Promise<void> => {
-      try {
-        setUpdatingClaudeRoot(true);
-        setClaudeRootError(null);
-
-        await api.config.update('general', { claudeRootPath });
-        await loadClaudeRootInfo();
-
-        if (connectionMode === 'local') {
-          resetWorkspaceForRootChange();
-          await Promise.all([fetchProjects(), fetchRepositoryGroups()]);
-        }
-      } catch (error) {
-        setClaudeRootError(error instanceof Error ? error.message : 'Failed to update Claude root');
-      } finally {
-        setUpdatingClaudeRoot(false);
-      }
+  const handleRenameRoot = useCallback(
+    async (root: DataRoot) => {
+      const value = await prompt({
+        title: 'Rename Root',
+        message: 'Enter a new name for this root.',
+        defaultValue: root.name,
+        placeholder: 'Root name',
+        confirmLabel: 'Save',
+      });
+      const name = value?.trim();
+      if (!name || name === root.name) return;
+      await runRootMutation(async () => {
+        await api.config.updateRoot(root.id, { name });
+        await loadRoots();
+        await fetchAvailableContexts();
+      }, 'Failed to rename root');
     },
-    [
-      connectionMode,
-      fetchProjects,
-      fetchRepositoryGroups,
-      loadClaudeRootInfo,
-      resetWorkspaceForRootChange,
-    ]
+    [fetchAvailableContexts, loadRoots, runRootMutation]
   );
 
-  const handleSelectClaudeRootFolder = useCallback(async (): Promise<void> => {
-    setClaudeRootError(null);
+  const handleMoveRoot = useCallback(
+    async (rootId: string, direction: 'up' | 'down') => {
+      const sorted = [...roots].sort((a, b) => a.order - b.order);
+      const index = sorted.findIndex((root) => root.id === rootId);
+      if (index < 0) return;
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= sorted.length) return;
 
-    const selection = await api.config.selectClaudeRootFolder();
-    if (!selection) {
+      const reordered = [...sorted];
+      [reordered[index], reordered[targetIndex]] = [reordered[targetIndex], reordered[index]];
+      await runRootMutation(async () => {
+        await api.config.reorderRoots(reordered.map((root) => root.id));
+        await loadRoots();
+        await fetchAvailableContexts();
+      }, 'Failed to reorder roots');
+    },
+    [fetchAvailableContexts, loadRoots, roots, runRootMutation]
+  );
+
+  const handleEditLocalRootPath = useCallback(
+    async (root: Extract<DataRoot, { type: 'local' }>) => {
+      await runRootMutation(async () => {
+        const selection = await api.config.selectClaudeRootFolder(root.id);
+        if (!selection) return;
+
+        if (!selection.isClaudeDirName) {
+          const proceed = await confirm({
+            title: 'Selected folder is not .claude',
+            message: 'This folder is not named ".claude". Continue anyway?',
+            confirmLabel: 'Use Folder',
+          });
+          if (!proceed) return;
+        }
+
+        if (!selection.hasProjectsDir) {
+          const proceed = await confirm({
+            title: 'No projects directory found',
+            message: 'This folder does not contain a "projects" directory. Continue anyway?',
+            confirmLabel: 'Use Folder',
+          });
+          if (!proceed) return;
+        }
+
+        await api.config.updateRoot(root.id, { claudeRootPath: selection.path });
+        await loadRoots();
+        await fetchAvailableContexts();
+      }, 'Failed to update local root path');
+    },
+    [fetchAvailableContexts, loadRoots, runRootMutation]
+  );
+
+  const handleEditSshRemotePath = useCallback(
+    async (root: Extract<DataRoot, { type: 'ssh' }>) => {
+      const nextPath = await prompt({
+        title: 'Remote Claude Root Path',
+        message: 'Set a remote Claude root path. Leave blank to use ~/.claude.',
+        defaultValue: root.remoteClaudeRootPath ?? '',
+        placeholder: '~/.claude',
+        confirmLabel: 'Save',
+      });
+      if (nextPath === null) return;
+      await runRootMutation(async () => {
+        await api.config.updateRoot(root.id, { remoteClaudeRootPath: nextPath.trim() || null });
+        await loadRoots();
+        await fetchAvailableContexts();
+      }, 'Failed to update remote root path');
+    },
+    [fetchAvailableContexts, loadRoots, runRootMutation]
+  );
+
+  const handleDeleteRoot = useCallback(
+    async (root: DataRoot) => {
+      const confirmed = await confirm({
+        title: 'Delete Root',
+        message: `Delete root "${root.name}"?`,
+        confirmLabel: 'Delete',
+        variant: 'danger',
+      });
+      if (!confirmed) return;
+
+      await runRootMutation(async () => {
+        await api.config.removeRoot(root.id);
+        await deleteSnapshot(root.id);
+        await loadRoots();
+        await fetchAvailableContexts();
+      }, 'Failed to delete root');
+    },
+    [deleteSnapshot, fetchAvailableContexts, loadRoots, runRootMutation]
+  );
+
+  const handleAddLocalRoot = useCallback(async () => {
+    await runRootMutation(async () => {
+      const selection = await api.config.selectClaudeRootFolder();
+      if (!selection) return;
+
+      const derivedName = selection.path.split(/[\\/]/).pop() || 'Local Root';
+      await api.config.addRoot({
+        type: 'local',
+        name: derivedName,
+        claudeRootPath: selection.path,
+      });
+      await loadRoots();
+      await fetchAvailableContexts();
+    }, 'Failed to add local root');
+  }, [fetchAvailableContexts, loadRoots, runRootMutation]);
+
+  const handleAddSshRoot = useCallback(async () => {
+    if (!newSshProfileId || !newSshRootName.trim()) {
+      setRootsError('SSH root requires a name and SSH profile');
       return;
     }
 
-    if (!selection.isClaudeDirName) {
-      const proceed = await confirm({
-        title: 'Selected folder is not .claude',
-        message: `This folder is named "${selection.path.split(/[\\/]/).pop() ?? selection.path}", not ".claude". Continue anyway?`,
-        confirmLabel: 'Use Folder',
+    await runRootMutation(async () => {
+      await api.config.addRoot({
+        type: 'ssh',
+        name: newSshRootName.trim(),
+        sshProfileId: newSshProfileId,
+        remoteClaudeRootPath: newSshRemotePath.trim() || null,
       });
-      if (!proceed) {
-        return;
-      }
-    }
 
-    if (!selection.hasProjectsDir) {
-      const proceed = await confirm({
-        title: 'No projects directory found',
-        message: 'This folder does not contain a "projects" directory. Continue anyway?',
-        confirmLabel: 'Use Folder',
-      });
-      if (!proceed) {
-        return;
-      }
-    }
+      setNewSshRootName('');
+      setNewSshRemotePath('');
+      await loadRoots();
+      await fetchAvailableContexts();
+    }, 'Failed to add SSH root');
+  }, [
+    fetchAvailableContexts,
+    loadRoots,
+    newSshProfileId,
+    newSshRemotePath,
+    newSshRootName,
+    runRootMutation,
+  ]);
 
-    await applyClaudeRootPath(selection.path);
-  }, [applyClaudeRootPath]);
-
-  const handleResetClaudeRoot = useCallback(async (): Promise<void> => {
-    await applyClaudeRootPath(null);
-  }, [applyClaudeRootPath]);
-
-  const applyWslCandidate = useCallback(
-    async (candidate: WslClaudeRootCandidate): Promise<void> => {
-      if (!candidate.hasProjectsDir) {
-        const proceed = await confirm({
-          title: 'WSL path missing projects directory',
-          message: `"${candidate.path}" does not contain a "projects" directory. Continue anyway?`,
-          confirmLabel: 'Use Path',
-        });
-        if (!proceed) {
-          return;
-        }
-      }
-
-      await applyClaudeRootPath(candidate.path);
-      setShowWslModal(false);
-    },
-    [applyClaudeRootPath]
-  );
-
-  const handleUseWslForClaude = useCallback(async (): Promise<void> => {
-    try {
-      setFindingWslRoots(true);
-      setClaudeRootError(null);
-      const candidates = await api.config.findWslClaudeRoots();
-      setWslCandidates(candidates);
-
-      if (candidates.length === 0) {
-        const pickManually = await confirm({
-          title: 'No WSL Claude paths found',
-          message:
-            'Could not find WSL distros with Claude data automatically. Select folder manually?',
-          confirmLabel: 'Select Folder',
-        });
-        if (pickManually) {
-          await handleSelectClaudeRootFolder();
-        }
-        return;
-      }
-
-      const candidatesWithProjects = candidates.filter((candidate) => candidate.hasProjectsDir);
-      if (candidatesWithProjects.length === 1) {
-        await applyWslCandidate(candidatesWithProjects[0]);
-        return;
-      }
-
-      setShowWslModal(true);
-    } catch (error) {
-      setClaudeRootError(
-        error instanceof Error ? error.message : 'Failed to detect WSL Claude root paths'
-      );
-    } finally {
-      setFindingWslRoots(false);
-    }
-  }, [applyWslCandidate, handleSelectClaudeRootFolder]);
-
-  const isCustomClaudeRoot = Boolean(claudeRootInfo?.customPath);
-  const resolvedClaudeRootPath = claudeRootInfo?.resolvedPath ?? '~/.claude';
-  const defaultClaudeRootPath = claudeRootInfo?.defaultPath ?? '~/.claude';
-  const isWindowsStyleDefaultPath =
-    /^[a-zA-Z]:\\/.test(defaultClaudeRootPath) || defaultClaudeRootPath.startsWith('\\\\');
-
-  const isElectron = useMemo(() => isElectronMode(), []);
+  const inputClass = 'w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-1';
+  const inputStyle = {
+    backgroundColor: 'var(--color-surface-raised)',
+    borderColor: 'var(--color-border)',
+    color: 'var(--color-text)',
+  };
 
   return (
     <div>
@@ -289,174 +333,186 @@ export const GeneralSection = ({
 
       {isElectron && (
         <>
-          <SettingsSectionHeader title="Local Claude Root" />
-          <p className="mb-4 text-sm" style={{ color: 'var(--color-text-muted)' }}>
-            Choose which local folder is treated as your Claude data root
-          </p>
-
-          <SettingRow
-            label="Current Local Root"
-            description={isCustomClaudeRoot ? 'Using custom path' : 'Using auto-detected path'}
-          >
-            <div className="max-w-96 text-right">
-              <div className="truncate font-mono text-xs" style={{ color: 'var(--color-text)' }}>
-                {resolvedClaudeRootPath}
-              </div>
-              <div className="text-[11px]" style={{ color: 'var(--color-text-muted)' }}>
-                Auto-detected: {defaultClaudeRootPath}
-              </div>
-            </div>
-          </SettingRow>
-
-          <div className="flex items-center gap-3 py-2">
-            <button
-              onClick={() => void handleSelectClaudeRootFolder()}
-              disabled={updatingClaudeRoot}
-              className="rounded-md px-4 py-1.5 text-sm transition-colors disabled:opacity-50"
-              style={{
-                backgroundColor: 'var(--color-surface-raised)',
-                color: 'var(--color-text)',
-              }}
-            >
-              <span className="flex items-center gap-2">
-                {updatingClaudeRoot ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <FolderOpen className="size-3" />
-                )}
-                Select Folder
-              </span>
-            </button>
-
-            <button
-              onClick={() => void handleResetClaudeRoot()}
-              disabled={updatingClaudeRoot || !isCustomClaudeRoot}
-              className="rounded-md px-4 py-1.5 text-sm transition-colors disabled:opacity-50"
-              style={{
-                backgroundColor: 'var(--color-surface-raised)',
-                color: 'var(--color-text-secondary)',
-              }}
-            >
-              <span className="flex items-center gap-2">
-                <RotateCcw className="size-3" />
-                Use Auto-Detect
-              </span>
-            </button>
-
-            {isWindowsStyleDefaultPath && (
-              <button
-                onClick={() => void handleUseWslForClaude()}
-                disabled={updatingClaudeRoot || findingWslRoots}
-                className="rounded-md px-4 py-1.5 text-sm transition-colors disabled:opacity-50"
-                style={{
-                  backgroundColor: 'var(--color-surface-raised)',
-                  color: 'var(--color-text-secondary)',
-                }}
-              >
-                <span className="flex items-center gap-2">
-                  {findingWslRoots ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : (
-                    <Laptop className="size-3" />
-                  )}
-                  Using Linux/WSL?
-                </span>
-              </button>
-            )}
-          </div>
-
-          {claudeRootError && (
-            <div className="rounded-md border border-red-500/20 bg-red-500/10 px-4 py-3">
-              <p className="text-sm text-red-400">{claudeRootError}</p>
+          <SettingsSectionHeader title="Data Roots" />
+          {rootsError && (
+            <div className="mb-3 rounded-md border border-red-500/20 bg-red-500/10 px-4 py-3">
+              <p className="text-sm text-red-400">{rootsError}</p>
             </div>
           )}
 
-          {showWslModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center">
-              <button
-                className="absolute inset-0 cursor-default"
-                style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
-                onClick={() => setShowWslModal(false)}
-                aria-label="Close WSL path modal"
-                tabIndex={-1}
-              />
-              <div
-                className="relative mx-4 w-full max-w-2xl rounded-lg border p-5 shadow-xl"
-                style={{
-                  backgroundColor: 'var(--color-surface-overlay)',
-                  borderColor: 'var(--color-border-emphasis)',
-                }}
-              >
-                <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-                  Select WSL Claude Root
-                </h3>
-                <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  Detected WSL distributions and Claude root candidates
-                </p>
+          {rootsLoading ? (
+            <div className="mb-4 flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-muted)' }}>
+              <Loader2 className="size-4 animate-spin" />
+              Loading roots...
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {roots.map((root, index) => {
+                const profile = root.type === 'ssh'
+                  ? sshProfiles.find((item) => item.id === root.sshProfileId)
+                  : null;
+                const rootDescription =
+                  root.type === 'local'
+                    ? root.claudeRootPath ?? 'Auto-detect (~/.claude)'
+                    : [profile?.name ?? 'Missing profile', root.remoteClaudeRootPath]
+                        .filter((value): value is string => Boolean(value))
+                        .join(' • ');
 
-                <div className="mt-4 space-y-2">
-                  {wslCandidates.map((candidate) => (
-                    <div
-                      key={`${candidate.distro}:${candidate.path}`}
-                      className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-                      style={{ borderColor: 'var(--color-border)' }}
-                    >
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium" style={{ color: 'var(--color-text)' }}>
-                          {candidate.distro}
-                        </p>
-                        <p
-                          className="truncate font-mono text-[11px]"
-                          style={{ color: 'var(--color-text-muted)' }}
-                        >
-                          {candidate.path}
-                        </p>
-                        {!candidate.hasProjectsDir && (
-                          <p className="text-[11px] text-amber-400">
-                            No projects directory detected
-                          </p>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => void applyWslCandidate(candidate)}
-                        className="rounded-md px-3 py-1.5 text-xs transition-colors"
-                        style={{
-                          backgroundColor: 'var(--color-surface-raised)',
-                          color: 'var(--color-text)',
-                        }}
-                      >
-                        Use This Path
-                      </button>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 flex items-center justify-end gap-2">
-                  <button
-                    onClick={() => setShowWslModal(false)}
-                    className="rounded-md border px-3 py-1.5 text-xs transition-colors hover:bg-white/5"
+                return (
+                  <div
+                    key={root.id}
+                    className="rounded-md border p-3"
                     style={{
                       borderColor: 'var(--color-border)',
-                      color: 'var(--color-text-secondary)',
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowWslModal(false);
-                      void handleSelectClaudeRootFolder();
-                    }}
-                    className="rounded-md px-3 py-1.5 text-xs transition-colors"
-                    style={{
                       backgroundColor: 'var(--color-surface-raised)',
-                      color: 'var(--color-text)',
                     }}
                   >
-                    Select Folder Manually
-                  </button>
-                </div>
-              </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                          {root.name}
+                        </p>
+                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                          {rootDescription}
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => void handleMoveRoot(root.id, 'up')}
+                        disabled={index === 0}
+                        title={`Move ${root.name} up`}
+                        aria-label={`Move ${root.name} up`}
+                        className="rounded-md p-1.5 transition-colors disabled:opacity-40"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}
+                      >
+                        <ArrowUp className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleMoveRoot(root.id, 'down')}
+                        disabled={index === roots.length - 1}
+                        title={`Move ${root.name} down`}
+                        aria-label={`Move ${root.name} down`}
+                        className="rounded-md p-1.5 transition-colors disabled:opacity-40"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}
+                      >
+                        <ArrowDown className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRenameRoot(root)}
+                        title={`Rename ${root.name}`}
+                        aria-label={`Rename ${root.name}`}
+                        className="rounded-md p-1.5 transition-colors"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void (root.type === 'local'
+                            ? handleEditLocalRootPath(root)
+                            : handleEditSshRemotePath(root))
+                        }
+                        title={root.type === 'local' ? `Edit local path for ${root.name}` : `Edit SSH path for ${root.name}`}
+                        aria-label={root.type === 'local' ? `Edit local path for ${root.name}` : `Edit SSH path for ${root.name}`}
+                        className="rounded-md p-1.5 transition-colors"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}
+                      >
+                        {root.type === 'local' ? (
+                          <FolderOpen className="size-3.5" />
+                        ) : (
+                          <Wifi className="size-3.5" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteRoot(root)}
+                        disabled={root.id === 'default-local'}
+                        title={
+                          root.id === 'default-local'
+                            ? 'Default local root cannot be deleted'
+                            : `Delete ${root.name}`
+                        }
+                        aria-label={
+                          root.id === 'default-local'
+                            ? 'Default local root cannot be deleted'
+                            : `Delete ${root.name}`
+                        }
+                        className="rounded-md p-1.5 transition-colors disabled:opacity-40"
+                        style={{ backgroundColor: 'var(--color-surface)', color: 'var(--color-text-secondary)' }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleAddLocalRoot()}
+              className="rounded-md px-3 py-1.5 text-sm transition-colors"
+              style={{ backgroundColor: 'var(--color-surface-raised)', color: 'var(--color-text)' }}
+            >
+              <span className="flex items-center gap-1.5">
+                <Plus className="size-3.5" />
+                Add Local Root
+              </span>
+            </button>
+          </div>
+
+          {sshProfiles.length === 0 ? (
+            <div
+              className="mt-3 rounded-md border px-3 py-2.5 text-xs"
+              style={{
+                borderColor: 'var(--color-border)',
+                backgroundColor: 'var(--color-surface-raised)',
+                color: 'var(--color-text-muted)',
+              }}
+            >
+              Add an SSH profile in the Workspace section before creating SSH roots.
+            </div>
+          ) : (
+            <div className="mt-3 space-y-2 rounded-md border p-3" style={{ borderColor: 'var(--color-border)' }}>
+              <p className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
+                Add SSH Root
+              </p>
+              <input
+                type="text"
+                value={newSshRootName}
+                onChange={(e) => setNewSshRootName(e.target.value)}
+                placeholder="Root name"
+                className={inputClass}
+                style={inputStyle}
+              />
+              <SettingsSelect
+                value={newSshProfileId}
+                options={sshProfiles.map((profile) => ({ value: profile.id, label: profile.name }))}
+                onChange={setNewSshProfileId}
+                fullWidth
+              />
+              <input
+                type="text"
+                value={newSshRemotePath}
+                onChange={(e) => setNewSshRemotePath(e.target.value)}
+                placeholder="Remote Claude path (optional)"
+                className={inputClass}
+                style={inputStyle}
+              />
+              <button
+                type="button"
+                onClick={() => void handleAddSshRoot()}
+                className="rounded-md px-3 py-1.5 text-sm transition-colors"
+                style={{ backgroundColor: 'var(--color-surface-raised)', color: 'var(--color-text)' }}
+              >
+                Add SSH Root
+              </button>
             </div>
           )}
         </>
@@ -470,10 +526,7 @@ export const GeneralSection = ({
             description="Start an HTTP server to access the UI from a browser or embed in iframes"
           >
             {serverLoading ? (
-              <Loader2
-                className="size-5 animate-spin"
-                style={{ color: 'var(--color-text-muted)' }}
-              />
+              <Loader2 className="size-5 animate-spin" style={{ color: 'var(--color-text-muted)' }} />
             ) : (
               <SettingsToggle
                 enabled={serverStatus.running}
@@ -488,14 +541,8 @@ export const GeneralSection = ({
               className="mb-2 flex items-center gap-3 rounded-md px-3 py-2.5"
               style={{ backgroundColor: 'var(--color-surface-raised)' }}
             >
-              <div
-                className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: '#22c55e' }}
-              />
-              <span
-                className="text-xs font-medium"
-                style={{ color: 'var(--color-text-secondary)' }}
-              >
+              <div className="size-2 shrink-0 rounded-full" style={{ backgroundColor: '#22c55e' }} />
+              <span className="text-xs font-medium" style={{ color: 'var(--color-text-secondary)' }}>
                 Running on
               </span>
               <code
@@ -561,7 +608,7 @@ export const GeneralSection = ({
           </div>
           <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
             Running in standalone mode. The HTTP server is always active. System notifications are
-            not available — notification triggers are logged in-app only.
+            not available - notification triggers are logged in-app only.
           </p>
         </>
       )}

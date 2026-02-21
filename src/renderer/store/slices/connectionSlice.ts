@@ -2,12 +2,10 @@
  * Connection Slice - Manages SSH connection state.
  *
  * Tracks connection mode (local/ssh), connection state,
- * and provides actions for connecting/disconnecting.
+ * and provides SSH helpers that do not perform context switches.
  */
 
 import { api } from '@renderer/api';
-
-import { getFullResetState } from '../utils/stateResetHelpers';
 
 import type { AppState } from '../types';
 import type {
@@ -32,8 +30,6 @@ export interface ConnectionSlice {
   lastSshConfig: SshLastConnection | null;
 
   // Actions
-  connectSsh: (config: SshConnectionConfig) => Promise<void>;
-  disconnectSsh: () => Promise<void>;
   testConnection: (config: SshConnectionConfig) => Promise<{ success: boolean; error?: string }>;
   setConnectionStatus: (
     state: SshConnectionState,
@@ -50,8 +46,7 @@ export interface ConnectionSlice {
 // =============================================================================
 
 export const createConnectionSlice: StateCreator<AppState, [], [], ConnectionSlice> = (
-  set,
-  get
+  set
 ) => ({
   // Initial state
   connectionMode: 'local',
@@ -62,112 +57,6 @@ export const createConnectionSlice: StateCreator<AppState, [], [], ConnectionSli
   lastSshConfig: null,
 
   // Actions
-  connectSsh: async (config: SshConnectionConfig): Promise<void> => {
-    set({
-      connectionState: 'connecting',
-      connectedHost: config.host,
-      connectionError: null,
-    });
-
-    try {
-      const status = await api.ssh.connect(config);
-      set({
-        connectionMode: status.state === 'connected' ? 'ssh' : 'local',
-        connectionState: status.state,
-        connectedHost: status.host,
-        connectionError: status.error,
-        // On connect: sync context ID + clear all stale local data including tabs
-        ...(status.state === 'connected'
-          ? {
-              activeContextId: `ssh-${config.host}`,
-              projects: [],
-              repositoryGroups: [],
-              openTabs: [],
-              activeTabId: null,
-              selectedTabIds: [],
-              paneLayout: {
-                panes: [
-                  {
-                    id: 'pane-default',
-                    tabs: [],
-                    activeTabId: null,
-                    selectedTabIds: [],
-                    widthFraction: 1,
-                  },
-                ],
-                focusedPaneId: 'pane-default',
-              },
-              ...getFullResetState(),
-            }
-          : {}),
-      });
-
-      // Re-fetch all data and persist config when connected
-      if (status.state === 'connected') {
-        const state = get();
-        void state.fetchProjects();
-        void state.fetchRepositoryGroups();
-
-        // Save connection config (without password) for form pre-fill on next launch
-        const saved: SshLastConnection = {
-          host: config.host,
-          port: config.port,
-          username: config.username,
-          authMethod: config.authMethod,
-          privateKeyPath: config.privateKeyPath,
-        };
-        set({ lastSshConfig: saved });
-        void api.ssh.saveLastConnection(saved);
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({
-        connectionState: 'error',
-        connectionError: message,
-      });
-    }
-  },
-
-  disconnectSsh: async (): Promise<void> => {
-    try {
-      const status = await api.ssh.disconnect();
-      set({
-        connectionMode: 'local',
-        connectionState: status.state,
-        connectedHost: null,
-        connectionError: null,
-        activeContextId: 'local',
-        // Clear all stale SSH data including tabs so dashboard shows fresh local data
-        projects: [],
-        repositoryGroups: [],
-        openTabs: [],
-        activeTabId: null,
-        selectedTabIds: [],
-        paneLayout: {
-          panes: [
-            {
-              id: 'pane-default',
-              tabs: [],
-              activeTabId: null,
-              selectedTabIds: [],
-              widthFraction: 1,
-            },
-          ],
-          focusedPaneId: 'pane-default',
-        },
-        ...getFullResetState(),
-      });
-
-      // Re-fetch local data
-      const state = get();
-      void state.fetchProjects();
-      void state.fetchRepositoryGroups();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      set({ connectionError: message });
-    }
-  },
-
   testConnection: async (
     config: SshConnectionConfig
   ): Promise<{ success: boolean; error?: string }> => {
@@ -186,7 +75,6 @@ export const createConnectionSlice: StateCreator<AppState, [], [], ConnectionSli
   ): void => {
     set({
       connectionState: state,
-      connectionMode: state === 'connected' ? 'ssh' : 'local',
       connectedHost: host,
       connectionError: error,
     });

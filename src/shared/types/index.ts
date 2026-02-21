@@ -15,6 +15,9 @@ export * from '@main/types';
 // Re-export notification and config types
 export * from './notifications';
 
+// Re-export data root types
+export type * from './roots';
+
 // Re-export visualization types (WaterfallData, WaterfallItem)
 export type * from './visualization';
 

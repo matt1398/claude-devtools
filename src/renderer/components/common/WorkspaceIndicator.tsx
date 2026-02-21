@@ -6,7 +6,7 @@
  * Only renders when multiple contexts are available (hidden in local-only mode).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { useStore } from '@renderer/store';
 import { Check, ChevronDown } from 'lucide-react';
@@ -15,17 +15,27 @@ import { useShallow } from 'zustand/react/shallow';
 import { ConnectionStatusBadge } from './ConnectionStatusBadge';
 
 export const WorkspaceIndicator = (): React.JSX.Element | null => {
-  const { activeContextId, isContextSwitching, availableContexts, switchContext } = useStore(
+  const {
+    activeContextId,
+    isContextSwitching,
+    availableContexts,
+    switchContext,
+    openSettingsTab,
+  } = useStore(
     useShallow((s) => ({
       activeContextId: s.activeContextId,
       isContextSwitching: s.isContextSwitching,
       availableContexts: s.availableContexts,
       switchContext: s.switchContext,
+      openSettingsTab: s.openSettingsTab,
     }))
   );
 
   const [isOpen, setIsOpen] = useState(false);
+  const [focusedContextId, setFocusedContextId] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -49,22 +59,109 @@ export const WorkspaceIndicator = (): React.JSX.Element | null => {
     return () => document.removeEventListener('keydown', handleEscape);
   }, []);
 
-  // Only show when multiple contexts exist
-  if (availableContexts.length <= 1) return null;
+  const activeContext = availableContexts.find((ctx) => ctx.id === activeContextId);
+  const activeLabel = activeContext?.rootName ?? 'Local';
+  const localContexts = useMemo(
+    () => availableContexts.filter((ctx) => ctx.type === 'local'),
+    [availableContexts]
+  );
+  const remoteContexts = useMemo(
+    () => availableContexts.filter((ctx) => ctx.type === 'ssh'),
+    [availableContexts]
+  );
+  const selectableContexts = useMemo(
+    () => [...localContexts, ...remoteContexts],
+    [localContexts, remoteContexts]
+  );
+  const resolvedFocusedContextId = useMemo(() => {
+    if (focusedContextId && selectableContexts.some((ctx) => ctx.id === focusedContextId)) {
+      return focusedContextId;
+    }
+    if (selectableContexts.some((ctx) => ctx.id === activeContextId)) {
+      return activeContextId;
+    }
+    return selectableContexts[0]?.id ?? null;
+  }, [activeContextId, focusedContextId, selectableContexts]);
 
-  const getContextLabel = (contextId: string): string => {
-    if (contextId === 'local') return 'Local';
-    return contextId.startsWith('ssh-') ? contextId.slice(4) : contextId;
+  useEffect(() => {
+    if (isOpen && !isContextSwitching) {
+      listboxRef.current?.focus();
+    }
+  }, [isContextSwitching, isOpen]);
+
+  const handleContextSelect = (contextId: string): void => {
+    void switchContext(contextId);
+    setIsOpen(false);
   };
 
-  const activeLabel = getContextLabel(activeContextId);
+  const handleListboxKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (selectableContexts.length === 0) {
+      return;
+    }
+    const currentIndex = selectableContexts.findIndex((ctx) => ctx.id === resolvedFocusedContextId);
+    const fallbackIndex = currentIndex >= 0 ? currentIndex : 0;
+
+    switch (event.key) {
+      case 'ArrowDown': {
+        event.preventDefault();
+        const nextIndex = (fallbackIndex + 1) % selectableContexts.length;
+        setFocusedContextId(selectableContexts[nextIndex].id);
+        return;
+      }
+      case 'ArrowUp': {
+        event.preventDefault();
+        const previousIndex = (fallbackIndex - 1 + selectableContexts.length) % selectableContexts.length;
+        setFocusedContextId(selectableContexts[previousIndex].id);
+        return;
+      }
+      case 'Home': {
+        event.preventDefault();
+        setFocusedContextId(selectableContexts[0].id);
+        return;
+      }
+      case 'End': {
+        event.preventDefault();
+        setFocusedContextId(selectableContexts[selectableContexts.length - 1].id);
+        return;
+      }
+      case 'Enter':
+      case ' ': {
+        event.preventDefault();
+        if (resolvedFocusedContextId) {
+          handleContextSelect(resolvedFocusedContextId);
+        }
+        return;
+      }
+      default:
+        return;
+    }
+  };
+
+  if (availableContexts.length <= 1) {
+    return null;
+  }
 
   return (
     <div ref={dropdownRef} className="fixed bottom-4 right-4 z-30">
       {/* Trigger pill */}
       <button
-        onClick={() => !isContextSwitching && setIsOpen(!isOpen)}
+        type="button"
+        onClick={() => {
+          if (isContextSwitching) {
+            return;
+          }
+          setIsOpen((currentOpen) => {
+            const nextOpen = !currentOpen;
+            if (nextOpen) {
+              setFocusedContextId(resolvedFocusedContextId);
+            }
+            return nextOpen;
+          });
+        }}
         disabled={isContextSwitching}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen && !isContextSwitching}
+        aria-controls={listboxId}
         className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs shadow-lg transition-opacity hover:opacity-90 ${isContextSwitching ? 'opacity-50' : ''}`}
         style={{
           backgroundColor: 'var(--color-surface-raised)',
@@ -112,24 +209,76 @@ export const WorkspaceIndicator = (): React.JSX.Element | null => {
               Switch Workspace
             </div>
 
-            {/* Context list */}
-            {availableContexts.map((ctx) => {
-              const isSelected = ctx.id === activeContextId;
-              const label = getContextLabel(ctx.id);
+            <div
+              id={listboxId}
+              ref={listboxRef}
+              role="listbox"
+              tabIndex={0}
+              aria-label="Available workspaces"
+              aria-activedescendant={
+                resolvedFocusedContextId
+                  ? `${listboxId}-option-${resolvedFocusedContextId}`
+                  : undefined
+              }
+              onKeyDown={handleListboxKeyDown}
+            >
+              {localContexts.length > 0 && (
+                <>
+                  <div
+                    className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    Local
+                  </div>
+                  {localContexts.map((ctx) => (
+                    <ContextItem
+                      key={ctx.id}
+                      optionId={`${listboxId}-option-${ctx.id}`}
+                      context={ctx}
+                      isSelected={ctx.id === activeContextId}
+                      isFocused={ctx.id === resolvedFocusedContextId}
+                      onFocus={() => setFocusedContextId(ctx.id)}
+                      onSelect={() => handleContextSelect(ctx.id)}
+                    />
+                  ))}
+                </>
+              )}
 
-              return (
-                <ContextItem
-                  key={ctx.id}
-                  contextId={ctx.id}
-                  label={label}
-                  isSelected={isSelected}
-                  onSelect={() => {
-                    void switchContext(ctx.id);
-                    setIsOpen(false);
-                  }}
-                />
-              );
-            })}
+              {remoteContexts.length > 0 && (
+                <>
+                  <div
+                    className="mt-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    Remote
+                  </div>
+                  {remoteContexts.map((ctx) => (
+                    <ContextItem
+                      key={ctx.id}
+                      optionId={`${listboxId}-option-${ctx.id}`}
+                      context={ctx}
+                      isSelected={ctx.id === activeContextId}
+                      isFocused={ctx.id === resolvedFocusedContextId}
+                      onFocus={() => setFocusedContextId(ctx.id)}
+                      onSelect={() => handleContextSelect(ctx.id)}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
+
+            <div className="my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
+            <button
+              type="button"
+              className="w-full px-3 py-2 text-left text-xs transition-colors hover:bg-surface-raised"
+              style={{ color: 'var(--color-text-secondary)' }}
+              onClick={() => {
+                openSettingsTab('general');
+                setIsOpen(false);
+              }}
+            >
+              Manage Roots...
+            </button>
           </div>
         </>
       )}
@@ -141,42 +290,57 @@ export const WorkspaceIndicator = (): React.JSX.Element | null => {
  * Individual context item in the dropdown.
  */
 interface ContextItemProps {
-  contextId: string;
-  label: string;
+  optionId: string;
+  context: {
+    id: string;
+    rootName: string;
+    connected: boolean;
+    type: 'local' | 'ssh';
+  };
   isSelected: boolean;
+  isFocused: boolean;
   onSelect: () => void;
+  onFocus: () => void;
 }
 
 const ContextItem = ({
-  contextId,
-  label,
+  optionId,
+  context,
   isSelected,
+  isFocused,
   onSelect,
+  onFocus,
 }: Readonly<ContextItemProps>): React.JSX.Element => {
-  const [isHovered, setIsHovered] = useState(false);
+  const isHighlighted = isSelected || isFocused;
 
-  const buttonStyle: React.CSSProperties = isSelected
+  const buttonStyle: React.CSSProperties = isHighlighted
     ? { backgroundColor: 'var(--color-surface-raised)', color: 'var(--color-text)' }
-    : {
-        backgroundColor: isHovered ? 'var(--color-surface-raised)' : 'transparent',
-        opacity: isHovered ? 0.5 : 1,
-      };
+    : { backgroundColor: 'transparent' };
 
   return (
     <button
+      id={optionId}
+      type="button"
+      role="option"
+      aria-selected={isSelected}
+      tabIndex={-1}
       onClick={onSelect}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors"
+      onMouseEnter={onFocus}
+      className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-raised"
       style={buttonStyle}
     >
-      <ConnectionStatusBadge contextId={contextId} />
+      <ConnectionStatusBadge contextId={context.id} />
       <span
         className="flex-1 truncate text-sm"
-        style={{ color: isSelected ? 'var(--color-text)' : 'var(--color-text-muted)' }}
+        style={{ color: isHighlighted ? 'var(--color-text)' : 'var(--color-text-muted)' }}
       >
-        {label}
+        {context.rootName}
       </span>
+      {context.type === 'ssh' && !context.connected && (
+        <span className="text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+          Connect
+        </span>
+      )}
       {isSelected && <Check className="size-3.5 shrink-0 text-indigo-400" />}
     </button>
   );

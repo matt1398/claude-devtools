@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 
 import { createConfigSlice } from '../../../src/renderer/store/slices/configSlice';
+import { createCombinedSessionsSlice } from '../../../src/renderer/store/slices/combinedSessionsSlice';
 import { createConversationSlice } from '../../../src/renderer/store/slices/conversationSlice';
 import { createNotificationSlice } from '../../../src/renderer/store/slices/notificationSlice';
 import { createPaneSlice } from '../../../src/renderer/store/slices/paneSlice';
@@ -27,6 +28,7 @@ export function createTestStore() {
   return create<AppState>()((...args) => ({
     ...createProjectSlice(...args),
     ...createRepositorySlice(...args),
+    ...createCombinedSessionsSlice(...args),
     ...createSessionSlice(...args),
     ...createSessionDetailSlice(...args),
     ...createSubagentSlice(...args),

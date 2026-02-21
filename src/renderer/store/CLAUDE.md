@@ -8,11 +8,12 @@ State management with slices pattern for domain organization.
 - `slices/` - Individual domain slices
 - `utils/` - Store utilities (`paneHelpers.ts`, `pathResolution.ts`)
 
-## Slices (12 total)
+## Slices (13 total)
 | Slice | Purpose |
 |-------|---------|
 | `projectSlice` | Projects list, selectedProjectId |
 | `repositorySlice` | Repository grouping, worktrees |
+| `combinedSessionsSlice` | Cross-context combined session mode and merged list |
 | `sessionSlice` | Sessions list, pagination, selectedSessionId |
 | `sessionDetailSlice` | Session detail, chunks, metrics |
 | `subagentSlice` | Subagent data, selectedSubagentId |

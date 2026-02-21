@@ -138,6 +138,7 @@ export const CommandPalette = (): React.JSX.Element | null => {
     commandPaletteOpen,
     closeCommandPalette,
     selectedProjectId,
+    combinedModeEnabled,
     navigateToSession,
     repositoryGroups,
     fetchRepositoryGroups,
@@ -147,6 +148,7 @@ export const CommandPalette = (): React.JSX.Element | null => {
       commandPaletteOpen: s.commandPaletteOpen,
       closeCommandPalette: s.closeCommandPalette,
       selectedProjectId: s.selectedProjectId,
+      combinedModeEnabled: s.combinedModeEnabled,
       navigateToSession: s.navigateToSession,
       repositoryGroups: s.repositoryGroups,
       fetchRepositoryGroups: s.fetchRepositoryGroups,
@@ -164,7 +166,11 @@ export const CommandPalette = (): React.JSX.Element | null => {
   const latestSearchRequestRef = useRef(0);
 
   // Determine search mode based on whether a project is selected
-  const searchMode: SearchMode = selectedProjectId ? 'sessions' : 'projects';
+  const searchMode: SearchMode = combinedModeEnabled
+    ? 'projects'
+    : selectedProjectId
+      ? 'sessions'
+      : 'projects';
 
   // Filter projects for project search mode
   const filteredProjects = useMemo(() => {
@@ -401,6 +407,11 @@ export const CommandPalette = (): React.JSX.Element | null => {
               </>
             )}
           </div>
+          {combinedModeEnabled && (
+            <div className="mt-1 text-[11px] text-text-muted">
+              Session search unavailable in combined mode
+            </div>
+          )}
         </div>
 
         {/* Search input */}

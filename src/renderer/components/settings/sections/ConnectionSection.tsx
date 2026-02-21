@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { api } from '@renderer/api';
 import { useStore } from '@renderer/store';
-import { Loader2, Monitor, Server, Wifi, WifiOff } from 'lucide-react';
+import { Loader2, Monitor, Server, Wifi } from 'lucide-react';
 
 import { SettingRow } from '../components/SettingRow';
 import { SettingsSectionHeader } from '../components/SettingsSectionHeader';
@@ -37,8 +37,9 @@ export const ConnectionSection = (): React.JSX.Element => {
   const connectionState = useStore((s) => s.connectionState);
   const connectedHost = useStore((s) => s.connectedHost);
   const connectionError = useStore((s) => s.connectionError);
-  const connectSsh = useStore((s) => s.connectSsh);
-  const disconnectSsh = useStore((s) => s.disconnectSsh);
+  const activeContextId = useStore((s) => s.activeContextId);
+  const availableContexts = useStore((s) => s.availableContexts);
+  const switchContext = useStore((s) => s.switchContext);
   const testConnection = useStore((s) => s.testConnection);
   const sshConfigHosts = useStore((s) => s.sshConfigHosts);
   const fetchSshConfigHosts = useStore((s) => s.fetchSshConfigHosts);
@@ -62,7 +63,11 @@ export const ConnectionSection = (): React.JSX.Element => {
 
   // Saved profiles
   const [savedProfiles, setSavedProfiles] = useState<SshConnectionProfile[]>([]);
+  const [sshRootOptions, setSshRootOptions] = useState<
+    { rootId: string; rootName: string; sshProfileId: string }[]
+  >([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [selectedRootId, setSelectedRootId] = useState<string | null>(null);
   const [claudeRootInfo, setClaudeRootInfo] = useState<ClaudeRootInfo | null>(null);
 
   const loadProfiles = useCallback(async () => {
@@ -70,6 +75,21 @@ export const ConnectionSection = (): React.JSX.Element => {
       const config = await api.config.get();
       const loaded = config.ssh;
       setSavedProfiles(loaded?.profiles ?? []);
+      const roots = config.roots.items
+        .filter((root) => root.type === 'ssh')
+        .map((root) => ({
+          rootId: root.id,
+          rootName: root.name,
+          sshProfileId: root.sshProfileId,
+        }));
+      setSshRootOptions(roots);
+      setSelectedRootId((currentRootId) => {
+        if (roots.length === 0) return null;
+        if (currentRootId && roots.some((root) => root.rootId === currentRootId)) {
+          return currentRootId;
+        }
+        return roots[0].rootId;
+      });
     } catch {
       // ignore
     }
@@ -77,7 +97,14 @@ export const ConnectionSection = (): React.JSX.Element => {
 
   const loadClaudeRootInfo = useCallback(async () => {
     try {
-      const info = await api.config.getClaudeRootInfo();
+      const config = await api.config.get();
+      const localRoot =
+        config.roots.items.find((root) => root.type === 'local' && root.id === 'default-local') ??
+        config.roots.items.find((root) => root.type === 'local');
+      if (localRoot?.type !== 'local') {
+        return;
+      }
+      const info = await api.config.getRootInfo(localRoot.id);
       setClaudeRootInfo(info);
     } catch {
       // ignore
@@ -157,6 +184,10 @@ export const ConnectionSection = (): React.JSX.Element => {
     setPassword('');
     setTestResult(null);
     setSelectedProfileId(profile.id);
+    const matchingRoot = sshRootOptions.find((root) => root.sshProfileId === profile.id);
+    if (matchingRoot) {
+      setSelectedRootId(matchingRoot.rootId);
+    }
   };
 
   const buildConfig = (): SshConnectionConfig => ({
@@ -177,15 +208,43 @@ export const ConnectionSection = (): React.JSX.Element => {
   };
 
   const handleConnect = async (): Promise<void> => {
-    await connectSsh(buildConfig());
+    if (!selectedRootId) {
+      setTestResult({ success: false, error: 'Create an SSH root in General settings first.' });
+      return;
+    }
+
+    const targetContext = availableContexts.find((ctx) => ctx.rootId === selectedRootId);
+    if (!targetContext) {
+      setTestResult({ success: false, error: 'Selected SSH root is not available.' });
+      return;
+    }
+
+    const credentialOverrides: Partial<SshConnectionConfig> = {};
+    if (authMethod === 'password' && password) {
+      credentialOverrides.password = password;
+    }
+    if (authMethod === 'privateKey' && privateKeyPath) {
+      credentialOverrides.privateKeyPath = privateKeyPath;
+    }
+
+    await switchContext(
+      targetContext.id,
+      Object.keys(credentialOverrides).length > 0 ? credentialOverrides : undefined
+    );
   };
 
   const handleDisconnect = async (): Promise<void> => {
-    await disconnectSsh();
+    const localTarget =
+      availableContexts.find((ctx) => ctx.type === 'local' && ctx.rootId === 'default-local') ??
+      availableContexts.find((ctx) => ctx.type === 'local');
+    if (localTarget) {
+      await switchContext(localTarget.id);
+    }
   };
 
   const isConnecting = connectionState === 'connecting';
   const isConnected = connectionState === 'connected';
+  const activeContext = availableContexts.find((ctx) => ctx.id === activeContextId);
   const resolvedClaudeRootPath = claudeRootInfo?.resolvedPath ?? '~/.claude';
 
   const inputClass = 'w-full rounded-md border px-3 py-1.5 text-sm focus:outline-none focus:ring-1';
@@ -214,10 +273,10 @@ export const ConnectionSection = (): React.JSX.Element => {
           <Wifi className="size-4 text-green-400" />
           <div className="flex-1">
             <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
-              Connected to {connectedHost}
+              Connected to {activeContext?.rootName ?? connectedHost}
             </p>
             <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-              Viewing remote sessions via SSH
+              Viewing remote sessions via SSH{connectedHost ? ` (${connectedHost})` : ''}
             </p>
           </div>
           <button
@@ -250,6 +309,12 @@ export const ConnectionSection = (): React.JSX.Element => {
             <span>Local ({resolvedClaudeRootPath})</span>
           </div>
         </SettingRow>
+      )}
+
+      {!isConnected && (
+        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          SSH profiles are referenced by data roots. Manage roots in General settings.
+        </p>
       )}
 
       {/* Saved Profiles */}
@@ -296,6 +361,23 @@ export const ConnectionSection = (): React.JSX.Element => {
           <h3 className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>
             SSH Connection
           </h3>
+
+          <div>
+            {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- SettingsSelect is a custom dropdown without a native control */}
+            <label className="mb-1 block text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              SSH Root
+            </label>
+            <SettingsSelect
+              value={selectedRootId ?? ''}
+              options={sshRootOptions.map((root) => ({
+                value: root.rootId,
+                label: root.rootName,
+              }))}
+              onChange={(value) => setSelectedRootId(value || null)}
+              disabled={sshRootOptions.length === 0}
+              fullWidth
+            />
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             {/* Host input with combobox */}
@@ -493,7 +575,7 @@ export const ConnectionSection = (): React.JSX.Element => {
 
             <button
               onClick={() => void handleConnect()}
-              disabled={!host || isConnecting}
+              disabled={isConnecting || !selectedRootId}
               className="rounded-md px-4 py-1.5 text-sm transition-colors disabled:opacity-50"
               style={{
                 backgroundColor: 'var(--color-surface-raised)',
@@ -507,7 +589,7 @@ export const ConnectionSection = (): React.JSX.Element => {
                 </span>
               ) : (
                 <span className="flex items-center gap-2">
-                  <WifiOff className="size-3" />
+                  <Wifi className="size-3" />
                   Connect
                 </span>
               )}

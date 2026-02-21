@@ -37,6 +37,10 @@ export interface ServiceContextConfig {
   id: string;
   /** Context type */
   type: 'local' | 'ssh';
+  /** Root ID from config */
+  rootId: string;
+  /** User visible root name */
+  rootName: string;
   /** Filesystem provider for this context */
   fsProvider: FileSystemProvider;
   /** Projects directory path (defaults to ~/.claude/projects) */
@@ -64,6 +68,10 @@ export class ServiceContext {
   readonly id: string;
   /** Context type */
   readonly type: 'local' | 'ssh';
+  /** Root identifier */
+  readonly rootId: string;
+  /** Root display name */
+  readonly rootName: string;
   /** Filesystem provider */
   readonly fsProvider: FileSystemProvider;
 
@@ -81,6 +89,8 @@ export class ServiceContext {
   constructor(config: ServiceContextConfig) {
     this.id = config.id;
     this.type = config.type;
+    this.rootId = config.rootId;
+    this.rootName = config.rootName;
     this.fsProvider = config.fsProvider;
 
     logger.info(`Creating ServiceContext: ${config.id} (${config.type})`);
@@ -134,7 +144,7 @@ export class ServiceContext {
     this.fileWatcher.start();
 
     // Start cache auto-cleanup
-    this.cleanupInterval = this.dataCache.startAutoCleanup(CACHE_CLEANUP_INTERVAL_MINUTES);
+    this.startCacheCleanup();
   }
 
   /**
@@ -144,6 +154,7 @@ export class ServiceContext {
   stopFileWatcher(): void {
     logger.info(`Stopping FileWatcher for context: ${this.id}`);
     this.fileWatcher.stop();
+    this.stopCacheCleanup();
   }
 
   /**
@@ -157,6 +168,7 @@ export class ServiceContext {
 
     logger.info(`Starting FileWatcher for context: ${this.id}`);
     this.fileWatcher.start();
+    this.startCacheCleanup();
   }
 
   /**
@@ -178,10 +190,7 @@ export class ServiceContext {
     this.dataCache.dispose();
 
     // Clear cleanup interval
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
-    }
+    this.stopCacheCleanup();
 
     this.disposed = true;
 
@@ -193,5 +202,20 @@ export class ServiceContext {
    */
   isDisposed(): boolean {
     return this.disposed;
+  }
+
+  private startCacheCleanup(): void {
+    if (this.cleanupInterval) {
+      return;
+    }
+    this.cleanupInterval = this.dataCache.startAutoCleanup(CACHE_CLEANUP_INTERVAL_MINUTES);
+  }
+
+  private stopCacheCleanup(): void {
+    if (!this.cleanupInterval) {
+      return;
+    }
+    clearInterval(this.cleanupInterval);
+    this.cleanupInterval = null;
   }
 }

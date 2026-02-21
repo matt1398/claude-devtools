@@ -16,6 +16,10 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
+import type { ServiceContext } from './ServiceContext';
+import type { CombinedWatcherManager } from '@main/utils/combinedWatcherManager';
+import type { DataRoot } from '@shared/types';
+
 const logger = createLogger('Service:HttpServer');
 
 /**
@@ -58,7 +62,20 @@ export class HttpServer {
     services: HttpServices,
     sshModeSwitchCallback: (mode: 'local' | 'ssh') => Promise<void>,
     preferredPort: number = 3456,
-    host: string = '127.0.0.1'
+    host: string = '127.0.0.1',
+    routeOptions: {
+      mode?: 'electron' | 'standalone';
+      rootLifecycleCallbacks?: {
+        onRootAdded?: (root: DataRoot) => Promise<void> | void;
+        onRootUpdated?: (root: DataRoot) => Promise<void> | void;
+        onRootRemoved?: (rootId: string) => Promise<void> | void;
+        onRootActivated?: (rootId: string) => Promise<void> | void;
+      };
+      onClaudeRootPathUpdated?: (claudeRootPath: string | null) => Promise<void> | void;
+      onContextSwitched?: (context: ServiceContext) => void;
+      onSetCombinedWatchers?: (enabled: boolean) => void;
+      combinedWatcherManager?: CombinedWatcherManager;
+    } = {}
   ): Promise<number> {
     this.app = Fastify({ logger: false });
 
@@ -107,7 +124,7 @@ export class HttpServer {
       });
 
       // Register all API routes BEFORE the not-found handler
-      registerHttpRoutes(this.app, services, sshModeSwitchCallback);
+      registerHttpRoutes(this.app, services, sshModeSwitchCallback, routeOptions);
 
       // SPA fallback: serve index.html for all non-API routes
       this.app.setNotFoundHandler(async (request, reply) => {
@@ -118,7 +135,7 @@ export class HttpServer {
       });
     } else {
       logger.warn('Renderer output directory not found (run `pnpm build` first), serving API only');
-      registerHttpRoutes(this.app, services, sshModeSwitchCallback);
+      registerHttpRoutes(this.app, services, sshModeSwitchCallback, routeOptions);
     }
 
     // Try ports starting from preferredPort

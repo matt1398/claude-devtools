@@ -211,6 +211,7 @@ export const SidebarHeader = (): React.JSX.Element => {
     fetchRepositoryGroups,
     fetchProjects,
     toggleSidebar,
+    combinedModeEnabled,
   } = useStore(
     useShallow((s) => ({
       repositoryGroups: s.repositoryGroups,
@@ -225,6 +226,7 @@ export const SidebarHeader = (): React.JSX.Element => {
       fetchRepositoryGroups: s.fetchRepositoryGroups,
       fetchProjects: s.fetchProjects,
       toggleSidebar: s.toggleSidebar,
+      combinedModeEnabled: s.combinedModeEnabled,
     }))
   );
 
@@ -257,14 +259,15 @@ export const SidebarHeader = (): React.JSX.Element => {
   // For flat mode
   const activeProject = projects.find((p) => p.id === activeProjectId);
 
-  // Get display name
+  // Get display name — keep showing the project/repo name even in combined mode
+  // for layout stability. The "All Sessions" label is shown in the session list.
   const projectName =
     viewMode === 'grouped'
       ? (activeRepo?.name ?? 'Select Project')
       : (activeProject?.name ?? 'Select Project');
 
   const worktreeName = activeWorktree?.name ?? 'main';
-  const hasSelection = viewMode === 'grouped' ? !!activeRepo : !!activeProject;
+  const hasSelection = combinedModeEnabled || (viewMode === 'grouped' ? !!activeRepo : !!activeProject);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -340,7 +343,12 @@ export const SidebarHeader = (): React.JSX.Element => {
       >
         {/* Project name dropdown button */}
         <button
-          onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
+          onClick={() => {
+            if (!combinedModeEnabled) {
+              setIsProjectDropdownOpen(!isProjectDropdownOpen);
+            }
+          }}
+          disabled={combinedModeEnabled}
           className="flex min-w-0 items-center gap-2 transition-opacity hover:opacity-80"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
@@ -350,10 +358,12 @@ export const SidebarHeader = (): React.JSX.Element => {
           >
             {projectName}
           </span>
-          <ChevronDown
-            className={`size-3.5 shrink-0 transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`}
-            style={{ color: 'var(--color-text-muted)' }}
-          />
+          {!combinedModeEnabled && (
+            <ChevronDown
+              className={`size-3.5 shrink-0 transition-transform ${isProjectDropdownOpen ? 'rotate-180' : ''}`}
+              style={{ color: 'var(--color-text-muted)' }}
+            />
+          )}
         </button>
 
         {/* Collapse sidebar button */}
@@ -375,7 +385,7 @@ export const SidebarHeader = (): React.JSX.Element => {
         </button>
 
         {/* Project Dropdown */}
-        {isProjectDropdownOpen && (
+        {!combinedModeEnabled && isProjectDropdownOpen && (
           <>
             <div
               role="presentation"
@@ -439,21 +449,25 @@ export const SidebarHeader = (): React.JSX.Element => {
         )}
       </div>
 
-      {/* ROW 2: Worktree Selector (Full Width) */}
+      {/* ROW 2: Worktree Selector (Full Width) — always rendered at fixed height for layout stability */}
       {viewMode === 'grouped' && activeRepo && (
         <div ref={worktreeDropdownRef} className="relative w-full">
           <button
             onClick={() =>
-              hasMultipleWorktrees && setIsWorktreeDropdownOpen(!isWorktreeDropdownOpen)
+              !combinedModeEnabled &&
+              hasMultipleWorktrees &&
+              setIsWorktreeDropdownOpen(!isWorktreeDropdownOpen)
             }
-            disabled={!hasMultipleWorktrees}
-            className={`flex w-full items-center justify-between px-4 text-left transition-colors ${hasMultipleWorktrees ? 'cursor-pointer' : 'cursor-default'}`}
+            disabled={combinedModeEnabled || !hasMultipleWorktrees}
+            className={`flex w-full items-center justify-between px-4 text-left transition-colors ${!combinedModeEnabled && hasMultipleWorktrees ? 'cursor-pointer' : 'cursor-default'}`}
             style={{
               height: `${HEADER_ROW2_HEIGHT}px`,
               backgroundColor: isWorktreeDropdownOpen
                 ? 'var(--color-surface-raised)'
                 : 'var(--color-surface-sidebar)',
               color: isWorktreeDropdownOpen ? 'var(--color-text)' : 'var(--color-text-muted)',
+              opacity: combinedModeEnabled ? 0.4 : 1,
+              transition: 'opacity 150ms ease',
             }}
           >
             <div className="flex flex-1 items-center gap-1.5 overflow-hidden">
@@ -477,7 +491,7 @@ export const SidebarHeader = (): React.JSX.Element => {
           </button>
 
           {/* Worktree Dropdown */}
-          {isWorktreeDropdownOpen && hasMultipleWorktrees && (
+          {!combinedModeEnabled && isWorktreeDropdownOpen && hasMultipleWorktrees && (
             <>
               <div
                 role="presentation"

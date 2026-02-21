@@ -58,6 +58,15 @@ import type { FileSystemProvider, FsDirent } from '../infrastructure/FileSystemP
 
 const logger = createLogger('Discovery:ProjectScanner');
 
+export interface GlobalSessionFileInfo {
+  projectId: string;
+  sessionId: string;
+  filePath: string;
+  mtimeMs: number;
+  birthtimeMs: number;
+  size: number;
+}
+
 export class ProjectScanner {
   private readonly projectsDir: string;
   private readonly todosDir: string;
@@ -701,6 +710,173 @@ export class ProjectScanner {
   }
 
   /**
+   * Lists recently modified session files across all projects.
+   * Used by combined-mode cache population.
+   */
+  async listRecentSessionFileInfosGlobal(limit: number): Promise<GlobalSessionFileInfo[]> {
+    const safeLimit = Math.max(1, Math.floor(limit));
+    const fileInfos = await this.collectGlobalSessionFileInfos();
+    return fileInfos.slice(0, safeLimit);
+  }
+
+  /**
+   * Lists recent sessions across all projects without mutating discovery registries.
+   * This path is read-only and never performs a full `scan()`.
+   */
+  async listRecentSessionsGlobal(
+    cursor: string | null,
+    limit: number,
+    metadataLevel: SessionMetadataLevel,
+    prefetchedFileInfos?: GlobalSessionFileInfo[]
+  ): Promise<PaginatedSessionsResult> {
+    try {
+      const safeLimit = Math.max(1, Math.floor(limit));
+      const shouldFilterNoise = this.fsProvider.type !== 'ssh';
+      const sortedFileInfos = [...(prefetchedFileInfos ?? (await this.collectGlobalSessionFileInfos()))];
+      sortedFileInfos.sort((a, b) => this.compareGlobalSessionFileInfos(a, b));
+
+      let startIndex = 0;
+      if (cursor) {
+        try {
+          const decoded = JSON.parse(Buffer.from(cursor, 'base64').toString('utf8')) as SessionCursor;
+          const cursorProjectId = decoded.projectId ?? '';
+          startIndex = sortedFileInfos.findIndex((info) => {
+            if (info.mtimeMs < decoded.timestamp) return true;
+            if (info.mtimeMs > decoded.timestamp) return false;
+            if (info.projectId > cursorProjectId) return true;
+            if (info.projectId < cursorProjectId) return false;
+            return info.sessionId > decoded.sessionId;
+          });
+          if (startIndex === -1) {
+            startIndex = sortedFileInfos.length;
+          }
+        } catch {
+          startIndex = 0;
+        }
+      }
+
+      const sessions: Session[] = [];
+      const sourceFileInfos: GlobalSessionFileInfo[] = [];
+      const projectPathById = new Map<string, string>();
+      const resolveProjectPathForGlobalFile = async (
+        fileInfo: GlobalSessionFileInfo
+      ): Promise<string> => {
+        const cachedPath = projectPathById.get(fileInfo.projectId);
+        if (cachedPath) {
+          return cachedPath;
+        }
+        const projectPath = await this.resolveProjectPathForId(fileInfo.projectId, [fileInfo.filePath]);
+        projectPathById.set(fileInfo.projectId, projectPath);
+        return projectPath;
+      };
+
+      let scannedCandidates = 0;
+      const BATCH_SIZE = safeLimit + 1; // One extra to detect hasMore
+      let batchStart = startIndex;
+      while (sessions.length < safeLimit + 1 && batchStart < sortedFileInfos.length) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE * 2, sortedFileInfos.length);
+        const batch = sortedFileInfos.slice(batchStart, batchEnd);
+        scannedCandidates += batch.length;
+
+        let contentBatch: { fileInfo: GlobalSessionFileInfo; hasContent: boolean }[];
+        if (!shouldFilterNoise) {
+          contentBatch = batch.map((fileInfo) => ({ fileInfo, hasContent: true }));
+        } else {
+          const contentResults = await Promise.allSettled(
+            batch.map(async (fileInfo) => ({
+              fileInfo,
+              hasContent: await this.hasDisplayableContent(
+                fileInfo.filePath,
+                fileInfo.mtimeMs,
+                fileInfo.size
+              ),
+            }))
+          );
+          contentBatch = contentResults
+            .filter(
+              (
+                result
+              ): result is PromiseFulfilledResult<{
+                fileInfo: GlobalSessionFileInfo;
+                hasContent: boolean;
+              }> => result.status === 'fulfilled'
+            )
+            .map((result) => result.value);
+        }
+
+        const withContent = contentBatch.filter((item) => item.hasContent).map((item) => item.fileInfo);
+        const needed = safeLimit + 1 - sessions.length;
+        const toBuild = withContent.slice(0, needed);
+
+        const builtEntries = await this.collectFulfilledInBatches(
+          toBuild,
+          this.fsProvider.type === 'ssh' ? 4 : 16,
+          async (fileInfo) => {
+            const projectPath = await resolveProjectPathForGlobalFile(fileInfo);
+            const session = await this.buildSessionForListing(
+              metadataLevel,
+              fileInfo.projectId,
+              fileInfo.sessionId,
+              fileInfo.filePath,
+              projectPath,
+              fileInfo.mtimeMs,
+              fileInfo.size,
+              fileInfo.birthtimeMs
+            );
+            return {
+              session: {
+                ...session,
+                // Combined view ordering is mtime-based; surface this for stable merge/cursor logic.
+                createdAt: fileInfo.mtimeMs,
+              },
+              fileInfo,
+            };
+          }
+        );
+
+        sessions.push(...builtEntries.map((entry) => entry.session));
+        sourceFileInfos.push(...builtEntries.map((entry) => entry.fileInfo));
+        batchStart = batchEnd;
+      }
+
+      const hasMore = sessions.length > safeLimit || startIndex + scannedCandidates < sortedFileInfos.length;
+      const pageSessions = hasMore ? sessions.slice(0, safeLimit) : sessions;
+      const pageSourceFileInfos = hasMore ? sourceFileInfos.slice(0, safeLimit) : sourceFileInfos;
+      if (pageSessions.length === 0) {
+        return {
+          sessions: [],
+          nextCursor: null,
+          hasMore: false,
+          totalCount: sortedFileInfos.length,
+        };
+      }
+
+      let nextCursor: string | null = null;
+      if (hasMore) {
+        const last = pageSourceFileInfos[pageSourceFileInfos.length - 1];
+        const cursorData: SessionCursor = {
+          timestamp: last.mtimeMs,
+          sessionId: last.sessionId,
+          projectId: last.projectId,
+        };
+        nextCursor = Buffer.from(JSON.stringify(cursorData)).toString('base64');
+      }
+
+      return {
+        sessions: pageSessions,
+        nextCursor,
+        hasMore,
+        totalCount: sortedFileInfos.length,
+      };
+    } catch (error) {
+      logger.error('Error listing global recent sessions:', error);
+      // Surface transient failures so combined callers can preserve cursor state
+      // and retry instead of persisting this context as exhausted.
+      throw error;
+    }
+  }
+
+  /**
    * Build session metadata from a session file.
    */
   private async buildSessionMetadata(
@@ -1096,6 +1272,59 @@ export class ProjectScanner {
       birthtimeMs: stats.birthtimeMs,
       size: stats.size,
     };
+  }
+
+  private compareGlobalSessionFileInfos(a: GlobalSessionFileInfo, b: GlobalSessionFileInfo): number {
+    if (b.mtimeMs !== a.mtimeMs) {
+      return b.mtimeMs - a.mtimeMs;
+    }
+    if (a.projectId !== b.projectId) {
+      return a.projectId.localeCompare(b.projectId);
+    }
+    return a.sessionId.localeCompare(b.sessionId);
+  }
+
+  private async collectGlobalSessionFileInfos(): Promise<GlobalSessionFileInfo[]> {
+    if (!(await this.fsProvider.exists(this.projectsDir))) {
+      return [];
+    }
+
+    const projectEntries = await this.fsProvider.readdir(this.projectsDir);
+    const projectDirs = projectEntries.filter(
+      (entry) => entry.isDirectory() && isValidEncodedPath(entry.name)
+    );
+
+    const perProjectInfos = await this.collectFulfilledInBatches(
+      projectDirs,
+      this.fsProvider.type === 'ssh' ? 8 : 24,
+      async (projectDir) => {
+        const projectId = projectDir.name;
+        const directoryPath = path.join(this.projectsDir, projectId);
+        const entries = await this.fsProvider.readdir(directoryPath);
+        const sessionFiles = entries.filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'));
+        const fileInfos = await this.collectFulfilledInBatches(
+          sessionFiles,
+          this.fsProvider.type === 'ssh' ? 32 : 128,
+          async (entry) => {
+            const filePath = path.join(directoryPath, entry.name);
+            const details = await this.resolveFileDetails(entry, filePath);
+            return {
+              projectId,
+              sessionId: extractSessionId(entry.name),
+              filePath,
+              mtimeMs: details.mtimeMs,
+              birthtimeMs: details.birthtimeMs,
+              size: details.size,
+            } satisfies GlobalSessionFileInfo;
+          }
+        );
+        return fileInfos;
+      }
+    );
+
+    const flattened = perProjectInfos.flat();
+    flattened.sort((a, b) => this.compareGlobalSessionFileInfos(a, b));
+    return flattened;
   }
 
   private parseTimestampMs(timestamp: string | undefined): number | null {

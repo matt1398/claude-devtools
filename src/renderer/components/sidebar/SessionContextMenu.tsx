@@ -22,8 +22,8 @@ interface SessionContextMenuProps {
   onOpenInCurrentPane: () => void;
   onOpenInNewTab: () => void;
   onSplitRightAndOpen: () => void;
-  onTogglePin: () => void;
-  onToggleHide: () => void;
+  onTogglePin?: () => void;
+  onToggleHide?: () => void;
 }
 
 export const SessionContextMenu = ({
@@ -61,7 +61,7 @@ export const SessionContextMenu = ({
   }, [onClose]);
 
   const menuWidth = 240;
-  const menuHeight = 290;
+  const menuHeight = 204 + (onTogglePin ? 24 : 0) + (onToggleHide ? 24 : 0);
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
@@ -106,16 +106,20 @@ export const SessionContextMenu = ({
         disabled={atMaxPanes}
       />
       <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
-      <MenuItem
-        label={isPinned ? 'Unpin Session' : 'Pin Session'}
-        icon={isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
-        onClick={handleClick(onTogglePin)}
-      />
-      <MenuItem
-        label={isHidden ? 'Unhide Session' : 'Hide Session'}
-        icon={isHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
-        onClick={handleClick(onToggleHide)}
-      />
+      {onTogglePin && (
+        <MenuItem
+          label={isPinned ? 'Unpin Session' : 'Pin Session'}
+          icon={isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+          onClick={handleClick(onTogglePin)}
+        />
+      )}
+      {onToggleHide && (
+        <MenuItem
+          label={isHidden ? 'Unhide Session' : 'Hide Session'}
+          icon={isHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+          onClick={handleClick(onToggleHide)}
+        />
+      )}
       <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
       <MenuItem
         label={copiedField === 'id' ? 'Copied!' : 'Copy Session ID'}

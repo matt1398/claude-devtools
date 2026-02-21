@@ -48,6 +48,7 @@ const defaultForm = {
 export const WorkspaceSection = (): React.JSX.Element => {
   const [profiles, setProfiles] = useState<SshConnectionProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
 
@@ -58,6 +59,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
   const [formUsername, setFormUsername] = useState(defaultForm.username);
   const [formAuthMethod, setFormAuthMethod] = useState<SshAuthMethod>(defaultForm.authMethod);
   const [formPrivateKeyPath, setFormPrivateKeyPath] = useState(defaultForm.privateKeyPath);
+  const fetchAvailableContexts = useStore((s) => s.fetchAvailableContexts);
 
   const resetForm = useCallback(() => {
     setFormName(defaultForm.name);
@@ -74,8 +76,8 @@ export const WorkspaceSection = (): React.JSX.Element => {
       // AppConfig type doesn't include ssh field, but ConfigManager returns it at runtime
       const loaded = config.ssh;
       setProfiles(loaded?.profiles ?? []);
-    } catch (error) {
-      console.error('[WorkspaceSection] Failed to load profiles:', error);
+    } catch (err) {
+      console.error('[WorkspaceSection] Failed to load profiles:', err);
     } finally {
       setLoading(false);
     }
@@ -84,6 +86,14 @@ export const WorkspaceSection = (): React.JSX.Element => {
   useEffect(() => {
     void loadProfiles();
   }, [loadProfiles]);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => {
+      setError(null);
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
 
   // Populate form when editing starts
   useEffect(() => {
@@ -115,7 +125,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
     await loadProfiles();
     resetForm();
     setShowAddForm(false);
-    void useStore.getState().fetchAvailableContexts();
+    void fetchAvailableContexts();
   };
 
   const handleEdit = async (): Promise<void> => {
@@ -137,12 +147,22 @@ export const WorkspaceSection = (): React.JSX.Element => {
     await loadProfiles();
     setEditingId(null);
     resetForm();
-    void useStore.getState().fetchAvailableContexts();
+    void fetchAvailableContexts();
   };
 
   const handleDelete = async (id: string): Promise<void> => {
     const profile = profiles.find((p) => p.id === id);
     if (!profile) return;
+
+    const config = await api.config.get();
+    const referencedRoot = config.roots.items.find(
+      (root) => root.type === 'ssh' && root.sshProfileId === id
+    );
+    if (referencedRoot) {
+      setError(`Profile is used by root "${referencedRoot.name}". Remove the root first.`);
+      return;
+    }
+    setError(null);
 
     const confirmed = await confirm({
       title: 'Delete Profile',
@@ -155,7 +175,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
     const filtered = profiles.filter((p) => p.id !== id);
     await api.config.update('ssh', { profiles: filtered });
     await loadProfiles();
-    void useStore.getState().fetchAvailableContexts();
+    void fetchAvailableContexts();
   };
 
   const isFormValid =
@@ -318,6 +338,12 @@ export const WorkspaceSection = (): React.JSX.Element => {
   return (
     <div className="space-y-6">
       <SettingsSectionHeader title="Workspace Profiles" />
+
+      {error && (
+        <div className="rounded-md border border-red-500/20 bg-red-500/10 px-4 py-3">
+          <p className="text-sm text-red-400">{error}</p>
+        </div>
+      )}
       <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
         Save SSH connection profiles for quick reconnection
       </p>

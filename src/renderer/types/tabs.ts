@@ -84,6 +84,9 @@ export interface Tab {
   /** Project ID (required when type === 'session') */
   projectId?: string;
 
+  /** Context ID — set in combined mode for cross-context tab disambiguation */
+  contextId?: string;
+
   /** Display name for the tab (max 50 chars) */
   label: string;
 
@@ -170,6 +173,25 @@ export function findTabBySessionAndProject(
 ): Tab | undefined {
   return tabs.find(
     (t) => t.type === 'session' && t.sessionId === sessionId && t.projectId === projectId
+  );
+}
+
+/**
+ * Find tab by session ID, project ID, AND context ID.
+ * Used in combined mode where (sessionId, projectId) can collide across contexts.
+ */
+export function findTabBySessionProjectAndContext(
+  tabs: Tab[],
+  sessionId: string,
+  projectId: string,
+  contextId: string
+): Tab | undefined {
+  return tabs.find(
+    (t) =>
+      t.type === 'session' &&
+      t.sessionId === sessionId &&
+      t.projectId === projectId &&
+      t.contextId === contextId
   );
 }
 

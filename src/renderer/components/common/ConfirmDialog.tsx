@@ -16,19 +16,44 @@ interface ConfirmDialogState {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: 'default' | 'danger';
+  mode: 'confirm' | 'prompt';
+  inputValue?: string;
+  inputPlaceholder?: string;
 }
 
-type ConfirmResolver = ((confirmed: boolean) => void) | null;
+type DialogResolver =
+  | {
+      mode: 'confirm';
+      resolve: (confirmed: boolean) => void;
+    }
+  | {
+      mode: 'prompt';
+      resolve: (value: string | null) => void;
+    }
+  | null;
 
 const initialState: ConfirmDialogState = {
   isOpen: false,
   title: '',
   message: '',
+  mode: 'confirm',
 };
 
 // Singleton state — one dialog at a time
 let globalSetState: ((state: ConfirmDialogState) => void) | null = null;
-let globalResolver: ConfirmResolver = null;
+let globalResolver: DialogResolver = null;
+
+function resolveOpenDialogAsCancelled(): void {
+  if (!globalResolver) {
+    return;
+  }
+
+  if (globalResolver.mode === 'confirm') {
+    globalResolver.resolve(false);
+  } else {
+    globalResolver.resolve(null);
+  }
+}
 
 /**
  * Imperatively show a themed confirm dialog. Returns a promise that resolves
@@ -47,11 +72,9 @@ export async function confirm(opts: {
 }): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     // If a previous dialog is open, resolve it as cancelled
-    if (globalResolver) {
-      globalResolver(false);
-    }
+    resolveOpenDialogAsCancelled();
 
-    globalResolver = resolve;
+    globalResolver = { mode: 'confirm', resolve };
     globalSetState?.({
       isOpen: true,
       title: opts.title,
@@ -59,6 +82,35 @@ export async function confirm(opts: {
       confirmLabel: opts.confirmLabel,
       cancelLabel: opts.cancelLabel,
       variant: opts.variant,
+      mode: 'confirm',
+    });
+  });
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- imperative API shares singleton state with component
+export async function prompt(opts: {
+  title: string;
+  message: string;
+  defaultValue?: string;
+  placeholder?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  variant?: 'default' | 'danger';
+}): Promise<string | null> {
+  return new Promise<string | null>((resolve) => {
+    resolveOpenDialogAsCancelled();
+
+    globalResolver = { mode: 'prompt', resolve };
+    globalSetState?.({
+      isOpen: true,
+      title: opts.title,
+      message: opts.message,
+      confirmLabel: opts.confirmLabel,
+      cancelLabel: opts.cancelLabel,
+      variant: opts.variant,
+      mode: 'prompt',
+      inputValue: opts.defaultValue ?? '',
+      inputPlaceholder: opts.placeholder,
     });
   });
 }
@@ -69,6 +121,7 @@ export async function confirm(opts: {
 export const ConfirmDialog = (): React.JSX.Element | null => {
   const [state, setState] = useState<ConfirmDialogState>(initialState);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Register singleton setter
   useEffect(() => {
@@ -80,11 +133,15 @@ export const ConfirmDialog = (): React.JSX.Element | null => {
 
   const close = useCallback((confirmed: boolean) => {
     if (globalResolver) {
-      globalResolver(confirmed);
+      if (globalResolver.mode === 'confirm') {
+        globalResolver.resolve(confirmed);
+      } else {
+        globalResolver.resolve(confirmed ? (state.inputValue ?? '') : null);
+      }
       globalResolver = null;
     }
     setState(initialState);
-  }, []);
+  }, [state.inputValue]);
 
   // Escape key closes
   useEffect(() => {
@@ -99,10 +156,15 @@ export const ConfirmDialog = (): React.JSX.Element | null => {
   // Auto-focus confirm button
   useEffect(() => {
     if (state.isOpen && dialogRef.current) {
+      if (state.mode === 'prompt' && inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+        return;
+      }
       const btn = dialogRef.current.querySelector<HTMLButtonElement>('[data-confirm-btn]');
       btn?.focus();
     }
-  }, [state.isOpen]);
+  }, [state.isOpen, state.mode]);
 
   if (!state.isOpen) return null;
 
@@ -145,6 +207,33 @@ export const ConfirmDialog = (): React.JSX.Element | null => {
             </p>
           </div>
         </div>
+
+        {state.mode === 'prompt' && (
+          <input
+            ref={inputRef}
+            type="text"
+            value={state.inputValue ?? ''}
+            onChange={(event) =>
+              setState((previous) => ({
+                ...previous,
+                inputValue: event.target.value,
+              }))
+            }
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                close(true);
+              }
+            }}
+            placeholder={state.inputPlaceholder}
+            className="mt-4 w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-1"
+            style={{
+              backgroundColor: 'var(--color-surface-raised)',
+              borderColor: 'var(--color-border)',
+              color: 'var(--color-text)',
+            }}
+          />
+        )}
 
         {/* Actions */}
         <div className="mt-5 flex justify-end gap-3">

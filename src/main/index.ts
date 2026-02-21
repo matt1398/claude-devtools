@@ -9,6 +9,7 @@
  * - Manage application lifecycle
  */
 
+import { DEFAULT_LOCAL_ROOT_ID, getLocalContextId } from '@main/utils/contextIds';
 import {
   DEFAULT_WINDOW_HEIGHT,
   DEFAULT_WINDOW_WIDTH,
@@ -22,7 +23,11 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
-import { getProjectsBasePath, getTodosBasePath } from './utils/pathDecoder';
+import { CombinedWatcherManager } from './utils/combinedWatcherManager';
+import {
+  getAutoDetectedClaudeBasePath,
+  setClaudeBasePathOverride,
+} from './utils/pathDecoder';
 
 // Window icon path for non-mac platforms.
 const getWindowIconPath = (): string | undefined => {
@@ -69,6 +74,9 @@ import {
   UpdaterService,
 } from './services';
 
+import type { FileChangeEvent } from '@main/types';
+import type { DataRoot, LocalDataRoot } from '@shared/types/roots';
+
 // =============================================================================
 // Application State
 // =============================================================================
@@ -81,6 +89,7 @@ let notificationManager: NotificationManager;
 let updaterService: UpdaterService;
 let sshConnectionManager: SshConnectionManager;
 let httpServer: HttpServer;
+let combinedWatcherManager: CombinedWatcherManager | null = null;
 
 // File watcher event cleanup functions
 let fileChangeCleanup: (() => void) | null = null;
@@ -96,6 +105,26 @@ function getRendererIndexPath(): string {
     join(__dirname, '../renderer/index.html'),
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+}
+
+function resolveLocalRootBasePath(root: LocalDataRoot): string {
+  return root.claudeRootPath ?? getAutoDetectedClaudeBasePath();
+}
+
+function buildLocalContext(root: LocalDataRoot): ServiceContext {
+  const claudeBasePath = resolveLocalRootBasePath(root);
+  const projectsDir = join(claudeBasePath, 'projects');
+  const todosDir = join(claudeBasePath, 'todos');
+
+  return new ServiceContext({
+    id: getLocalContextId(root.id),
+    type: 'local',
+    rootId: root.id,
+    rootName: root.name,
+    fsProvider: new LocalFileSystemProvider(),
+    projectsDir,
+    todosDir,
+  });
 }
 
 /**
@@ -116,21 +145,29 @@ function wireFileWatcherEvents(context: ServiceContext): void {
   }
 
   // Wire file-change events to renderer and HTTP SSE
-  const fileChangeHandler = (event: unknown): void => {
+  const fileChangeHandler = (event: FileChangeEvent): void => {
+    const enriched: FileChangeEvent = {
+      ...event,
+      contextId: context.id,
+    };
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('file-change', event);
+      mainWindow.webContents.send('file-change', enriched);
     }
-    httpServer?.broadcast('file-change', event);
+    httpServer?.broadcast('file-change', enriched);
   };
   context.fileWatcher.on('file-change', fileChangeHandler);
   fileChangeCleanup = () => context.fileWatcher.off('file-change', fileChangeHandler);
 
   // Forward checklist-change events to renderer and HTTP SSE (mirrors file-change pattern above)
-  const todoChangeHandler = (event: unknown): void => {
+  const todoChangeHandler = (event: FileChangeEvent): void => {
+    const enriched: FileChangeEvent = {
+      ...event,
+      contextId: context.id,
+    };
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('todo-change', event);
+      mainWindow.webContents.send('todo-change', enriched);
     }
-    httpServer?.broadcast('todo-change', event);
+    httpServer?.broadcast('todo-change', enriched);
   };
   context.fileWatcher.on('todo-change', todoChangeHandler);
   todoChangeCleanup = () => context.fileWatcher.off('todo-change', todoChangeHandler);
@@ -143,8 +180,28 @@ function wireFileWatcherEvents(context: ServiceContext): void {
  * Switches the active context back to local when requested.
  */
 async function handleModeSwitch(mode: 'local' | 'ssh'): Promise<void> {
-  if (mode === 'local' && contextRegistry.getActiveContextId() !== 'local') {
-    const { current } = contextRegistry.switch('local');
+  if (mode === 'local') {
+    const config = configManager.getConfig();
+    const localRoot =
+      config.roots.items.find(
+        (root): root is LocalDataRoot =>
+          root.type === 'local' && root.id === config.roots.activeRootId
+      ) ??
+      config.roots.items.find((root): root is LocalDataRoot => root.type === 'local');
+    if (!localRoot) {
+      return;
+    }
+
+    const targetContextId = getLocalContextId(localRoot.id);
+    if (contextRegistry.getActiveContextId() === targetContextId) {
+      if (config.roots.activeRootId !== localRoot.id) {
+        configManager.setActiveRoot(localRoot.id);
+      }
+      return;
+    }
+
+    const { current } = contextRegistry.switch(targetContextId);
+    configManager.setActiveRoot(localRoot.id);
     onContextSwitched(current);
   }
 }
@@ -154,6 +211,15 @@ async function handleModeSwitch(mode: 'local' | 'ssh'): Promise<void> {
  * Used for renderer-initiated switches where the renderer already handles state.
  */
 export function rewireContextEvents(context: ServiceContext): void {
+  const root = configManager.getRoot(context.rootId);
+  setClaudeBasePathOverride(root?.type === 'local' ? root.claudeRootPath : null);
+  if (notificationManager) {
+    context.fileWatcher.setNotificationManager(notificationManager);
+  }
+  if (combinedWatcherManager?.isEnabled()) {
+    combinedWatcherManager.handleContextRewire(context);
+    return;
+  }
   wireFileWatcherEvents(context);
 }
 
@@ -162,65 +228,155 @@ export function rewireContextEvents(context: ServiceContext): void {
  * Used for external/unexpected switches (e.g., HTTP server mode switch).
  */
 function onContextSwitched(context: ServiceContext): void {
+  if (!combinedWatcherManager?.isEnabled()) {
+    context.startFileWatcher();
+  }
   rewireContextEvents(context);
 
   // Notify renderer of context change
+  const payload = {
+    id: context.id,
+    type: context.type,
+    rootId: context.rootId,
+    rootName: context.rootName,
+    connected: true,
+  };
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(SSH_STATUS, sshConnectionManager.getStatus());
-    mainWindow.webContents.send(CONTEXT_CHANGED, {
-      id: context.id,
-      type: context.type,
-    });
+    mainWindow.webContents.send(CONTEXT_CHANGED, payload);
   }
+  httpServer?.broadcast(CONTEXT_CHANGED, payload);
 }
 
-/**
- * Rebuilds the local ServiceContext using the current configured Claude root paths.
- * Called when general.claudeRootPath changes.
- */
-function reconfigureLocalContextForClaudeRoot(): void {
+function handleClaudeRootPathUpdated(_claudeRootPath: string | null): void {
+  reconfigureRootContext(DEFAULT_LOCAL_ROOT_ID);
+}
+
+function reconfigureRootContext(rootId: string): void {
   try {
-    const currentLocal = contextRegistry.get('local');
-    if (!currentLocal) {
-      logger.error('Cannot reconfigure local context: local context not found');
+    const root = configManager.getRoot(rootId);
+    if (root?.type !== 'local') {
       return;
     }
 
-    const wasLocalActive = contextRegistry.getActiveContextId() === 'local';
-    const projectsDir = getProjectsBasePath();
-    const todosDir = getTodosBasePath();
-
-    logger.info(`Reconfiguring local context: projectsDir=${projectsDir}, todosDir=${todosDir}`);
-
-    if (wasLocalActive) {
-      currentLocal.stopFileWatcher();
+    const contextId = getLocalContextId(root.id);
+    const currentContext = contextRegistry.get(contextId);
+    if (!currentContext) {
+      return;
     }
 
-    const replacementLocal = new ServiceContext({
-      id: 'local',
-      type: 'local',
-      fsProvider: new LocalFileSystemProvider(),
-      projectsDir,
-      todosDir,
-    });
+    const wasActive = contextRegistry.getActiveContextId() === contextId;
+    if (wasActive) {
+      currentContext.stopFileWatcher();
+    }
 
+    const replacementContext = buildLocalContext(root);
     if (notificationManager) {
-      replacementLocal.fileWatcher.setNotificationManager(notificationManager);
+      replacementContext.fileWatcher.setNotificationManager(notificationManager);
     }
-    replacementLocal.start();
-
-    if (!wasLocalActive) {
-      replacementLocal.stopFileWatcher();
-    }
-
-    contextRegistry.replaceContext('local', replacementLocal);
-
-    if (wasLocalActive) {
-      wireFileWatcherEvents(replacementLocal);
+    combinedWatcherManager?.handleContextRemoved(contextId);
+    contextRegistry.replaceContext(contextId, replacementContext);
+    combinedWatcherManager?.handleContextAdded(replacementContext);
+    if (wasActive) {
+      rewireContextEvents(replacementContext);
+      if (!combinedWatcherManager?.isEnabled()) {
+        replacementContext.startFileWatcher();
+      }
     }
   } catch (error) {
-    logger.error('Failed to reconfigure local context for Claude root change:', error);
+    logger.error(`Failed to reconfigure context for root ${rootId}:`, error);
   }
+}
+
+function handleRootAdded(root: DataRoot): void {
+  if (root.type !== 'local') {
+    return;
+  }
+
+  const contextId = getLocalContextId(root.id);
+  if (contextRegistry.has(contextId)) {
+    return;
+  }
+
+  const context = buildLocalContext(root);
+  if (notificationManager) {
+    context.fileWatcher.setNotificationManager(notificationManager);
+  }
+  contextRegistry.registerContext(context);
+  combinedWatcherManager?.handleContextAdded(context);
+}
+
+function handleRootRemoved(rootId: string): void {
+  const context = contextRegistry.getByRootId(rootId);
+  if (!context) {
+    return;
+  }
+  const wasActive = contextRegistry.getActiveContextId() === context.id;
+
+  if (context.type === 'ssh' && contextRegistry.getActiveContextId() === context.id) {
+    sshConnectionManager.disconnect();
+  }
+
+  contextRegistry.destroy(context.id);
+  const active = contextRegistry.getActive();
+  if (wasActive) {
+    onContextSwitched(active);
+  } else {
+    rewireContextEvents(active);
+  }
+}
+
+function handleRootUpdated(root: DataRoot): void {
+  if (root.type !== 'local') {
+    return;
+  }
+
+  reconfigureRootContext(root.id);
+}
+
+function handleRootActivated(rootId: string): void {
+  const root = configManager.getRoot(rootId);
+  if (!root) {
+    return;
+  }
+
+  if (root.type === 'local') {
+    const targetContextId = getLocalContextId(root.id);
+    const currentContext = contextRegistry.getActive();
+    if (!contextRegistry.has(targetContextId)) {
+      logger.warn(`Cannot activate local root "${root.id}": context not found`);
+      return;
+    }
+
+    if (currentContext.id === targetContextId) {
+      rewireContextEvents(currentContext);
+      return;
+    }
+
+    if (currentContext.type === 'ssh') {
+      sshConnectionManager.disconnect();
+    }
+
+    const { current } = contextRegistry.switch(targetContextId);
+    if (currentContext.type === 'ssh' && contextRegistry.has(currentContext.id)) {
+      contextRegistry.destroy(currentContext.id);
+    }
+    onContextSwitched(current);
+    return;
+  }
+
+  const sshContext = contextRegistry.getByRootId(root.id);
+  if (!sshContext) {
+    return;
+  }
+
+  if (contextRegistry.getActiveContextId() === sshContext.id) {
+    rewireContextEvents(sshContext);
+    return;
+  }
+
+  const { current } = contextRegistry.switch(sshContext.id);
+  onContextSwitched(current);
 }
 
 /**
@@ -234,45 +390,74 @@ function initializeServices(): void {
 
   // Create ServiceContextRegistry
   contextRegistry = new ServiceContextRegistry();
+  const startupConfig = configManager.getConfig();
+  const localRoots = startupConfig.roots.items
+    .filter((root): root is LocalDataRoot => root.type === 'local')
+    .sort((a, b) => a.order - b.order);
+  if (localRoots.length === 0) {
+    throw new Error('No local roots configured');
+  }
 
-  const localProjectsDir = getProjectsBasePath();
-  const localTodosDir = getTodosBasePath();
+  for (const localRoot of localRoots) {
+    const context = buildLocalContext(localRoot);
+    contextRegistry.registerContext(context);
+  }
 
-  // Create local context
-  const localContext = new ServiceContext({
-    id: 'local',
-    type: 'local',
-    fsProvider: new LocalFileSystemProvider(),
-    projectsDir: localProjectsDir,
-    todosDir: localTodosDir,
+  const activeRoot =
+    startupConfig.roots.items.find((root) => root.id === startupConfig.roots.activeRootId) ??
+    localRoots[0];
+  const activeLocalRoot = activeRoot.type === 'local' ? activeRoot : localRoots[0];
+  const activeContextId = getLocalContextId(activeLocalRoot.id);
+
+  if (contextRegistry.getActiveContextId() !== activeContextId) {
+    contextRegistry.switch(activeContextId);
+  } else {
+    contextRegistry.getActive().startFileWatcher();
+  }
+
+  const initialContext = contextRegistry.get(activeContextId) ?? contextRegistry.getActive();
+  logger.info(`Projects directory: ${initialContext.projectScanner.getProjectsDir()}`);
+
+  combinedWatcherManager = new CombinedWatcherManager(contextRegistry, {
+    teardownSingleContextListeners: () => {
+      if (fileChangeCleanup) {
+        fileChangeCleanup();
+        fileChangeCleanup = null;
+      }
+      if (todoChangeCleanup) {
+        todoChangeCleanup();
+        todoChangeCleanup = null;
+      }
+    },
+    restoreSingleContextListeners: (context) => {
+      wireFileWatcherEvents(context);
+    },
+    getMainWindow: () => mainWindow,
+    getHttpServer: () => httpServer,
   });
-
-  // Register and start local context
-  contextRegistry.registerContext(localContext);
-  localContext.start();
-
-  logger.info(`Projects directory: ${localContext.projectScanner.getProjectsDir()}`);
 
   // Initialize notification manager (singleton, not context-scoped)
   notificationManager = NotificationManager.getInstance();
-
-  // Set notification manager on local context's file watcher
-  localContext.fileWatcher.setNotificationManager(notificationManager);
-
-  // Wire file watcher events for local context
-  wireFileWatcherEvents(localContext);
+  // Wire notification manager to ALL contexts, not just the initial one.
+  // Combined mode may start watchers for non-active contexts.
+  for (const context of contextRegistry.getAll()) {
+    context.fileWatcher.setNotificationManager(notificationManager);
+  }
+  wireFileWatcherEvents(initialContext);
 
   // Initialize updater service
   updaterService = new UpdaterService();
   httpServer = new HttpServer();
 
   // Initialize IPC handlers with registry
-  initializeIpcHandlers(contextRegistry, updaterService, sshConnectionManager, {
+  initializeIpcHandlers(contextRegistry, updaterService, sshConnectionManager, combinedWatcherManager, {
     rewire: rewireContextEvents,
     full: onContextSwitched,
-    onClaudeRootPathUpdated: (_claudeRootPath: string | null) => {
-      reconfigureLocalContextForClaudeRoot();
-    },
+    onClaudeRootPathUpdated: handleClaudeRootPathUpdated,
+    onRootAdded: handleRootAdded,
+    onRootRemoved: handleRootRemoved,
+    onRootUpdated: handleRootUpdated,
+    onRootActivated: handleRootActivated,
   });
 
   // HTTP Server control IPC handlers
@@ -349,19 +534,53 @@ async function startHttpServer(
 ): Promise<void> {
   try {
     const config = configManager.getConfig();
-    const activeContext = contextRegistry.getActive();
-    const port = await httpServer.start(
-      {
-        projectScanner: activeContext.projectScanner,
-        sessionParser: activeContext.sessionParser,
-        subagentResolver: activeContext.subagentResolver,
-        chunkBuilder: activeContext.chunkBuilder,
-        dataCache: activeContext.dataCache,
-        updaterService,
-        sshConnectionManager,
+    const services = {
+      get projectScanner() {
+        return contextRegistry.getActive().projectScanner;
       },
+      get sessionParser() {
+        return contextRegistry.getActive().sessionParser;
+      },
+      get subagentResolver() {
+        return contextRegistry.getActive().subagentResolver;
+      },
+      get chunkBuilder() {
+        return contextRegistry.getActive().chunkBuilder;
+      },
+      get dataCache() {
+        return contextRegistry.getActive().dataCache;
+      },
+      contextRegistry,
+      updaterService,
+      sshConnectionManager,
+    };
+    const port = await httpServer.start(
+      services,
       modeSwitchHandler,
-      config.httpServer?.port ?? 3456
+      config.httpServer?.port ?? 3456,
+      '127.0.0.1',
+      {
+        mode: 'electron',
+        rootLifecycleCallbacks: {
+          onRootAdded: handleRootAdded,
+          onRootUpdated: handleRootUpdated,
+          onRootRemoved: handleRootRemoved,
+          onRootActivated: handleRootActivated,
+        },
+        onClaudeRootPathUpdated: handleClaudeRootPathUpdated,
+        onContextSwitched,
+        onSetCombinedWatchers: (enabled: boolean) => {
+          if (!combinedWatcherManager) {
+            return;
+          }
+          if (enabled) {
+            combinedWatcherManager.enable();
+          } else {
+            combinedWatcherManager.disable();
+          }
+        },
+        combinedWatcherManager: combinedWatcherManager ?? undefined,
+      }
     );
     logger.info(`HTTP sidecar server running on port ${port}`);
   } catch (error) {
@@ -379,6 +598,11 @@ function shutdownServices(): void {
   if (httpServer?.isRunning()) {
     void httpServer.stop();
   }
+
+  if (combinedWatcherManager?.isEnabled()) {
+    combinedWatcherManager.disable();
+  }
+  combinedWatcherManager = null;
 
   // Clean up file watcher event listeners
   if (fileChangeCleanup) {

@@ -10,6 +10,7 @@ import {
   createSearchNavigationRequest,
   findTabBySession,
   findTabBySessionAndProject,
+  findTabBySessionProjectAndContext,
   truncateLabel,
 } from '@renderer/types/tabs';
 
@@ -131,21 +132,12 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
     const focusedPane = findPane(paneLayout, paneLayout.focusedPaneId);
     if (!focusedPane) return;
 
-    // If opening a session tab, check for duplicates first (unless forceNewTab)
-    if (tab.type === 'session' && tab.sessionId && !options?.forceNewTab) {
-      // Check across ALL panes for dedup
-      const allTabs = getAllTabs(paneLayout);
-      const existing = findTabBySession(allTabs, tab.sessionId);
-      if (existing) {
-        // Focus existing tab (which will also focus its pane)
-        state.setActiveTab(existing.id);
-        return;
-      }
-
-      // Replace active tab if replaceActiveTab option is set or active tab is a dashboard
+    // If opening a session tab, support replace-in-pane behavior and dedup.
+    if (tab.type === 'session' && tab.sessionId) {
       const activeTab = focusedPane.tabs.find((t) => t.id === focusedPane.activeTabId);
-      if (activeTab && (options?.replaceActiveTab || activeTab.type === 'dashboard')) {
-        // Cleanup old tab's state if it was a session tab
+
+      // Explicit replace-in-pane should always replace focused pane's active tab.
+      if (activeTab && options?.replaceActiveTab) {
         if (activeTab.type === 'session') {
           state.cleanupTabUIState(activeTab.id);
           state.cleanupTabSessionData(activeTab.id);
@@ -166,6 +158,43 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
         const newLayout = updatePane(paneLayout, updatedPane);
         set(syncFromLayout(newLayout));
         return;
+      }
+
+      // Standard behavior: dedupe (unless forceNewTab), then dashboard replacement fallback.
+      if (!options?.forceNewTab) {
+        const allTabs = getAllTabs(paneLayout);
+        const existing = state.combinedModeEnabled
+          ? tab.projectId && tab.contextId
+            ? findTabBySessionProjectAndContext(
+                allTabs,
+                tab.sessionId,
+                tab.projectId,
+                tab.contextId
+              )
+            : undefined
+          : findTabBySession(allTabs, tab.sessionId);
+        if (existing) {
+          state.setActiveTab(existing.id);
+          return;
+        }
+
+        if (activeTab?.type === 'dashboard') {
+          const replacementTab: Tab = {
+            ...tab,
+            id: activeTab.id,
+            label: truncateLabel(tab.label),
+            createdAt: Date.now(),
+          };
+
+          const updatedPane = {
+            ...focusedPane,
+            tabs: focusedPane.tabs.map((t) => (t.id === activeTab.id ? replacementTab : t)),
+            activeTabId: replacementTab.id,
+          };
+          const newLayout = updatePane(paneLayout, updatedPane);
+          set(syncFromLayout(newLayout));
+          return;
+        }
       }
     }
 
@@ -264,96 +293,161 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
     if (tab.type === 'session' && tab.sessionId && tab.projectId) {
       const sessionId = tab.sessionId;
       const projectId = tab.projectId;
-      const sessionChanged = state.selectedSessionId !== sessionId;
+      const contextId = tab.contextId;
 
-      // Check if per-tab data is already cached
-      const cachedTabData = state.tabSessionData[tabId];
-      const hasCachedData = cachedTabData?.conversation != null;
+      const syncSessionTabState = async (): Promise<void> => {
+        const isTargetSessionIdentityStillActive = (): boolean => {
+          const latest = get();
+          const focusedPane = findPane(latest.paneLayout, latest.paneLayout.focusedPaneId);
+          if (!focusedPane || latest.activeTabId !== tabId || focusedPane.activeTabId !== tabId) {
+            return false;
+          }
+          let focusedActiveTab: Tab | undefined;
+          for (const paneTab of focusedPane.tabs) {
+            if (paneTab.id === tabId) {
+              focusedActiveTab = paneTab;
+              break;
+            }
+          }
+          return (
+            focusedActiveTab?.type === 'session' &&
+            focusedActiveTab.sessionId === sessionId &&
+            focusedActiveTab.projectId === projectId &&
+            focusedActiveTab.contextId === contextId
+          );
+        };
+        const realignActiveTabContext = (): void => {
+          const latest = get();
+          const activeTab = latest.getActiveTab();
+          if (
+            activeTab?.type === 'session' &&
+            activeTab.contextId &&
+            latest.activeContextId !== activeTab.contextId &&
+            typeof latest.switchContext === 'function'
+          ) {
+            void latest.switchContext(activeTab.contextId);
+          }
+        };
 
-      // Find the repository and worktree containing this session
-      let foundRepo: string | null = null;
-      let foundWorktree: string | null = null;
+        if (!isTargetSessionIdentityStillActive()) {
+          return;
+        }
 
-      for (const repo of state.repositoryGroups) {
-        for (const wt of repo.worktrees) {
-          if (wt.sessions.includes(sessionId)) {
-            foundRepo = repo.id;
-            foundWorktree = wt.id;
-            break;
+        const preSyncState = get();
+        const targetContextId = contextId;
+        const contextChangedForTab = Boolean(
+          targetContextId && preSyncState.activeContextId !== targetContextId
+        );
+        // Combined-mode tabs can share sessionId/projectId across contexts.
+        // Align active backend context before loading detail for this tab.
+        if (
+          contextChangedForTab &&
+          targetContextId &&
+          typeof preSyncState.switchContext === 'function'
+        ) {
+          try {
+            await preSyncState.switchContext(targetContextId);
+          } catch {
+            return;
+          }
+          if (get().activeContextId !== targetContextId) {
+            return;
+          }
+          if (!isTargetSessionIdentityStillActive()) {
+            realignActiveTabContext();
+            return;
+          }
+        } else if (!isTargetSessionIdentityStillActive()) {
+          return;
+        }
+
+        const latestState = get();
+        const sessionIdentityChanged =
+          contextChangedForTab ||
+          latestState.selectedSessionId !== sessionId ||
+          latestState.selectedProjectId !== projectId ||
+          Boolean(targetContextId && latestState.activeContextId !== targetContextId);
+
+        // Check if per-tab data is already cached
+        const cachedTabData = latestState.tabSessionData[tabId];
+        const hasCachedData = cachedTabData?.conversation != null;
+        const applyCachedTabData = (): void => {
+          if (!cachedTabData) return;
+          set({
+            sessionDetail: cachedTabData.sessionDetail,
+            conversation: cachedTabData.conversation,
+            conversationLoading: false,
+            sessionDetailLoading: false,
+            sessionDetailError: null,
+            sessionClaudeMdStats: cachedTabData.sessionClaudeMdStats,
+            sessionContextStats: cachedTabData.sessionContextStats,
+            sessionPhaseInfo: cachedTabData.sessionPhaseInfo,
+            visibleAIGroupId: cachedTabData.visibleAIGroupId,
+            selectedAIGroup: cachedTabData.selectedAIGroup,
+          });
+        };
+
+        // Find the repository and worktree containing this session
+        let foundRepo: string | null = null;
+        let foundWorktree: string | null = null;
+
+        for (const repo of latestState.repositoryGroups) {
+          const matchedWorktree = repo.worktrees.find((wt) => wt.id === projectId);
+          if (!matchedWorktree) {
+            continue;
+          }
+          foundRepo = repo.id;
+          foundWorktree = matchedWorktree.id;
+          break;
+        }
+
+        if (foundRepo && foundWorktree) {
+          const worktreeChanged = latestState.selectedWorktreeId !== foundWorktree;
+          set({
+            selectedRepositoryId: foundRepo,
+            selectedWorktreeId: foundWorktree,
+            selectedSessionId: sessionId,
+            activeProjectId: foundWorktree,
+            selectedProjectId: foundWorktree,
+          });
+          if (worktreeChanged) {
+            void get().fetchSessionsInitial(foundWorktree);
+          }
+          if (sessionIdentityChanged) {
+            if (hasCachedData) {
+              // Swap global state from per-tab cache (no re-fetch)
+              applyCachedTabData();
+            } else {
+              void get().fetchSessionDetail(foundWorktree, sessionId, tabId);
+            }
+          }
+          return;
+        }
+
+        // Fallback: search in flat projects
+        const project = latestState.projects.find((p) => p.id === projectId);
+        if (project) {
+          const projectChanged = latestState.selectedProjectId !== project.id;
+          set({
+            activeProjectId: project.id,
+            selectedProjectId: project.id,
+            selectedSessionId: sessionId,
+          });
+          if (projectChanged) {
+            void get().fetchSessionsInitial(project.id);
+          }
+          if (sessionIdentityChanged) {
+            if (hasCachedData) {
+              // Swap global state from per-tab cache (no re-fetch)
+              applyCachedTabData();
+            } else {
+              void get().fetchSessionDetail(project.id, sessionId, tabId);
+            }
           }
         }
-        if (foundRepo) break;
-      }
+      };
 
-      if (foundRepo && foundWorktree) {
-        const worktreeChanged = state.selectedWorktreeId !== foundWorktree;
-        set({
-          selectedRepositoryId: foundRepo,
-          selectedWorktreeId: foundWorktree,
-          selectedSessionId: sessionId,
-          activeProjectId: foundWorktree,
-          selectedProjectId: foundWorktree,
-        });
-        if (worktreeChanged) {
-          void get().fetchSessionsInitial(foundWorktree);
-        }
-        if (sessionChanged) {
-          if (hasCachedData) {
-            // Swap global state from per-tab cache (no re-fetch)
-            set({
-              sessionDetail: cachedTabData.sessionDetail,
-              conversation: cachedTabData.conversation,
-              conversationLoading: false,
-              sessionDetailLoading: false,
-              sessionDetailError: null,
-              sessionClaudeMdStats: cachedTabData.sessionClaudeMdStats,
-              sessionContextStats: cachedTabData.sessionContextStats,
-              sessionPhaseInfo: cachedTabData.sessionPhaseInfo,
-              visibleAIGroupId: cachedTabData.visibleAIGroupId,
-              selectedAIGroup: cachedTabData.selectedAIGroup,
-            });
-          } else {
-            void get().fetchSessionDetail(foundWorktree, sessionId, tabId);
-          }
-        }
-        return;
-      }
-
-      // Fallback: search in flat projects
-      const project = state.projects.find(
-        (p) => p.id === projectId || p.sessions.includes(sessionId)
-      );
-      if (project) {
-        const projectChanged = state.selectedProjectId !== project.id;
-        set({
-          activeProjectId: project.id,
-          selectedProjectId: project.id,
-          selectedSessionId: sessionId,
-        });
-        if (projectChanged) {
-          void get().fetchSessionsInitial(project.id);
-        }
-        if (sessionChanged) {
-          if (hasCachedData) {
-            // Swap global state from per-tab cache (no re-fetch)
-            set({
-              sessionDetail: cachedTabData.sessionDetail,
-              conversation: cachedTabData.conversation,
-              conversationLoading: false,
-              sessionDetailLoading: false,
-              sessionDetailError: null,
-              sessionClaudeMdStats: cachedTabData.sessionClaudeMdStats,
-              sessionContextStats: cachedTabData.sessionContextStats,
-              sessionPhaseInfo: cachedTabData.sessionPhaseInfo,
-              visibleAIGroupId: cachedTabData.visibleAIGroupId,
-              selectedAIGroup: cachedTabData.selectedAIGroup,
-            });
-          } else {
-            void get().fetchSessionDetail(project.id, sessionId, tabId);
-          }
-        }
-        return;
-      }
+      void syncSessionTabState();
     }
   },
 
@@ -658,7 +752,7 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
     const allTabs = getAllTabs(state.paneLayout);
     const existingTab =
       findTabBySessionAndProject(allTabs, sessionId, projectId) ??
-      findTabBySession(allTabs, sessionId);
+      (state.combinedModeEnabled ? undefined : findTabBySession(allTabs, sessionId));
 
     if (existingTab) {
       // Focus existing tab via setActiveTab for proper sidebar sync

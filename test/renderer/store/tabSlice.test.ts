@@ -109,6 +109,113 @@ describe('tabSlice', () => {
         expect(store.getState().openTabs).toHaveLength(2);
         expect(store.getState().openTabs.filter((t) => t.type === 'dashboard')).toHaveLength(2);
       });
+
+      it('should treat same sessionId in different projects as distinct in combined mode', () => {
+        store.setState({ combinedModeEnabled: true });
+
+        store.getState().openTab({
+          type: 'session',
+          sessionId: 'shared-session',
+          projectId: 'project-1',
+          label: 'Shared Session A',
+        });
+        store.getState().openTab({
+          type: 'session',
+          sessionId: 'shared-session',
+          projectId: 'project-2',
+          label: 'Shared Session B',
+        });
+
+        expect(store.getState().openTabs).toHaveLength(2);
+      });
+
+      it('should treat same sessionId/projectId in different contexts as distinct in combined mode', () => {
+        store.setState({ combinedModeEnabled: true });
+
+        store.getState().openTab({
+          type: 'session',
+          sessionId: 'shared-session',
+          projectId: 'project-1',
+          contextId: 'local',
+          label: 'Local Session',
+        });
+        store.getState().openTab({
+          type: 'session',
+          sessionId: 'shared-session',
+          projectId: 'project-1',
+          contextId: 'ssh-context',
+          label: 'Remote Session',
+        });
+
+        expect(store.getState().openTabs).toHaveLength(2);
+        // Opening the same context+project+session again should dedup
+        store.getState().openTab({
+          type: 'session',
+          sessionId: 'shared-session',
+          projectId: 'project-1',
+          contextId: 'local',
+          label: 'Local Session Again',
+        });
+        expect(store.getState().openTabs).toHaveLength(2);
+      });
+
+      it('should skip combined-mode dedupe when contextId is missing', () => {
+        store.setState({ combinedModeEnabled: true });
+
+        store.getState().openTab({
+          type: 'session',
+          sessionId: 'shared-session',
+          projectId: 'project-1',
+          label: 'Unknown Context A',
+        });
+        const firstTabId = store.getState().activeTabId;
+
+        store.getState().openTab({
+          type: 'session',
+          sessionId: 'shared-session',
+          projectId: 'project-1',
+          label: 'Unknown Context B',
+        });
+
+        expect(store.getState().openTabs).toHaveLength(2);
+        expect(store.getState().activeTabId).not.toBe(firstTabId);
+      });
+
+      it('should prioritize replaceActiveTab over deduplication', () => {
+        store.getState().openTab({
+          type: 'session',
+          sessionId: 'session-1',
+          projectId: 'project-1',
+          label: 'Session 1',
+        });
+        const firstTabId = store.getState().activeTabId;
+
+        store.getState().openTab({
+          type: 'session',
+          sessionId: 'session-2',
+          projectId: 'project-1',
+          label: 'Session 2',
+        });
+        const secondTabId = store.getState().activeTabId;
+
+        store.getState().openTab(
+          {
+            type: 'session',
+            sessionId: 'session-1',
+            projectId: 'project-1',
+            label: 'Session 1 (Replace)',
+          },
+          { replaceActiveTab: true }
+        );
+
+        expect(store.getState().activeTabId).toBe(secondTabId);
+        expect(store.getState().activeTabId).not.toBe(firstTabId);
+        expect(store.getState().openTabs).toHaveLength(2);
+        expect(store.getState().openTabs.map((tab) => tab.sessionId)).toEqual([
+          'session-1',
+          'session-1',
+        ]);
+      });
     });
 
     describe('dashboard replacement', () => {
@@ -265,6 +372,205 @@ describe('tabSlice', () => {
       expect(store.getState().activeTabId).toBe(dashboardTabId);
       // Sidebar state should be preserved (not cleared) when switching to dashboard
       expect(store.getState().selectedProjectId).toBe('project-2');
+    });
+
+    it('should switch context and refetch when activating a tab in another context', async () => {
+      store.setState({
+        combinedModeEnabled: true,
+        activeContextId: 'local',
+        selectedProjectId: 'project-1',
+        selectedSessionId: 'shared-session',
+        projects: [
+          { id: 'project-1', name: 'Project 1', path: '/path/1', sessions: ['shared-session'] },
+        ] as never[],
+      } as never);
+
+      const switchContext = vi.fn((contextId: string) => {
+        store.setState({ activeContextId: contextId } as never);
+        return Promise.resolve();
+      });
+      const fetchSessionDetail = vi.fn().mockResolvedValue(undefined);
+      store.setState({ switchContext, fetchSessionDetail } as never);
+
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'shared-session',
+        projectId: 'project-1',
+        contextId: 'local',
+        label: 'Local Session',
+      });
+
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'shared-session',
+        projectId: 'project-1',
+        contextId: 'ssh-context',
+        label: 'Remote Session',
+      });
+      const remoteTabId = store.getState().activeTabId;
+
+      store.getState().setActiveTab(remoteTabId!);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(switchContext).toHaveBeenCalledWith('ssh-context');
+      expect(fetchSessionDetail).toHaveBeenCalledWith('project-1', 'shared-session', remoteTabId);
+    });
+
+    it('should refetch when sessionId matches but project differs', () => {
+      store.setState({
+        combinedModeEnabled: true,
+        selectedProjectId: 'project-1',
+        selectedSessionId: 'shared-session',
+        projects: [
+          { id: 'project-1', name: 'Project 1', path: '/path/1', sessions: ['shared-session'] },
+          { id: 'project-2', name: 'Project 2', path: '/path/2', sessions: ['shared-session'] },
+        ] as never[],
+      } as never);
+
+      const fetchSessionDetail = vi.fn().mockResolvedValue(undefined);
+      store.setState({ fetchSessionDetail } as never);
+
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'shared-session',
+        projectId: 'project-1',
+        label: 'Project 1',
+      });
+
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'shared-session',
+        projectId: 'project-2',
+        label: 'Project 2',
+      });
+      const project2TabId = store.getState().activeTabId;
+
+      store.getState().setActiveTab(project2TabId!);
+
+      expect(fetchSessionDetail).toHaveBeenCalledWith('project-2', 'shared-session', project2TabId);
+    });
+
+    it('should ignore stale async activation continuation after a newer tab click', async () => {
+      store.setState({
+        combinedModeEnabled: true,
+        activeContextId: 'local',
+        selectedProjectId: null,
+        selectedSessionId: null,
+        projects: [
+          { id: 'project-1', name: 'Project 1', path: '/path/1', sessions: ['session-a'] },
+          { id: 'project-2', name: 'Project 2', path: '/path/2', sessions: ['session-b'] },
+        ] as never[],
+      } as never);
+
+      let resolveSwitchContext: (() => void) | null = null;
+      const switchContext = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveSwitchContext = () => {
+              store.setState({ activeContextId: 'ssh-context' } as never);
+              resolve();
+            };
+          })
+      );
+      const fetchSessionDetail = vi.fn().mockResolvedValue(undefined);
+      store.setState({ switchContext, fetchSessionDetail } as never);
+
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'session-a',
+        projectId: 'project-1',
+        contextId: 'ssh-context',
+        label: 'Session A',
+      });
+      const tabAId = store.getState().activeTabId;
+
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'session-b',
+        projectId: 'project-2',
+        contextId: 'local',
+        label: 'Session B',
+      });
+      const tabBId = store.getState().activeTabId;
+
+      // Click A (starts async context switch), then quickly click B.
+      store.getState().setActiveTab(tabAId!);
+      store.getState().setActiveTab(tabBId!);
+
+      resolveSwitchContext?.();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(store.getState().activeTabId).toBe(tabBId);
+      expect(store.getState().selectedSessionId).toBe('session-b');
+      expect(fetchSessionDetail).toHaveBeenCalledWith('project-2', 'session-b', tabBId);
+      expect(fetchSessionDetail).not.toHaveBeenCalledWith('project-1', 'session-a', tabAId);
+    });
+
+    it('should ignore stale continuation when active tab id is reused via replaceActiveTab', async () => {
+      store.setState({
+        combinedModeEnabled: true,
+        activeContextId: 'local',
+        selectedProjectId: null,
+        selectedSessionId: null,
+        projects: [
+          { id: 'project-1', name: 'Project 1', path: '/path/1', sessions: ['session-a'] },
+          { id: 'project-2', name: 'Project 2', path: '/path/2', sessions: ['session-b'] },
+        ] as never[],
+      } as never);
+
+      let resolveSwitchContext: (() => void) | null = null;
+      const switchContext = vi.fn((contextId: string) => {
+        if (contextId === 'ssh-context') {
+          return new Promise<void>((resolve) => {
+            resolveSwitchContext = () => {
+              store.setState({ activeContextId: 'ssh-context' } as never);
+              resolve();
+            };
+          });
+        }
+        store.setState({ activeContextId: contextId } as never);
+        return Promise.resolve();
+      });
+      const fetchSessionDetail = vi.fn().mockResolvedValue(undefined);
+      store.setState({ switchContext, fetchSessionDetail } as never);
+
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'session-a',
+        projectId: 'project-1',
+        contextId: 'ssh-context',
+        label: 'Session A',
+      });
+      const reusedTabId = store.getState().activeTabId;
+
+      // Start async activation for Session A (requires context switch).
+      store.getState().setActiveTab(reusedTabId!);
+
+      // Reuse the same tab id for Session B before Session A activation resolves.
+      store.getState().openTab(
+        {
+          type: 'session',
+          sessionId: 'session-b',
+          projectId: 'project-2',
+          contextId: 'local',
+          label: 'Session B',
+        },
+        { replaceActiveTab: true }
+      );
+      store.getState().setActiveTab(reusedTabId!);
+
+      resolveSwitchContext?.();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const activeTab = store.getState().getActiveTab();
+      expect(activeTab?.type).toBe('session');
+      expect(activeTab?.sessionId).toBe('session-b');
+      expect(activeTab?.projectId).toBe('project-2');
+      expect(fetchSessionDetail).toHaveBeenCalledWith('project-2', 'session-b', reusedTabId);
+      expect(fetchSessionDetail).not.toHaveBeenCalledWith('project-1', 'session-a', reusedTabId);
     });
   });
 
@@ -587,6 +893,22 @@ describe('tabSlice', () => {
       expect(tab.pendingNavigation?.kind).toBe('search');
       expect(tab.pendingNavigation?.source).toBe('commandPalette');
       expect(tab.pendingNavigation?.highlight).toBe('yellow');
+    });
+
+    it('should not reuse tabs across projects in combined mode', () => {
+      store.setState({ combinedModeEnabled: true });
+      store.getState().openTab({
+        type: 'session',
+        sessionId: 'shared-session',
+        projectId: 'project-1',
+        label: 'Shared Session A',
+      });
+      const initialTabId = store.getState().activeTabId;
+
+      store.getState().navigateToSession('project-2', 'shared-session');
+
+      expect(store.getState().openTabs).toHaveLength(2);
+      expect(store.getState().activeTabId).not.toBe(initialTabId);
     });
   });
 });
