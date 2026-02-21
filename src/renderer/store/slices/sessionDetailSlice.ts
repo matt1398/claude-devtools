@@ -413,6 +413,15 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         sessionPhaseInfo: phaseInfo,
       });
 
+      // Auto-expand all AI groups if the setting is enabled
+      if (tabId && conversation?.items && get().appConfig?.general?.autoExpandAIGroups) {
+        for (const item of conversation.items) {
+          if (item.type === 'ai') {
+            get().expandAIGroupForTab(tabId, item.group.id);
+          }
+        }
+      }
+
       // Store per-tab session data
       if (tabId) {
         const prev = get().tabSessionData;
@@ -568,6 +577,34 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         // Note: aiGroupExpansionLevels and expandedStepIds are NOT touched
         // so expansion states are preserved
       }));
+
+      // Auto-expand newly arrived AI groups if the setting is enabled.
+      // Compare new conversation items against what was previously known to find new group IDs.
+      if (get().appConfig?.general?.autoExpandAIGroups) {
+        const oldConversation = get().conversation;
+        const oldGroupIds = new Set(
+          (oldConversation?.items ?? [])
+            .filter((item) => item.type === 'ai')
+            .map((item) => (item as { type: 'ai'; group: { id: string } }).group.id)
+        );
+        const newGroupIds = newConversation.items
+          .filter(
+            (item) =>
+              item.type === 'ai' &&
+              !oldGroupIds.has((item as { type: 'ai'; group: { id: string } }).group.id)
+          )
+          .map((item) => (item as { type: 'ai'; group: { id: string } }).group.id);
+
+        if (newGroupIds.length > 0) {
+          for (const tab of latestAllTabs) {
+            if (tab.type === 'session' && tab.sessionId === sessionId) {
+              for (const groupId of newGroupIds) {
+                get().expandAIGroupForTab(tab.id, groupId);
+              }
+            }
+          }
+        }
+      }
 
       // Also update per-tab session data for all tabs viewing this session
       const latestTabSessionData = { ...get().tabSessionData };
