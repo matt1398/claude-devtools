@@ -7,6 +7,9 @@ The format is based on Keep a Changelog and this project follows Semantic Versio
 ## [Unreleased]
 
 ### Added
+- `general.autoExpandAIGroups` setting: automatically expands all AI response groups when opening a transcript or when new AI responses arrive in a live session. Defaults to off. Stored in the on-disk config so it persists across restarts.
+
+
 - Strict IPC input validation guards for project/session/subagent/search limits.
 - `get-waterfall-data` IPC endpoint implementation.
 - Cross-platform path normalization in renderer path resolvers.
