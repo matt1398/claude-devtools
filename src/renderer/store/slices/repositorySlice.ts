@@ -87,6 +87,7 @@ export const createRepositorySlice: StateCreator<AppState, [], [], RepositorySli
         selectedWorktreeId: worktreeToSelect.id,
         selectedProjectId: worktreeToSelect.id,
         activeProjectId: worktreeToSelect.id,
+        sidebarCollapsed: false, // Ensure session list is visible when a project is selected
         ...getSessionResetState(),
       });
       // Fetch sessions for this worktree
