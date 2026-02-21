@@ -197,16 +197,19 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
       let claudeMdStats: Map<string, ClaudeMdStats> | null = null;
       let contextStats: Map<string, ContextStats> | null = null;
       let phaseInfo: ContextPhaseInfo | null = null;
-      // Fetch agent configs from .claude/agents/ (only when project changes)
+      // Fetch agent configs from .claude/agents/ (only when project changes).
+      // Fire-and-forget: don't block transcript rendering — color badges update async.
       if (connectionMode !== 'ssh' && projectRoot && projectRoot !== agentConfigsCachedForProject) {
-        try {
-          const configs = await api.readAgentConfigs(projectRoot);
-          if (requestGeneration !== sessionDetailFetchGeneration) return;
-          agentConfigsCachedForProject = projectRoot;
-          set({ agentConfigs: configs });
-        } catch (err) {
-          logger.error('Failed to read agent configs:', err);
-        }
+        agentConfigsCachedForProject = projectRoot; // Optimistic set to prevent duplicate fetches
+        api
+          .readAgentConfigs(projectRoot)
+          .then((configs) => {
+            set({ agentConfigs: configs });
+          })
+          .catch((err) => {
+            logger.error('Failed to read agent configs:', err);
+            agentConfigsCachedForProject = ''; // Reset so it retries next time
+          });
       }
 
       if (connectionMode !== 'ssh' && conversation?.items) {
