@@ -373,8 +373,12 @@ export class NotificationManager extends EventEmitter {
    * Shows a native macOS notification for an error.
    */
   private showNativeNotification(error: DetectedError): void {
-    // Check if Notification is supported
-    if (!Notification.isSupported()) {
+    // Guard against standalone/Docker mode where Electron's Notification API is unavailable
+    if (
+      typeof Notification === 'undefined' ||
+      typeof Notification.isSupported !== 'function' ||
+      !Notification.isSupported()
+    ) {
       logger.warn('Native notifications not supported');
       return;
     }
