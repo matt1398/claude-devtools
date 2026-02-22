@@ -59,6 +59,7 @@ export const createProjectSlice: StateCreator<AppState, [], [], ProjectSlice> = 
   selectProject: (id: string) => {
     set({
       selectedProjectId: id,
+      sidebarCollapsed: false, // Ensure session list is visible when a project is selected
       ...getSessionResetState(),
     });
 
