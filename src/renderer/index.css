@@ -181,6 +181,12 @@
   --card-text-lighter: #e4e4e7;
   --card-separator: #3f3f46;
 
+  /* Assessment severity colors (badges, health indicators) */
+  --assess-good: #4ade80;
+  --assess-warning: #fbbf24;
+  --assess-danger: #f87171;
+  --assess-neutral: #a1a1aa;
+
   /* Sticky Context button - transparent glass */
   --context-btn-bg: rgba(255, 255, 255, 0.08);
   --context-btn-bg-hover: rgba(255, 255, 255, 0.14);
@@ -205,6 +211,12 @@
   --color-text: #1c1b19; /* Warm near-black text */
   --color-text-secondary: #4d4b46; /* Warm secondary text */
   --color-text-muted: #6d6b65; /* Warm muted text */
+
+  /* Assessment severity colors - darker for light backgrounds */
+  --assess-good: #16a34a;
+  --assess-warning: #d97706;
+  --assess-danger: #dc2626;
+  --assess-neutral: #57534e;
 
   /* Scrollbar colors for light mode */
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);

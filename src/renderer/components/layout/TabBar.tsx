@@ -15,7 +15,7 @@ import { isElectronMode } from '@renderer/api';
 import { HEADER_ROW1_HEIGHT } from '@renderer/constants/layout';
 import { useStore } from '@renderer/store';
 import { formatShortcut } from '@renderer/utils/stringUtils';
-import { Bell, PanelLeft, Plus, RefreshCw, Search, Settings } from 'lucide-react';
+import { Activity, Bell, PanelLeft, Plus, RefreshCw, Search, Settings } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { ExportDropdown } from '../common/ExportDropdown';
@@ -46,6 +46,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
     unreadCount,
     openNotificationsTab,
     openSettingsTab,
+    openSessionReport,
     sidebarCollapsed,
     toggleSidebar,
     splitPane,
@@ -73,6 +74,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
       unreadCount: s.unreadCount,
       openNotificationsTab: s.openNotificationsTab,
       openSettingsTab: s.openSettingsTab,
+      openSessionReport: s.openSessionReport,
       sidebarCollapsed: s.sidebarCollapsed,
       toggleSidebar: s.toggleSidebar,
       splitPane: s.splitPane,
@@ -106,6 +108,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
   const [searchHover, setSearchHover] = useState(false);
   const [notificationsHover, setNotificationsHover] = useState(false);
   const [settingsHover, setSettingsHover] = useState(false);
+  const [analyzeHover, setAnalyzeHover] = useState(false);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(
@@ -398,6 +401,23 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
         {/* Export dropdown - show only for session tabs with loaded data */}
         {activeTab?.type === 'session' && activeTabSessionDetail && (
           <ExportDropdown sessionDetail={activeTabSessionDetail} />
+        )}
+
+        {/* Analyze button - show only for session tabs with loaded data */}
+        {activeTab?.type === 'session' && activeTabSessionDetail && activeTabId && (
+          <button
+            onClick={() => openSessionReport(activeTabId)}
+            onMouseEnter={() => setAnalyzeHover(true)}
+            onMouseLeave={() => setAnalyzeHover(false)}
+            className="rounded-md p-2 transition-colors"
+            style={{
+              color: analyzeHover ? 'var(--color-text)' : 'var(--color-text-muted)',
+              backgroundColor: analyzeHover ? 'var(--color-surface-raised)' : 'transparent',
+            }}
+            title="Analyze Session"
+          >
+            <Activity className="size-4" />
+          </button>
         )}
 
         {/* Notifications bell icon */}

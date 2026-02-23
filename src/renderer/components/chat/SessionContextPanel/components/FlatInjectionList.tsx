@@ -191,9 +191,7 @@ export const FlatInjectionList = ({
           }
         };
 
-        const displayText = row.description
-          ? `${row.label} \u2014 ${row.description}`
-          : row.label;
+        const displayText = row.description ? `${row.label} \u2014 ${row.description}` : row.label;
 
         return (
           <div key={row.key} className="flex items-center gap-0.5">

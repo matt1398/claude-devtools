@@ -46,6 +46,7 @@ export interface TabSlice {
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   openDashboard: () => void;
+  openSessionReport: (sourceTabId: string) => void;
   getActiveTab: () => Tab | null;
   isSessionOpen: (sessionId: string) => boolean;
   enqueueTabNavigation: (tabId: string, request: TabNavigationRequest) => void;
@@ -378,6 +379,28 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
     };
     const newLayout = updatePane(paneLayout, updatedPane);
     set(syncFromLayout(newLayout));
+  },
+
+  // Open a session report tab based on a source session tab
+  openSessionReport: (sourceTabId: string) => {
+    const state = get();
+    const allTabs = getAllTabs(state.paneLayout);
+    const sourceTab = allTabs.find((t) => t.id === sourceTabId);
+    if (sourceTab?.type !== 'session') return;
+    if (!sourceTab.sessionId || !sourceTab.projectId) return;
+
+    const tabData = state.tabSessionData[sourceTabId];
+    const firstMsg = tabData?.sessionDetail?.session.firstMessage;
+    const label = firstMsg
+      ? `Report: ${firstMsg.slice(0, 30)}${firstMsg.length > 30 ? '…' : ''}`
+      : 'Session Report';
+
+    state.openTab({
+      type: 'report',
+      label,
+      projectId: sourceTab.projectId,
+      sessionId: sourceTab.sessionId,
+    });
   },
 
   // Get the currently active tab (from the focused pane)

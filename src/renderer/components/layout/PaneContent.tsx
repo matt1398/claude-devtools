@@ -7,6 +7,7 @@ import { TabUIProvider } from '@renderer/contexts/TabUIContext';
 
 import { DashboardView } from '../dashboard/DashboardView';
 import { NotificationsView } from '../notifications/NotificationsView';
+import { SessionReportTab } from '../report/SessionReportTab';
 import { SettingsView } from '../settings/SettingsView';
 
 import { SessionTabContent } from './SessionTabContent';
@@ -47,6 +48,7 @@ export const PaneContent = ({ pane }: PaneContentProps): React.JSX.Element => {
                 <SessionTabContent tab={tab} isActive={isActive} />
               </TabUIProvider>
             )}
+            {tab.type === 'report' && <SessionReportTab tab={tab} />}
           </div>
         );
       })}

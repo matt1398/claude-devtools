@@ -152,7 +152,7 @@ export function extractOutputText(content: string | unknown[]): string {
       .map((block) =>
         typeof block === 'object' && block !== null && 'text' in block
           ? (block as { text: string }).text
-          : JSON.stringify(block, null, 2),
+          : JSON.stringify(block, null, 2)
       )
       .join('\n');
   } else {
