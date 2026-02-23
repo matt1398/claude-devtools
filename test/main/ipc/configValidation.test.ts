@@ -20,6 +20,28 @@ describe('configValidation', () => {
     }
   });
 
+  it('accepts general.autoExpandAIGroups boolean toggle', () => {
+    const resultOn = validateConfigUpdatePayload('general', { autoExpandAIGroups: true });
+    expect(resultOn.valid).toBe(true);
+    if (resultOn.valid) {
+      expect(resultOn.data).toEqual({ autoExpandAIGroups: true });
+    }
+
+    const resultOff = validateConfigUpdatePayload('general', { autoExpandAIGroups: false });
+    expect(resultOff.valid).toBe(true);
+    if (resultOff.valid) {
+      expect(resultOff.data).toEqual({ autoExpandAIGroups: false });
+    }
+  });
+
+  it('rejects non-boolean general.autoExpandAIGroups', () => {
+    const result = validateConfigUpdatePayload('general', { autoExpandAIGroups: 'yes' });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain('boolean');
+    }
+  });
+
   it('accepts absolute general.claudeRootPath updates', () => {
     const result = validateConfigUpdatePayload('general', {
       claudeRootPath: '/Users/test/.claude',

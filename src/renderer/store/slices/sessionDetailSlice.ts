@@ -416,6 +416,15 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         sessionPhaseInfo: phaseInfo,
       });
 
+      // Auto-expand all AI groups if the setting is enabled
+      if (tabId && conversation?.items && get().appConfig?.general?.autoExpandAIGroups) {
+        for (const item of conversation.items) {
+          if (item.type === 'ai') {
+            get().expandAIGroupForTab(tabId, item.group.id);
+          }
+        }
+      }
+
       // Store per-tab session data
       if (tabId) {
         const prev = get().tabSessionData;
@@ -554,6 +563,14 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         }
       }
 
+      // Snapshot existing AI group IDs before overwriting state, so the
+      // auto-expand diff below can correctly identify which groups are new.
+      const prevGroupIds = new Set(
+        (latestState.conversation?.items ?? [])
+          .filter((item) => item.type === 'ai')
+          .map((item) => (item as { type: 'ai'; group: { id: string } }).group.id)
+      );
+
       // Update only the data, preserve UI states
       set((state) => ({
         sessionDetail: detail,
@@ -571,6 +588,29 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         // Note: aiGroupExpansionLevels and expandedStepIds are NOT touched
         // so expansion states are preserved
       }));
+
+      // Auto-expand newly arrived AI groups if the setting is enabled.
+      // Uses prevGroupIds snapshotted before set() so the diff is accurate.
+      if (get().appConfig?.general?.autoExpandAIGroups) {
+        const oldGroupIds = prevGroupIds;
+        const newGroupIds = newConversation.items
+          .filter(
+            (item) =>
+              item.type === 'ai' &&
+              !oldGroupIds.has((item as { type: 'ai'; group: { id: string } }).group.id)
+          )
+          .map((item) => (item as { type: 'ai'; group: { id: string } }).group.id);
+
+        if (newGroupIds.length > 0) {
+          for (const tab of latestAllTabs) {
+            if (tab.type === 'session' && tab.sessionId === sessionId) {
+              for (const groupId of newGroupIds) {
+                get().expandAIGroupForTab(tab.id, groupId);
+              }
+            }
+          }
+        }
+      }
 
       // Also update per-tab session data for all tabs viewing this session
       const latestTabSessionData = { ...get().tabSessionData };
