@@ -2,6 +2,27 @@
  * String utilities for display formatting.
  */
 
+const isMacPlatform =
+  typeof window !== 'undefined' && window.navigator.userAgent.includes('Macintosh');
+
+/** Returns '⌘' on macOS, 'Ctrl' on Windows/Linux. */
+export const modKey = isMacPlatform ? '⌘' : 'Ctrl+';
+
+/** Returns '⇧' on macOS, 'Shift+' on Windows/Linux. */
+export const shiftKey = isMacPlatform ? '⇧' : 'Shift+';
+
+/**
+ * Formats a keyboard shortcut for the current platform.
+ * @example formatShortcut('R') → '⌘R' on Mac, 'Ctrl+R' on Windows/Linux
+ * @example formatShortcut('W', { shift: true }) → '⇧⌘W' on Mac, 'Ctrl+Shift+W' on Windows/Linux
+ */
+export function formatShortcut(key: string, opts?: { shift?: boolean }): string {
+  if (opts?.shift) {
+    return isMacPlatform ? `${shiftKey}${modKey}${key}` : `${modKey}${shiftKey}${key}`;
+  }
+  return `${modKey}${key}`;
+}
+
 /**
  * Truncates a string in the middle to preserve both the beginning and end.
  * Useful for branch names where the unique identifier is often at the end.

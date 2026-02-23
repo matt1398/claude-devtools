@@ -6,21 +6,14 @@
  * - Search within a single session file
  * - Restrict matching scope to User text + AI last text output
  * - Extract context around each match occurrence
+ *
+ * Uses SearchTextExtractor for lightweight text extraction (skips ChunkBuilder)
+ * and SearchTextCache for mtime-based caching of extracted entries.
  */
 
-import { ChunkBuilder } from '@main/services/analysis/ChunkBuilder';
 import { LocalFileSystemProvider } from '@main/services/infrastructure/LocalFileSystemProvider';
-import {
-  isEnhancedAIChunk,
-  isUserChunk,
-  type ParsedMessage,
-  type SearchResult,
-  type SearchSessionsResult,
-  type SemanticStep,
-} from '@main/types';
 import { parseJsonlFile } from '@main/utils/jsonl';
 import { extractBaseDir, extractSessionId } from '@main/utils/pathDecoder';
-import { sanitizeDisplayContent } from '@shared/utils/contentSanitizer';
 import { createLogger } from '@shared/utils/logger';
 import {
   extractMarkdownPlainText,
@@ -28,36 +21,31 @@ import {
 } from '@shared/utils/markdownTextSearch';
 import * as path from 'path';
 
+import { SearchTextCache } from './SearchTextCache';
+import { extractSearchableEntries } from './SearchTextExtractor';
 import { subprojectRegistry } from './SubprojectRegistry';
 
+import type { SearchableEntry } from './SearchTextExtractor';
 import type { FileSystemProvider } from '@main/services/infrastructure/FileSystemProvider';
+import type { SearchResult, SearchSessionsResult } from '@main/types';
 
 const logger = createLogger('Discovery:SessionSearcher');
 const SSH_FAST_SEARCH_STAGE_LIMITS = [40, 140, 320] as const;
 const SSH_FAST_SEARCH_MIN_RESULTS = 8;
 const SSH_FAST_SEARCH_TIME_BUDGET_MS = 4500;
 
-interface SearchableEntry {
-  text: string;
-  groupId: string;
-  messageType: 'user' | 'assistant';
-  itemType: 'user' | 'ai';
-  timestamp: number;
-  messageUuid: string;
-}
-
 /**
  * SessionSearcher provides methods for searching sessions.
  */
 export class SessionSearcher {
   private readonly projectsDir: string;
-  private readonly chunkBuilder: ChunkBuilder;
   private readonly fsProvider: FileSystemProvider;
+  private readonly searchCache: SearchTextCache;
 
   constructor(projectsDir: string, fsProvider?: FileSystemProvider) {
     this.projectsDir = projectsDir;
-    this.chunkBuilder = new ChunkBuilder();
     this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
+    this.searchCache = new SearchTextCache();
   }
 
   /**
@@ -151,7 +139,8 @@ export class SessionSearcher {
                 sessionId,
                 file.filePath,
                 normalizedQuery,
-                maxResults
+                maxResults,
+                file.mtimeMs
               );
             })
           );
@@ -207,11 +196,15 @@ export class SessionSearcher {
   /**
    * Searches a single session file for a query string.
    *
+   * Uses SearchTextExtractor for lightweight text extraction (no ChunkBuilder)
+   * and SearchTextCache for mtime-based caching.
+   *
    * @param projectId - The project ID
    * @param sessionId - The session ID
    * @param filePath - Path to the session file
    * @param query - Normalized search query (lowercase)
    * @param maxResults - Maximum number of results to return
+   * @param mtimeMs - File modification time for cache invalidation
    * @returns Array of search results
    */
   async searchSessionFile(
@@ -219,71 +212,35 @@ export class SessionSearcher {
     sessionId: string,
     filePath: string,
     query: string,
-    maxResults: number
+    maxResults: number,
+    mtimeMs: number
   ): Promise<SearchResult[]> {
     const results: SearchResult[] = [];
-    let sessionTitle: string | undefined;
-    const messages = await parseJsonlFile(filePath, this.fsProvider);
-    const chunks = this.chunkBuilder.buildChunks(messages, []);
 
-    for (const chunk of chunks) {
-      if (results.length >= maxResults) {
-        break;
-      }
+    // Check cache first
+    let cached = this.searchCache.get(filePath, mtimeMs);
+    if (!cached) {
+      // Cache miss — parse and extract
+      const messages = await parseJsonlFile(filePath, this.fsProvider);
+      const extracted = extractSearchableEntries(messages);
+      this.searchCache.set(filePath, mtimeMs, extracted.entries, extracted.sessionTitle);
+      cached = extracted;
+    }
 
-      if (isUserChunk(chunk)) {
-        const userText = this.extractUserSearchableText(chunk.userMessage);
-        if (!sessionTitle && userText) {
-          sessionTitle = userText.slice(0, 100);
-        }
-        if (!userText) {
-          continue;
-        }
-        const searchableEntry: SearchableEntry = {
-          text: userText,
-          groupId: chunk.id,
-          messageType: 'user',
-          itemType: 'user',
-          timestamp: chunk.userMessage.timestamp.getTime(),
-          messageUuid: chunk.userMessage.uuid,
-        };
-        this.collectMatchesForEntry(
-          searchableEntry,
-          query,
-          results,
-          maxResults,
-          projectId,
-          sessionId,
-          sessionTitle
-        );
-        continue;
-      }
+    const { entries, sessionTitle } = cached;
 
-      if (isEnhancedAIChunk(chunk)) {
-        const lastOutputStep = this.findLastOutputTextStep(chunk.semanticSteps);
-        const outputText = lastOutputStep?.content.outputText;
-        if (!lastOutputStep || !outputText) {
-          continue;
-        }
+    for (const entry of entries) {
+      if (results.length >= maxResults) break;
 
-        const searchableEntry: SearchableEntry = {
-          text: outputText,
-          groupId: chunk.id,
-          messageType: 'assistant',
-          itemType: 'ai',
-          timestamp: lastOutputStep.startTime.getTime(),
-          messageUuid: lastOutputStep.sourceMessageId ?? chunk.responses[0]?.uuid ?? '',
-        };
-        this.collectMatchesForEntry(
-          searchableEntry,
-          query,
-          results,
-          maxResults,
-          projectId,
-          sessionId,
-          sessionTitle
-        );
-      }
+      this.collectMatchesForEntry(
+        entry,
+        query,
+        results,
+        maxResults,
+        projectId,
+        sessionId,
+        sessionTitle
+      );
     }
 
     return results;
@@ -340,29 +297,6 @@ export class SessionSearcher {
         messageUuid: entry.messageUuid,
       });
     }
-  }
-
-  private extractUserSearchableText(message: ParsedMessage): string {
-    let rawText = '';
-    if (typeof message.content === 'string') {
-      rawText = message.content;
-    } else if (Array.isArray(message.content)) {
-      rawText = message.content
-        .filter((block) => block.type === 'text')
-        .map((block) => block.text)
-        .join('');
-    }
-    return sanitizeDisplayContent(rawText);
-  }
-
-  private findLastOutputTextStep(steps: SemanticStep[]): SemanticStep | null {
-    for (let i = steps.length - 1; i >= 0; i--) {
-      const step = steps[i];
-      if (step.type === 'output' && step.content.outputText) {
-        return step;
-      }
-    }
-    return null;
   }
 
   private async collectFulfilledInBatches<T, R>(

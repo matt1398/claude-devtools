@@ -7,6 +7,8 @@
 
 import { useEffect, useRef } from 'react';
 
+import { formatShortcut } from '@renderer/utils/stringUtils';
+
 interface TabContextMenuProps {
   x: number;
   y: number;
@@ -100,13 +102,13 @@ export const TabContextMenu = ({
           onClick={handleClick(onCloseSelectedTabs)}
         />
       ) : (
-        <MenuItem label="Close Tab" shortcut="⌘W" onClick={handleClick(onCloseTab)} />
+        <MenuItem label="Close Tab" shortcut={formatShortcut('W')} onClick={handleClick(onCloseTab)} />
       )}
       <MenuItem label="Close Other Tabs" onClick={handleClick(onCloseOtherTabs)} />
       <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
       <MenuItem
         label="Split Right"
-        shortcut="⌘\"
+        shortcut={formatShortcut('\\')}
         onClick={handleClick(onSplitRight)}
         disabled={disableSplit}
       />
@@ -127,7 +129,7 @@ export const TabContextMenu = ({
         />
       )}
       <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
-      <MenuItem label="Close All Tabs" shortcut="⇧⌘W" onClick={handleClick(onCloseAllTabs)} />
+      <MenuItem label="Close All Tabs" shortcut={formatShortcut('W', { shift: true })} onClick={handleClick(onCloseAllTabs)} />
     </div>
   );
 };

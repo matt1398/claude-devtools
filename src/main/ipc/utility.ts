@@ -12,7 +12,9 @@ import { createLogger } from '@shared/utils/logger';
 import { app, type IpcMain, type IpcMainInvokeEvent, shell } from 'electron';
 import * as fs from 'fs';
 
-import { type ClaudeMdFileInfo, readAllClaudeMdFiles, readDirectoryClaudeMd } from '../services';
+import { type ClaudeMdFileInfo, readAgentConfigs, readAllClaudeMdFiles, readDirectoryClaudeMd } from '../services';
+
+import type { AgentConfig } from '@shared/types/api';
 
 const logger = createLogger('IPC:utility');
 import { validateFilePath, validateOpenPath } from '../utils/pathValidation';
@@ -28,6 +30,7 @@ export function registerUtilityHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('read-claude-md-files', handleReadClaudeMdFiles);
   ipcMain.handle('read-directory-claude-md', handleReadDirectoryClaudeMd);
   ipcMain.handle('read-mentioned-file', handleReadMentionedFile);
+  ipcMain.handle('read-agent-configs', handleReadAgentConfigs);
 
   logger.info('Utility handlers registered');
 }
@@ -42,6 +45,7 @@ export function removeUtilityHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler('read-claude-md-files');
   ipcMain.removeHandler('read-directory-claude-md');
   ipcMain.removeHandler('read-mentioned-file');
+  ipcMain.removeHandler('read-agent-configs');
 
   logger.info('Utility handlers removed');
 }
@@ -226,5 +230,21 @@ async function handleReadMentionedFile(
   } catch (error) {
     logger.error(`Error in read-mentioned-file for ${absolutePath}:`, error);
     return null;
+  }
+}
+
+/**
+ * Handler for 'read-agent-configs' IPC call.
+ * Reads agent definitions from project's .claude/agents/ directory.
+ */
+async function handleReadAgentConfigs(
+  _event: IpcMainInvokeEvent,
+  projectRoot: string
+): Promise<Record<string, AgentConfig>> {
+  try {
+    return await readAgentConfigs(projectRoot);
+  } catch (error) {
+    logger.error('Error in read-agent-configs:', error);
+    return {};
   }
 }

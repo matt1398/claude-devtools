@@ -25,6 +25,7 @@ const sessionRefreshGeneration = new Map<string, number>();
 const sessionRefreshInFlight = new Set<string>();
 const sessionRefreshQueued = new Set<string>();
 let sessionDetailFetchGeneration = 0;
+let agentConfigsCachedForProject = '';
 
 import { getAllTabs } from '../utils/paneHelpers';
 
@@ -37,6 +38,7 @@ import type {
 } from '@renderer/types/contextInjection';
 import type { ClaudeMdFileInfo, SessionDetail } from '@renderer/types/data';
 import type { AIGroup, SessionConversation } from '@renderer/types/groups';
+import type { AgentConfig } from '@shared/types/api';
 import type { StateCreator } from 'zustand';
 
 // =============================================================================
@@ -92,6 +94,9 @@ export interface SessionDetailSlice {
   // Context phase info (compaction boundaries)
   sessionPhaseInfo: ContextPhaseInfo | null;
 
+  // Agent configs from .claude/agents/ (keyed by agent name)
+  agentConfigs: Record<string, AgentConfig>;
+
   // Visible AI Group
   visibleAIGroupId: string | null;
   selectedAIGroup: AIGroup | null;
@@ -132,6 +137,8 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
   sessionContextStats: null,
   // Context phase info (compaction boundaries)
   sessionPhaseInfo: null,
+
+  agentConfigs: {},
 
   visibleAIGroupId: null,
   selectedAIGroup: null,
@@ -190,6 +197,21 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
       let claudeMdStats: Map<string, ClaudeMdStats> | null = null;
       let contextStats: Map<string, ContextStats> | null = null;
       let phaseInfo: ContextPhaseInfo | null = null;
+      // Fetch agent configs from .claude/agents/ (only when project changes).
+      // Fire-and-forget: don't block transcript rendering — color badges update async.
+      if (connectionMode !== 'ssh' && projectRoot && projectRoot !== agentConfigsCachedForProject) {
+        agentConfigsCachedForProject = projectRoot; // Optimistic set to prevent duplicate fetches
+        api
+          .readAgentConfigs(projectRoot)
+          .then((configs) => {
+            set({ agentConfigs: configs });
+          })
+          .catch((err) => {
+            logger.error('Failed to read agent configs:', err);
+            agentConfigsCachedForProject = ''; // Reset so it retries next time
+          });
+      }
+
       if (connectionMode !== 'ssh' && conversation?.items) {
         // Fetch real CLAUDE.md token data
         let claudeMdTokenData: Record<string, ClaudeMdFileInfo> = {};
@@ -394,6 +416,15 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         sessionPhaseInfo: phaseInfo,
       });
 
+      // Auto-expand all AI groups if the setting is enabled
+      if (tabId && conversation?.items && get().appConfig?.general?.autoExpandAIGroups) {
+        for (const item of conversation.items) {
+          if (item.type === 'ai') {
+            get().expandAIGroupForTab(tabId, item.group.id);
+          }
+        }
+      }
+
       // Store per-tab session data
       if (tabId) {
         const prev = get().tabSessionData;
@@ -532,6 +563,14 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         }
       }
 
+      // Snapshot existing AI group IDs before overwriting state, so the
+      // auto-expand diff below can correctly identify which groups are new.
+      const prevGroupIds = new Set(
+        (latestState.conversation?.items ?? [])
+          .filter((item) => item.type === 'ai')
+          .map((item) => (item as { type: 'ai'; group: { id: string } }).group.id)
+      );
+
       // Update only the data, preserve UI states
       set((state) => ({
         sessionDetail: detail,
@@ -549,6 +588,29 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         // Note: aiGroupExpansionLevels and expandedStepIds are NOT touched
         // so expansion states are preserved
       }));
+
+      // Auto-expand newly arrived AI groups if the setting is enabled.
+      // Uses prevGroupIds snapshotted before set() so the diff is accurate.
+      if (get().appConfig?.general?.autoExpandAIGroups) {
+        const oldGroupIds = prevGroupIds;
+        const newGroupIds = newConversation.items
+          .filter(
+            (item) =>
+              item.type === 'ai' &&
+              !oldGroupIds.has((item as { type: 'ai'; group: { id: string } }).group.id)
+          )
+          .map((item) => (item as { type: 'ai'; group: { id: string } }).group.id);
+
+        if (newGroupIds.length > 0) {
+          for (const tab of latestAllTabs) {
+            if (tab.type === 'session' && tab.sessionId === sessionId) {
+              for (const groupId of newGroupIds) {
+                get().expandAIGroupForTab(tab.id, groupId);
+              }
+            }
+          }
+        }
+      }
 
       // Also update per-tab session data for all tabs viewing this session
       const latestTabSessionData = { ...get().tabSessionData };

@@ -30,6 +30,39 @@ import type {
 } from '@main/types';
 
 // =============================================================================
+// Cost Calculation Types
+// =============================================================================
+
+/**
+ * Detailed cost breakdown by token type for a session or chunk
+ */
+export interface CostBreakdown {
+  /** Cost for input tokens */
+  inputCost: number;
+  /** Cost for output tokens */
+  outputCost: number;
+  /** Cost for cache creation tokens */
+  cacheCreationCost: number;
+  /** Cost for cache read tokens */
+  cacheReadCost: number;
+  /** Total cost (sum of all components) */
+  totalCost: number;
+  /** Model name used for calculation */
+  model: string;
+  /** Source of the cost data */
+  source: 'calculated' | 'precalculated' | 'unavailable';
+}
+
+// =============================================================================
+// Agent Config
+// =============================================================================
+
+export interface AgentConfig {
+  name: string;
+  color?: string;
+}
+
+// =============================================================================
 // Notifications API
 // =============================================================================
 
@@ -365,6 +398,9 @@ export interface ElectronAPI {
     projectRoot: string,
     maxTokens?: number
   ) => Promise<ClaudeMdFileInfo | null>;
+
+  // Agent config reading
+  readAgentConfigs: (projectRoot: string) => Promise<Record<string, AgentConfig>>;
 
   // Notifications API
   notifications: NotificationsAPI;

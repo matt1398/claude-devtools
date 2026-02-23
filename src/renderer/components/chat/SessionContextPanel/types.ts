@@ -4,6 +4,7 @@
 
 import type { ClaudeMdSource } from '@renderer/types/claudeMd';
 import type { ContextInjection, ContextPhaseInfo } from '@renderer/types/contextInjection';
+import type { SessionMetrics } from '@shared/types';
 
 // =============================================================================
 // Props Interface
@@ -24,6 +25,8 @@ export interface SessionContextPanelProps {
   onNavigateToUserGroup?: (turnIndex: number) => void;
   /** Total session tokens (input + output + cache) for comparison */
   totalSessionTokens?: number;
+  /** Full session metrics (input, output, cache tokens, cost) */
+  sessionMetrics?: SessionMetrics;
   /** Phase information for phase selector */
   phaseInfo?: ContextPhaseInfo;
   /** Currently selected phase (null = current/latest) */

@@ -19,6 +19,7 @@
   "main": "dist-electron/main/index.cjs",
   "scripts": {
     "dev": "electron-vite dev",
+    "prebuild": "tsx scripts/fetch-pricing-data.ts",
     "build": "electron-vite build",
     "dist": "electron-builder --mac --win --linux",
     "dist:mac": "electron-builder --mac --publish always",
@@ -100,7 +101,7 @@
     "eslint-plugin-sonarjs": "^3.0.6",
     "eslint-plugin-tailwindcss": "^3.18.2",
     "globals": "^17.2.0",
-    "happy-dom": "^17.4.6",
+    "happy-dom": "^20.0.2",
     "knip": "^5.82.1",
     "postcss": "^8.4.35",
     "prettier": "^3.8.1",
@@ -126,6 +127,12 @@
     "asar": true,
     "asarUnpack": [
       "out/renderer/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/pricing.json",
+        "to": "pricing.json"
+      }
     ],
     "npmRebuild": false,
     "extraMetadata": {

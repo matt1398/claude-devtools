@@ -11,6 +11,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { COLOR_TEXT_MUTED, COLOR_TEXT_SECONDARY } from '@renderer/constants/cssVariables';
+import { formatCostUsd } from '@shared/utils/costFormatting';
 import { getModelColorClass } from '@shared/utils/modelParser';
 import {
   formatTokensCompact as formatTokens,
@@ -49,6 +50,8 @@ interface TokenUsageDisplayProps {
   phaseNumber?: number;
   /** Total number of phases in the session */
   totalPhases?: number;
+  /** Optional USD cost for this usage */
+  costUsd?: number;
 }
 
 /**
@@ -255,6 +258,7 @@ export const TokenUsageDisplay = ({
   contextStats,
   phaseNumber,
   totalPhases,
+  costUsd,
 }: Readonly<TokenUsageDisplayProps>): React.JSX.Element => {
   const totalTokens = inputTokens + cacheReadTokens + cacheCreationTokens + outputTokens;
   const formattedTotal = formatTokens(totalTokens);
@@ -512,6 +516,19 @@ export const TokenUsageDisplay = ({
                     {formatTokensDetailed(totalTokens)}
                   </span>
                 </div>
+
+                {/* Cost (USD) - if available */}
+                {costUsd !== undefined && costUsd > 0 && (
+                  <div className="mt-1 flex items-center justify-between text-[10px]">
+                    <span style={{ color: COLOR_TEXT_SECONDARY }}>Cost (USD)</span>
+                    <span
+                      className="tabular-nums"
+                      style={{ color: 'var(--color-text-primary, var(--color-text))' }}
+                    >
+                      {formatCostUsd(costUsd)}
+                    </span>
+                  </div>
+                )}
 
                 {/* Visible Context Breakdown - expandable section */}
                 {contextStats &&

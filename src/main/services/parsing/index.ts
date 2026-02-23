@@ -8,6 +8,7 @@
  * - GitIdentityResolver: Resolves git identities from sessions
  */
 
+export * from './AgentConfigReader';
 export * from './ClaudeMdReader';
 export * from './GitIdentityResolver';
 export * from './MessageClassifier';

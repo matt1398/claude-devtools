@@ -138,6 +138,8 @@ export function useAutoScrollBottom(
   const disabledRef = useRef(disabled);
   // Track resetKey to detect changes
   const prevResetKeyRef = useRef(resetKey);
+  // Set true when resetKey changes; consumed by the content effect to force scroll on first load
+  const needsInitialScrollRef = useRef(false);
 
   /**
    * Check if the scroll container is at the bottom.
@@ -223,34 +225,47 @@ export function useAutoScrollBottom(
     disabledRef.current = disabled;
   }, [disabled]);
 
-  // Reset isAtBottom state when resetKey changes (e.g., tab/session switch)
-  // This ensures new content will auto-scroll to bottom
+  // Reset isAtBottom state when resetKey changes (e.g., tab/session switch).
+  // Sets needsInitialScrollRef so the content effect scrolls to bottom on first load.
   useEffect(() => {
     if (resetKey !== prevResetKeyRef.current) {
       isAtBottomRef.current = true;
       wasAtBottomBeforeUpdateRef.current = true;
       prevResetKeyRef.current = resetKey;
+      needsInitialScrollRef.current = true;
     }
   }, [resetKey]);
 
   /**
-   * After content updates (dependencies change), scroll to bottom if we were at bottom.
+   * After content updates (dependencies change), scroll to bottom if:
+   * - User was already near the bottom before the update, OR
+   * - This is the first load after a tab/session switch (needsInitialScrollRef)
+   * Uses double-RAF + cleanup so React StrictMode's double-invoke doesn't fire twice.
    */
   useEffect(() => {
     // Skip if disabled (e.g., during navigation) or not enabled
     if (!enabled || disabled) return;
 
-    // Use requestAnimationFrame to ensure DOM has updated
-    requestAnimationFrame(() => {
-      // Re-check disabled state inside RAF - it might have changed between effect and callback
-      // This prevents auto-scroll from firing if navigation started after the effect ran
-      if (disabledRef.current) return;
+    let id1 = 0;
+    let id2 = 0;
 
-      // Only auto-scroll if user was at bottom before the update
-      if (wasAtBottomBeforeUpdateRef.current) {
-        scrollToBottom(autoBehavior);
-      }
+    id1 = requestAnimationFrame(() => {
+      id2 = requestAnimationFrame(() => {
+        // Re-check disabled state — navigation may have started between effect and RAF
+        if (disabledRef.current) return;
+
+        const shouldScroll = needsInitialScrollRef.current || wasAtBottomBeforeUpdateRef.current;
+        if (shouldScroll) {
+          needsInitialScrollRef.current = false;
+          scrollToBottom(autoBehavior);
+        }
+      });
     });
+
+    return () => {
+      cancelAnimationFrame(id1);
+      cancelAnimationFrame(id2);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Dynamic dependencies array is intentional design
   }, [...dependencies, enabled, disabled, autoBehavior, scrollToBottom]);
 

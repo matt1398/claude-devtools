@@ -245,6 +245,9 @@ const AIChatGroupInner = ({
     return null;
   }, [aiGroup.responses]);
 
+  // Get the total cost
+  const costUSD = aiGroup.metrics.costUsd;
+
   // Calculate thinking and text output tokens from assistant message content blocks
   // These are estimated from the actual content, providing breakdown of output token usage
   const { thinkingTokens, textOutputTokens } = useMemo(() => {
@@ -470,6 +473,7 @@ const AIChatGroupInner = ({
                 contextStats={contextStats}
                 phaseNumber={phaseNumber}
                 totalPhases={totalPhases}
+                costUsd={costUSD}
               />
             )}
 

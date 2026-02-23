@@ -11,11 +11,8 @@ import {
   CARD_TEXT_LIGHTER,
   COLOR_TEXT_MUTED,
   COLOR_TEXT_SECONDARY,
-  TAG_BG,
-  TAG_BORDER,
-  TAG_TEXT,
 } from '@renderer/constants/cssVariables';
-import { getTeamColorSet } from '@renderer/constants/teamColors';
+import { getSubagentTypeColorSet, getTeamColorSet } from '@renderer/constants/teamColors';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useStore } from '@renderer/store';
 import { buildDisplayItemsFromMessages, buildSummary } from '@renderer/utils/aiGroupEnhancer';
@@ -78,8 +75,13 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
   const subagentType = subagent.subagentType ?? 'Task';
   const truncatedDesc = description.length > 60 ? description.slice(0, 60) + '...' : description;
 
+  // Agent configs from .claude/agents/ for color lookup
+  const agentConfigs = useStore((s) => s.agentConfigs);
+
   // Team member colors (when this subagent is a team member)
   const teamColors = subagent.team ? getTeamColorSet(subagent.team.memberColor) : null;
+  // Type-based colors for non-team subagents (from agent config or deterministic hash)
+  const typeColors = !teamColors ? getSubagentTypeColorSet(subagentType, agentConfigs) : null;
 
   // Detect shutdown-only team activations (trivial: just a shutdown_response)
   const isShutdownOnly = useMemo(() => {
@@ -285,11 +287,11 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
           style={{ color: CARD_ICON_MUTED }}
         />
 
-        {/* Icon - colored dot for team members, Bot icon for regular subagents */}
-        {teamColors ? (
+        {/* Icon - colored dot for team members/typed subagents, Bot icon for generic */}
+        {teamColors || typeColors ? (
           <span
             className="size-3.5 shrink-0 rounded-full"
-            style={{ backgroundColor: teamColors.border }}
+            style={{ backgroundColor: (teamColors ?? typeColors)!.border }}
           />
         ) : (
           <Bot
@@ -298,7 +300,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
           />
         )}
 
-        {/* Type badge - team member name or generic type */}
+        {/* Type badge - team member name or typed subagent */}
         {teamColors && subagent.team ? (
           <span
             className="rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide"
@@ -314,9 +316,9 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
           <span
             className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
             style={{
-              backgroundColor: TAG_BG,
-              color: TAG_TEXT,
-              border: `1px solid ${TAG_BORDER}`,
+              backgroundColor: typeColors!.badge,
+              color: typeColors!.text,
+              border: `1px solid ${typeColors!.border}40`,
             }}
           >
             {subagentType}

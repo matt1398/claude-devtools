@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { MAX_PANES } from '@renderer/types/panes';
+import { formatShortcut } from '@renderer/utils/stringUtils';
 import { Check, ClipboardCopy, Eye, EyeOff, Pin, PinOff, Terminal } from 'lucide-react';
 
 interface SessionContextMenuProps {
@@ -98,7 +99,7 @@ export const SessionContextMenu = ({
       }}
     >
       <MenuItem label="Open in Current Pane" onClick={handleClick(onOpenInCurrentPane)} />
-      <MenuItem label="Open in New Tab" shortcut="⌘ Click" onClick={handleClick(onOpenInNewTab)} />
+      <MenuItem label="Open in New Tab" shortcut={`${formatShortcut('')}Click`} onClick={handleClick(onOpenInNewTab)} />
       <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
       <MenuItem
         label="Split Right and Open"

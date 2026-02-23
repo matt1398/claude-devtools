@@ -14,6 +14,7 @@ import { horizontalListSortingStrategy, SortableContext } from '@dnd-kit/sortabl
 import { isElectronMode } from '@renderer/api';
 import { HEADER_ROW1_HEIGHT } from '@renderer/constants/layout';
 import { useStore } from '@renderer/store';
+import { formatShortcut } from '@renderer/utils/stringUtils';
 import { Activity, Bell, PanelLeft, Plus, RefreshCw, Search, Settings } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -271,8 +272,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
             sidebarCollapsed && isLeftmostPane
               ? 'var(--macos-traffic-light-padding-left, 72px)'
               : '8px',
-          WebkitAppRegion:
-            isElectronMode() && sidebarCollapsed && isLeftmostPane ? 'drag' : undefined,
+          WebkitAppRegion: isElectronMode() && isLeftmostPane ? 'drag' : undefined,
           backgroundColor: 'var(--color-surface)',
           borderBottom: '1px solid var(--color-border)',
           opacity: isFocused || paneCount === 1 ? 1 : 0.7,
@@ -299,15 +299,17 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
         </button>
       )}
 
-      {/* Tab list with horizontal scroll, sortable DnD, and droppable area */}
+      {/* Tab list with horizontal scroll, sortable DnD, and droppable area.
+          Capped at 75% so the drag spacer always has room to the right. */}
       <div
         ref={(el) => {
           scrollContainerRef.current = el;
           setDroppableRef(el);
         }}
-        className="scrollbar-none flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        className="scrollbar-none flex min-w-0 shrink items-center gap-1 overflow-x-auto"
         style={
           {
+            maxWidth: '75%',
             WebkitAppRegion: 'no-drag',
             outline: isDroppableOver ? '1px dashed var(--color-accent, #6366f1)' : 'none',
             outlineOffset: '-1px',
@@ -342,12 +344,24 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
             onMouseEnter={() => setRefreshHover(true)}
             onMouseLeave={() => setRefreshHover(false)}
             onClick={handleRefresh}
-            title="Refresh Session (Cmd+R)"
+            title={`Refresh Session (${formatShortcut('R')})`}
           >
             <RefreshCw className="size-4" />
           </button>
         )}
       </div>
+
+      {/* Drag spacer — fills empty space between tab list and action buttons.
+          Gives users a reliable window-drag target regardless of how many tabs are open.
+          Only applied on the leftmost pane in Electron to match the TabBar drag region logic. */}
+      <div
+        className="flex-1 self-stretch"
+        style={
+          {
+            WebkitAppRegion: isElectronMode() && isLeftmostPane ? 'drag' : undefined,
+          } as React.CSSProperties
+        }
+      />
 
       {/* Right side actions */}
       <div
@@ -379,7 +393,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
             color: searchHover ? 'var(--color-text)' : 'var(--color-text-muted)',
             backgroundColor: searchHover ? 'var(--color-surface-raised)' : 'transparent',
           }}
-          title="Search (Cmd+K)"
+          title={`Search (${formatShortcut('K')})`}
         >
           <Search className="size-4" />
         </button>

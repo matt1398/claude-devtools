@@ -12,6 +12,8 @@
 
 export * from './ProjectPathResolver';
 export * from './ProjectScanner';
+export * from './SearchTextCache';
+export * from './SearchTextExtractor';
 export * from './SessionContentFilter';
 export * from './SessionSearcher';
 export * from './SubagentLocator';
