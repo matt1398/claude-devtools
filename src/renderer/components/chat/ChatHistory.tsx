@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useAutoScrollBottom } from '@renderer/hooks/useAutoScrollBottom';
+import { isNearBottom, useAutoScrollBottom } from '@renderer/hooks/useAutoScrollBottom';
 import { useTabNavigationController } from '@renderer/hooks/useTabNavigationController';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useVisibleAIGroup } from '@renderer/hooks/useVisibleAIGroup';
 import { useStore } from '@renderer/store';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { ChevronsDown } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { SessionContextPanel } from './SessionContextPanel/index';
@@ -343,17 +344,32 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     rootRef: scrollContainerRef,
   });
 
+  // Scroll-to-bottom button visibility
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  const checkScrollButton = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    setShowScrollButton(!isNearBottom(scrollTop, scrollHeight, clientHeight, 300));
+  }, []);
+
   // Auto-follow when conversation updates, but only if the user was already near bottom.
   // This preserves manual reading position when the user scrolls up.
   // Disabled during navigation to prevent conflicts with deep-link/search scrolling.
-  useAutoScrollBottom([conversation], {
-    threshold: 150,
+  const { scrollToBottom } = useAutoScrollBottom([conversation], {
+    threshold: 300,
     smoothDuration: 300,
     autoBehavior: 'auto',
     disabled: shouldDisableAutoScroll,
     externalRef: scrollContainerRef,
     resetKey: effectiveTabId,
   });
+
+  // Re-check button visibility whenever conversation updates
+  useEffect(() => {
+    checkScrollButton();
+  }, [conversation, checkScrollButton]);
 
   // Callback to register AI group refs (combines with visibility hook)
   const registerAIGroupRefCombined = useCallback(
@@ -718,12 +734,13 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
       className="flex flex-1 flex-col overflow-hidden"
       style={{ backgroundColor: 'var(--color-surface)' }}
     >
-      <div className="flex flex-1 overflow-hidden">
+      <div className="relative flex flex-1 overflow-hidden">
         {/* Chat content */}
         <div
           ref={scrollContainerRef}
           className="flex-1 overflow-y-auto"
           style={{ backgroundColor: 'var(--color-surface)' }}
+          onScroll={checkScrollButton}
         >
           {/* Sticky Context button */}
           {allContextInjections.length > 0 && (
@@ -812,6 +829,30 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
             </div>
           </div>
         </div>
+
+        {/* Scroll to bottom button */}
+        {showScrollButton && (
+          <button
+            onClick={() => {
+              scrollToBottom('smooth');
+              setShowScrollButton(false);
+            }}
+            className="absolute bottom-5 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs shadow-lg backdrop-blur-md transition-all"
+            style={{
+              right:
+                isContextPanelVisible && allContextInjections.length > 0
+                  ? 'calc(320px + 1rem)'
+                  : '1rem',
+              backgroundColor: 'var(--context-btn-bg)',
+              color: 'var(--color-text-secondary)',
+              border: '1px solid var(--color-border-emphasis)',
+            }}
+            title="Scroll to bottom"
+          >
+            <ChevronsDown className="size-3.5" />
+            <span>Bottom</span>
+          </button>
+        )}
 
         {/* Context panel sidebar */}
         {isContextPanelVisible && allContextInjections.length > 0 && (

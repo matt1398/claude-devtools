@@ -60,7 +60,8 @@ export const SortableTab = ({
     },
   });
 
-  const style: React.CSSProperties = {
+  const style = {
+    WebkitAppRegion: 'no-drag',
     transform: CSS.Transform.toString(transform),
     transition: isDragging ? 'none' : transition,
     opacity: isDragging ? 0.3 : 1,

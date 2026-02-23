@@ -268,8 +268,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
             sidebarCollapsed && isLeftmostPane
               ? 'var(--macos-traffic-light-padding-left, 72px)'
               : '8px',
-          WebkitAppRegion:
-            isElectronMode() && sidebarCollapsed && isLeftmostPane ? 'drag' : undefined,
+          WebkitAppRegion: isElectronMode() && isLeftmostPane ? 'drag' : undefined,
           backgroundColor: 'var(--color-surface)',
           borderBottom: '1px solid var(--color-border)',
           opacity: isFocused || paneCount === 1 ? 1 : 0.7,
@@ -296,15 +295,17 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
         </button>
       )}
 
-      {/* Tab list with horizontal scroll, sortable DnD, and droppable area */}
+      {/* Tab list with horizontal scroll, sortable DnD, and droppable area.
+          Capped at 75% so the drag spacer always has room to the right. */}
       <div
         ref={(el) => {
           scrollContainerRef.current = el;
           setDroppableRef(el);
         }}
-        className="scrollbar-none flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        className="scrollbar-none flex min-w-0 shrink items-center gap-1 overflow-x-auto"
         style={
           {
+            maxWidth: '75%',
             WebkitAppRegion: 'no-drag',
             outline: isDroppableOver ? '1px dashed var(--color-accent, #6366f1)' : 'none',
             outlineOffset: '-1px',
@@ -345,6 +346,13 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
           </button>
         )}
       </div>
+
+      {/* Drag spacer — fills empty space between tab list and action buttons.
+          Gives users a reliable window-drag target regardless of how many tabs are open. */}
+      <div
+        className="flex-1 self-stretch"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      />
 
       {/* Right side actions */}
       <div
