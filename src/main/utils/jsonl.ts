@@ -213,6 +213,113 @@ function parseMessageType(type?: string): MessageType | null {
 }
 
 // =============================================================================
+// Cost Calculation
+// =============================================================================
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+interface ModelPricing {
+  input_cost_per_token: number;
+  output_cost_per_token: number;
+  cache_creation_input_token_cost?: number;
+  cache_read_input_token_cost?: number;
+  input_cost_per_token_above_200k_tokens?: number;
+  output_cost_per_token_above_200k_tokens?: number;
+  cache_creation_input_token_cost_above_200k_tokens?: number;
+  cache_read_input_token_cost_above_200k_tokens?: number;
+  [key: string]: unknown;
+}
+
+const TIER_THRESHOLD = 200_000;
+
+// Cache pricing data in memory (loaded once on first use)
+let pricingCache: Record<string, unknown> | null = null;
+
+/**
+ * Load pricing data from resources directory.
+ * Uses electron-vite resource directory pattern:
+ * - Development: resources/pricing.json (project root)
+ * - Production: process.resourcesPath/pricing.json
+ */
+function loadPricingData(): Record<string, unknown> {
+  if (pricingCache !== null) {
+    return pricingCache;
+  }
+
+  try {
+    // Determine if we're in development or production
+    const isDev = process.env.NODE_ENV === 'development' || !process.resourcesPath;
+
+    let pricingPath: string;
+    if (isDev) {
+      // Development: Compiled code is in dist-electron/main/
+      // __dirname = /path/to/project/dist-electron/main
+      // Need to go up 2 levels to reach project root, then into resources/
+      pricingPath = path.join(__dirname, '..', '..', 'resources', 'pricing.json');
+    } else {
+      // Production: pricing.json in app's resources directory
+      pricingPath = path.join(process.resourcesPath, 'pricing.json');
+    }
+
+    const data = fs.readFileSync(pricingPath, 'utf-8');
+    pricingCache = JSON.parse(data) as Record<string, unknown>;
+    return pricingCache;
+  } catch (error) {
+    console.error('Failed to load pricing data:', error);
+    // Return empty object if pricing data can't be loaded
+    pricingCache = {};
+    return pricingCache;
+  }
+}
+
+function calculateTieredCost(tokens: number, baseRate: number, tieredRate?: number): number {
+  if (tokens <= 0) return 0;
+  if (!tieredRate || tokens <= TIER_THRESHOLD) {
+    return tokens * baseRate;
+  }
+  const costBelow = TIER_THRESHOLD * baseRate;
+  const costAbove = (tokens - TIER_THRESHOLD) * tieredRate;
+  return costBelow + costAbove;
+}
+
+function getPricing(modelName: string): ModelPricing | null {
+  const pricing = loadPricingData();
+
+  const tryGet = (key: string): ModelPricing | null => {
+    const entry = pricing[key];
+    if (
+      entry &&
+      typeof entry === 'object' &&
+      'input_cost_per_token' in entry &&
+      'output_cost_per_token' in entry
+    ) {
+      return entry as ModelPricing;
+    }
+    return null;
+  };
+
+  // Try exact match
+  const exact = tryGet(modelName);
+  if (exact) return exact;
+
+  // Try lowercase
+  const lowerName = modelName.toLowerCase();
+  const lower = tryGet(lowerName);
+  if (lower) return lower;
+
+  // Try case-insensitive search
+  for (const key of Object.keys(pricing)) {
+    if (key.toLowerCase() === lowerName) {
+      const match = tryGet(key);
+      if (match) return match;
+    }
+  }
+
+  return null;
+}
+
+// =============================================================================
 // Metrics Calculation
 // =============================================================================
 
@@ -228,7 +335,7 @@ export function calculateMetrics(messages: ParsedMessage[]): SessionMetrics {
   let outputTokens = 0;
   let cacheReadTokens = 0;
   let cacheCreationTokens = 0;
-  const costUsd = 0;
+  let modelName: string | undefined;
 
   // Get timestamps for duration (loop instead of Math.min/max spread to avoid stack overflow on large sessions)
   const timestamps = messages.map((m) => m.timestamp.getTime()).filter((t) => !isNaN(t));
@@ -244,12 +351,52 @@ export function calculateMetrics(messages: ParsedMessage[]): SessionMetrics {
     }
   }
 
+  // Calculate cost per-message, then sum (tiered pricing applies per-API-call, not to aggregated totals)
+  let costUsd = 0;
+
   for (const msg of messages) {
     if (msg.usage) {
-      inputTokens += msg.usage.input_tokens ?? 0;
-      outputTokens += msg.usage.output_tokens ?? 0;
-      cacheReadTokens += msg.usage.cache_read_input_tokens ?? 0;
-      cacheCreationTokens += msg.usage.cache_creation_input_tokens ?? 0;
+      const msgInputTokens = msg.usage.input_tokens ?? 0;
+      const msgOutputTokens = msg.usage.output_tokens ?? 0;
+      const msgCacheReadTokens = msg.usage.cache_read_input_tokens ?? 0;
+      const msgCacheCreationTokens = msg.usage.cache_creation_input_tokens ?? 0;
+
+      inputTokens += msgInputTokens;
+      outputTokens += msgOutputTokens;
+      cacheReadTokens += msgCacheReadTokens;
+      cacheCreationTokens += msgCacheCreationTokens;
+
+      // Calculate cost for this message if we have pricing data
+      if (msg.model && !modelName) {
+        modelName = msg.model;
+      }
+
+      if (msg.model) {
+        const pricing = getPricing(msg.model);
+        if (pricing) {
+          const inputCost = calculateTieredCost(
+            msgInputTokens,
+            pricing.input_cost_per_token,
+            pricing.input_cost_per_token_above_200k_tokens
+          );
+          const outputCost = calculateTieredCost(
+            msgOutputTokens,
+            pricing.output_cost_per_token,
+            pricing.output_cost_per_token_above_200k_tokens
+          );
+          const cacheCreationCost = calculateTieredCost(
+            msgCacheCreationTokens,
+            pricing.cache_creation_input_token_cost ?? 0,
+            pricing.cache_creation_input_token_cost_above_200k_tokens
+          );
+          const cacheReadCost = calculateTieredCost(
+            msgCacheReadTokens,
+            pricing.cache_read_input_token_cost ?? 0,
+            pricing.cache_read_input_token_cost_above_200k_tokens
+          );
+          costUsd += inputCost + outputCost + cacheCreationCost + cacheReadCost;
+        }
+      }
     }
   }
 
@@ -261,7 +408,7 @@ export function calculateMetrics(messages: ParsedMessage[]): SessionMetrics {
     cacheReadTokens,
     cacheCreationTokens,
     messageCount: messages.length,
-    costUsd: costUsd > 0 ? costUsd : undefined,
+    costUsd,
   };
 }
 

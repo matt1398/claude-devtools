@@ -461,6 +461,7 @@ export const EMPTY_METRICS: SessionMetrics = {
   cacheReadTokens: 0,
   cacheCreationTokens: 0,
   messageCount: 0,
+  costUsd: 0,
 };
 
 // =============================================================================
