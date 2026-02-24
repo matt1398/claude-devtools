@@ -228,12 +228,28 @@ export function calculateMetrics(messages: ParsedMessage[]): SessionMetrics {
     return { ...EMPTY_METRICS };
   }
 
+  // Deduplicate streaming entries: multiple JSONL lines can share the same
+  // requestId with incrementally accumulating output_tokens. Keep only the
+  // last entry per requestId (the final, complete usage).
+  const lastByRequestId = new Map<string, ParsedMessage>();
+  const dedupedMessages: ParsedMessage[] = [];
+
+  for (const msg of messages) {
+    if (msg.requestId) {
+      lastByRequestId.set(msg.requestId, msg);
+    } else {
+      dedupedMessages.push(msg);
+    }
+  }
+  dedupedMessages.push(...lastByRequestId.values());
+
   let inputTokens = 0;
   let outputTokens = 0;
   let cacheReadTokens = 0;
   let cacheCreationTokens = 0;
 
-  // Get timestamps for duration (loop instead of Math.min/max spread to avoid stack overflow on large sessions)
+  // Get timestamps for duration from ALL messages (including duplicates) —
+  // duration should reflect the full session timeline, not deduped entries.
   const timestamps = messages.map((m) => m.timestamp.getTime()).filter((t) => !isNaN(t));
 
   let minTime = 0;
@@ -250,7 +266,7 @@ export function calculateMetrics(messages: ParsedMessage[]): SessionMetrics {
   // Calculate cost per-message, then sum (tiered pricing applies per-API-call, not to aggregated totals)
   let costUsd = 0;
 
-  for (const msg of messages) {
+  for (const msg of dedupedMessages) {
     if (msg.usage) {
       const msgInputTokens = msg.usage.input_tokens ?? 0;
       const msgOutputTokens = msg.usage.output_tokens ?? 0;
