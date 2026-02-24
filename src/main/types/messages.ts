@@ -84,6 +84,8 @@ export interface ParsedMessage {
   gitBranch?: string;
   /** Agent ID for subagent messages */
   agentId?: string;
+  /** API request ID for streaming deduplication */
+  requestId?: string;
   /** Whether this is a sidechain message */
   isSidechain: boolean;
   /** Whether this is a meta message */
