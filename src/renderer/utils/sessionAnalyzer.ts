@@ -301,16 +301,6 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
   // Cost tracking — use authoritative value from calculateMetrics() in main process
   const parentCost = detail.metrics.costUsd ?? 0;
 
-  // Pre-compute which requestIds are duplicates (keep last occurrence only).
-  // Streaming writes multiple JSONL entries per API response with the same
-  // requestId but incrementally accumulating output_tokens.
-  const lastRequestIdIndex = new Map<string, number>();
-  for (let i = 0; i < messages.length; i++) {
-    if (messages[i].requestId) {
-      lastRequestIdIndex.set(messages[i].requestId!, i);
-    }
-  }
-
   // Git activity
   const gitCommits: GitCommit[] = [];
   let gitPushCount = 0;
@@ -396,37 +386,30 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
     // Skip sidechain messages to avoid double-counting (subagent costs are
     // accounted for separately via processSubagentCost).
     if (m.usage && m.model && !m.isSidechain && m.model !== '<synthetic>') {
-      // Only count cost for the last entry per requestId (streaming dedup).
-      // Streaming writes multiple JSONL entries per API response with the same
-      // requestId but incrementally accumulating output_tokens.
-      const isLastForRequest = !m.requestId || lastRequestIdIndex.get(m.requestId) === i;
+      const model = m.model;
+      const u = m.usage;
+      const inpTok = u.input_tokens ?? 0;
+      const outTok = u.output_tokens ?? 0;
+      const cc = u.cache_creation_input_tokens ?? 0;
+      const cr = u.cache_read_input_tokens ?? 0;
 
-      if (isLastForRequest) {
-        const model = m.model;
-        const u = m.usage;
-        const inpTok = u.input_tokens ?? 0;
-        const outTok = u.output_tokens ?? 0;
-        const cc = u.cache_creation_input_tokens ?? 0;
-        const cr = u.cache_read_input_tokens ?? 0;
+      const stats = getModelStats(model);
+      stats.apiCalls += 1;
+      stats.inputTokens += inpTok;
+      stats.outputTokens += outTok;
+      stats.cacheCreation += cc;
+      stats.cacheRead += cr;
 
-        const stats = getModelStats(model);
-        stats.apiCalls += 1;
-        stats.inputTokens += inpTok;
-        stats.outputTokens += outTok;
-        stats.cacheCreation += cc;
-        stats.cacheRead += cr;
+      const callCost = calculateMessageCost(model, inpTok, outTok, cr, cc);
+      stats.costUsd += callCost;
 
-        const callCost = calculateMessageCost(model, inpTok, outTok, cr, cc);
-        stats.costUsd += callCost;
+      totalCacheCreation += cc;
+      totalCacheRead += cr;
 
-        totalCacheCreation += cc;
-        totalCacheRead += cr;
-
-        // Cold start detection
-        if (msgType === 'assistant' && !firstAssistantWithUsageSeen) {
-          firstAssistantWithUsageSeen = true;
-          if (cc > 0 && cr === 0) coldStartDetected = true;
-        }
+      // Cold start detection
+      if (msgType === 'assistant' && !firstAssistantWithUsageSeen) {
+        firstAssistantWithUsageSeen = true;
+        if (cc > 0 && cr === 0) coldStartDetected = true;
       }
     }
 
