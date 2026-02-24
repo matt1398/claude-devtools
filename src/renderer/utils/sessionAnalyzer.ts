@@ -382,9 +382,10 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
       lastCwd = msgCwd;
     }
 
-    // --- Token usage, cache economics, and cost ---
-    // Skip sidechain messages to avoid double-counting (subagent costs are
-    // accounted for separately via processSubagentCost).
+    // --- Token usage, cache economics, and per-model cost ---
+    // Per-model stats are display-only approximations for the report table.
+    // Streaming duplicates may inflate these counts; authoritative totals
+    // come from detail.metrics (parent) and proc.metrics (subagent).
     if (m.usage && m.model && !m.isSidechain && m.model !== '<synthetic>') {
       const model = m.model;
       const u = m.usage;

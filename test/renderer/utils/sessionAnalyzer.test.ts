@@ -1595,5 +1595,21 @@ describe('analyzeSession', () => {
         Math.round((0.01 + 0.0555) * 10000) / 10000
       );
     });
+
+    it('should default to 0 when costUsd is undefined', () => {
+      const detail = createMockDetail({
+        metrics: createMockMetrics({ messageCount: 1 }),
+        messages: [
+          createMockMessage({
+            type: 'assistant',
+            model: 'claude-sonnet-4-20250514',
+            usage: { input_tokens: 100, output_tokens: 50 },
+          }),
+        ],
+      });
+
+      const report = analyzeSession(detail);
+      expect(report.costAnalysis.parentCostUsd).toBe(0);
+    });
   });
 });
