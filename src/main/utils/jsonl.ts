@@ -120,6 +120,7 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
   let cwd: string | undefined;
   let gitBranch: string | undefined;
   let agentId: string | undefined;
+  let requestId: string | undefined;
   let isSidechain = false;
   let isMeta = false;
   let userType: string | undefined;
@@ -155,6 +156,7 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
       usage = entry.message.usage;
       model = entry.message.model;
       agentId = entry.agentId;
+      requestId = entry.requestId;
     } else if (entry.type === 'system') {
       isMeta = entry.isMeta ?? false;
     }
@@ -177,6 +179,7 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
     cwd,
     gitBranch,
     agentId,
+    requestId,
     isSidechain,
     isMeta,
     userType,
