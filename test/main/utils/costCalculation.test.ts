@@ -553,4 +553,231 @@ describe('Cost Calculation', () => {
       expect(metrics.costUsd).toBeCloseTo(0.0105, 6);
     });
   });
+
+  describe('Streaming Deduplication', () => {
+    it('should count cost only once for duplicate requestIds (last-entry-wins)', () => {
+      const messages: ParsedMessage[] = [
+        {
+          type: 'assistant',
+          uuid: 'msg-1a',
+          requestId: 'req_01ABC',
+          timestamp: new Date('2026-01-01T10:00:00Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 100, // Intermediate streaming entry
+          },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+        {
+          type: 'assistant',
+          uuid: 'msg-1b',
+          requestId: 'req_01ABC', // Same requestId — streaming duplicate
+          timestamp: new Date('2026-01-01T10:00:01Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 500, // Final accumulated output tokens
+          },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+      ];
+
+      const metrics = calculateMetrics(messages);
+
+      // Should use only the last entry (500 output tokens), not sum both (600)
+      // Cost: (1000 * 0.000003) + (500 * 0.000015) = 0.003 + 0.0075 = 0.0105
+      expect(metrics.costUsd).toBeCloseTo(0.0105, 6);
+      expect(metrics.outputTokens).toBe(500);
+      expect(metrics.inputTokens).toBe(1000);
+    });
+
+    it('should count distinct requestIds separately', () => {
+      const messages: ParsedMessage[] = [
+        {
+          type: 'assistant',
+          uuid: 'msg-1',
+          requestId: 'req_01AAA',
+          timestamp: new Date('2026-01-01T10:00:00Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 500,
+          },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+        {
+          type: 'assistant',
+          uuid: 'msg-2',
+          requestId: 'req_01BBB', // Different request
+          timestamp: new Date('2026-01-01T10:00:02Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: {
+            input_tokens: 2000,
+            output_tokens: 1000,
+          },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+      ];
+
+      const metrics = calculateMetrics(messages);
+
+      // Both are unique requests, both counted
+      expect(metrics.costUsd).toBeCloseTo(0.0315, 6);
+      expect(metrics.inputTokens).toBe(3000);
+      expect(metrics.outputTokens).toBe(1500);
+    });
+
+    it('should handle messages without requestId (legacy format)', () => {
+      const messages: ParsedMessage[] = [
+        {
+          type: 'assistant',
+          uuid: 'msg-1',
+          timestamp: new Date('2026-01-01T10:00:00Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 500,
+          },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+        {
+          type: 'assistant',
+          uuid: 'msg-2',
+          timestamp: new Date('2026-01-01T10:00:01Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: {
+            input_tokens: 2000,
+            output_tokens: 1000,
+          },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+      ];
+
+      const metrics = calculateMetrics(messages);
+
+      // No requestId = each message counted independently (backward compat)
+      expect(metrics.costUsd).toBeCloseTo(0.0315, 6);
+    });
+
+    it('should deduplicate three streaming entries for same requestId', () => {
+      const messages: ParsedMessage[] = [
+        {
+          type: 'assistant',
+          uuid: 'msg-1a',
+          requestId: 'req_01XYZ',
+          timestamp: new Date('2026-01-01T10:00:00Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: { input_tokens: 1000, output_tokens: 50 },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+        {
+          type: 'assistant',
+          uuid: 'msg-1b',
+          requestId: 'req_01XYZ',
+          timestamp: new Date('2026-01-01T10:00:01Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: { input_tokens: 1000, output_tokens: 200 },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+        {
+          type: 'assistant',
+          uuid: 'msg-1c',
+          requestId: 'req_01XYZ',
+          timestamp: new Date('2026-01-01T10:00:02Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: { input_tokens: 1000, output_tokens: 500 },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+      ];
+
+      const metrics = calculateMetrics(messages);
+
+      // Only the last entry (500 output tokens) should be counted
+      expect(metrics.costUsd).toBeCloseTo(0.0105, 6);
+      expect(metrics.outputTokens).toBe(500);
+    });
+
+    it('should not deduplicate user or system messages', () => {
+      const messages: ParsedMessage[] = [
+        {
+          type: 'user',
+          uuid: 'msg-u1',
+          timestamp: new Date('2026-01-01T10:00:00Z'),
+          content: 'Hello',
+          usage: { input_tokens: 100, output_tokens: 0 },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+        {
+          type: 'assistant',
+          uuid: 'msg-a1',
+          requestId: 'req_01AAA',
+          timestamp: new Date('2026-01-01T10:00:01Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: { input_tokens: 1000, output_tokens: 500 },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+      ];
+
+      const metrics = calculateMetrics(messages);
+
+      // User message tokens still counted (no requestId dedup applies)
+      expect(metrics.inputTokens).toBe(1100);
+      expect(metrics.outputTokens).toBe(500);
+    });
+  });
 });
