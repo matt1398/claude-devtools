@@ -839,14 +839,8 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
     const subagentModel =
       proc.messages.find((m: ParsedMessage) => m.type === 'assistant' && m.model)?.model ??
       'default (inherits parent)';
-    // Compute cost from subagent token breakdown (proc.metrics.costUsd is not populated upstream)
-    const computedCost = calculateMessageCost(
-      subagentModel,
-      proc.metrics.inputTokens,
-      proc.metrics.outputTokens,
-      proc.metrics.cacheReadTokens,
-      proc.metrics.cacheCreationTokens
-    );
+    // Use authoritative cost from calculateMetrics() in main process
+    const subagentCost = proc.metrics.costUsd ?? 0;
     return {
       description: desc,
       subagentType: proc.subagentType ?? 'unknown',
@@ -857,7 +851,7 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
         (sum: number, pm: ParsedMessage) => sum + pm.toolCalls.length,
         0
       ),
-      costUsd: computedCost,
+      costUsd: subagentCost,
       modelMismatch: detectModelMismatch(desc, subagentModel),
     };
   });
