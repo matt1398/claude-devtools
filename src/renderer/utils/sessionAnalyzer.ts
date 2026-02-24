@@ -298,8 +298,8 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
   // Test progression
   const testSnapshots: TestSnapshot[] = [];
 
-  // Cost tracking
-  let parentCost = 0;
+  // Cost tracking — use authoritative value from calculateMetrics() in main process
+  const parentCost = detail.metrics.costUsd ?? 0;
 
   // Pre-compute which requestIds are duplicates (keep last occurrence only).
   // Streaming writes multiple JSONL entries per API response with the same
@@ -418,7 +418,6 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
 
         const callCost = calculateMessageCost(model, inpTok, outTok, cr, cc);
         stats.costUsd += callCost;
-        parentCost += callCost;
 
         totalCacheCreation += cc;
         totalCacheRead += cr;

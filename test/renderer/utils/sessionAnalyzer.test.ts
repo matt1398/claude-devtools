@@ -173,6 +173,7 @@ describe('analyzeSession', () => {
         createMockDetail({
           messages,
           session: createMockSession({ messageCount: 4 }),
+          metrics: createMockMetrics({ costUsd: 0.01 }),
         })
       );
 
