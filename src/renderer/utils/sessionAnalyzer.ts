@@ -301,6 +301,16 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
   // Cost tracking
   let parentCost = 0;
 
+  // Pre-compute which requestIds are duplicates (keep last occurrence only).
+  // Streaming writes multiple JSONL entries per API response with the same
+  // requestId but incrementally accumulating output_tokens.
+  const lastRequestIdIndex = new Map<string, number>();
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].requestId) {
+      lastRequestIdIndex.set(messages[i].requestId!, i);
+    }
+  }
+
   // Git activity
   const gitCommits: GitCommit[] = [];
   let gitPushCount = 0;
@@ -386,6 +396,9 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
     // Skip sidechain messages to avoid double-counting (subagent costs are
     // accounted for separately via processSubagentCost).
     if (m.usage && m.model && !m.isSidechain && m.model !== '<synthetic>') {
+      // Skip streaming duplicates: only count the last entry per requestId
+      if (m.requestId && lastRequestIdIndex.get(m.requestId) !== i) continue;
+
       const model = m.model;
       const u = m.usage;
       const inpTok = u.input_tokens ?? 0;
