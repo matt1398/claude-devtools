@@ -779,5 +779,42 @@ describe('Cost Calculation', () => {
       expect(metrics.inputTokens).toBe(1100);
       expect(metrics.outputTokens).toBe(500);
     });
+
+    it('should preserve original messageCount including duplicates', () => {
+      const messages: ParsedMessage[] = [
+        {
+          type: 'assistant',
+          uuid: 'msg-1a',
+          requestId: 'req_01ABC',
+          timestamp: new Date('2026-01-01T10:00:00Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: { input_tokens: 1000, output_tokens: 100 },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+        {
+          type: 'assistant',
+          uuid: 'msg-1b',
+          requestId: 'req_01ABC',
+          timestamp: new Date('2026-01-01T10:00:01Z'),
+          content: [],
+          model: 'claude-3-5-sonnet-20241022',
+          usage: { input_tokens: 1000, output_tokens: 500 },
+          toolCalls: [],
+          toolResults: [],
+          isSidechain: false,
+          isMeta: false,
+          parentUuid: null,
+        },
+      ];
+
+      const metrics = calculateMetrics(messages);
+      // messageCount should reflect raw JSONL entries, not deduped count
+      expect(metrics.messageCount).toBe(2);
+    });
   });
 });
