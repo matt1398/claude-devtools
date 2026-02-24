@@ -396,34 +396,38 @@ export function analyzeSession(detail: SessionDetail): SessionReport {
     // Skip sidechain messages to avoid double-counting (subagent costs are
     // accounted for separately via processSubagentCost).
     if (m.usage && m.model && !m.isSidechain && m.model !== '<synthetic>') {
-      // Skip streaming duplicates: only count the last entry per requestId
-      if (m.requestId && lastRequestIdIndex.get(m.requestId) !== i) continue;
+      // Only count cost for the last entry per requestId (streaming dedup).
+      // Streaming writes multiple JSONL entries per API response with the same
+      // requestId but incrementally accumulating output_tokens.
+      const isLastForRequest = !m.requestId || lastRequestIdIndex.get(m.requestId) === i;
 
-      const model = m.model;
-      const u = m.usage;
-      const inpTok = u.input_tokens ?? 0;
-      const outTok = u.output_tokens ?? 0;
-      const cc = u.cache_creation_input_tokens ?? 0;
-      const cr = u.cache_read_input_tokens ?? 0;
+      if (isLastForRequest) {
+        const model = m.model;
+        const u = m.usage;
+        const inpTok = u.input_tokens ?? 0;
+        const outTok = u.output_tokens ?? 0;
+        const cc = u.cache_creation_input_tokens ?? 0;
+        const cr = u.cache_read_input_tokens ?? 0;
 
-      const stats = getModelStats(model);
-      stats.apiCalls += 1;
-      stats.inputTokens += inpTok;
-      stats.outputTokens += outTok;
-      stats.cacheCreation += cc;
-      stats.cacheRead += cr;
+        const stats = getModelStats(model);
+        stats.apiCalls += 1;
+        stats.inputTokens += inpTok;
+        stats.outputTokens += outTok;
+        stats.cacheCreation += cc;
+        stats.cacheRead += cr;
 
-      const callCost = calculateMessageCost(model, inpTok, outTok, cr, cc);
-      stats.costUsd += callCost;
-      parentCost += callCost;
+        const callCost = calculateMessageCost(model, inpTok, outTok, cr, cc);
+        stats.costUsd += callCost;
+        parentCost += callCost;
 
-      totalCacheCreation += cc;
-      totalCacheRead += cr;
+        totalCacheCreation += cc;
+        totalCacheRead += cr;
 
-      // Cold start detection
-      if (msgType === 'assistant' && !firstAssistantWithUsageSeen) {
-        firstAssistantWithUsageSeen = true;
-        if (cc > 0 && cr === 0) coldStartDetected = true;
+        // Cold start detection
+        if (msgType === 'assistant' && !firstAssistantWithUsageSeen) {
+          firstAssistantWithUsageSeen = true;
+          if (cc > 0 && cr === 0) coldStartDetected = true;
+        }
       }
     }
 
