@@ -1506,4 +1506,93 @@ describe('analyzeSession', () => {
       expect(report.subagentMetrics.byAgent[0].modelMismatch).toBeNull();
     });
   });
+
+  describe('cost source of truth', () => {
+    it('should use detail.metrics.costUsd as authoritative parent cost', () => {
+      const messages: ParsedMessage[] = [
+        createMockMessage({
+          type: 'assistant',
+          model: 'claude-sonnet-4-20250514',
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 500,
+            cache_read_input_tokens: 400,
+            cache_creation_input_tokens: 100,
+          },
+        }),
+      ];
+
+      const detail = createMockDetail({
+        metrics: createMockMetrics({
+          durationMs: 1000,
+          totalTokens: 2000,
+          inputTokens: 1000,
+          outputTokens: 500,
+          cacheReadTokens: 400,
+          cacheCreationTokens: 100,
+          messageCount: 2,
+          costUsd: 0.0042, // Authoritative cost from calculateMetrics()
+        }),
+        messages,
+      });
+
+      const report = analyzeSession(detail);
+
+      // parentCostUsd should match detail.metrics.costUsd exactly (rounded to 4 decimals)
+      expect(report.costAnalysis.parentCostUsd).toBe(0.0042);
+    });
+
+    it('should use proc.metrics.costUsd as authoritative subagent cost', () => {
+      const messages: ParsedMessage[] = [
+        createMockMessage({
+          type: 'assistant',
+          model: 'claude-sonnet-4-20250514',
+          usage: { input_tokens: 500, output_tokens: 500 },
+        }),
+      ];
+
+      const processes: Process[] = [
+        {
+          id: 'agent-1',
+          filePath: '/path/to/agent-1.jsonl',
+          messages: [],
+          startTime: new Date('2024-01-01T10:00:00Z'),
+          endTime: new Date('2024-01-01T10:01:00Z'),
+          durationMs: 500,
+          metrics: createMockMetrics({
+            durationMs: 500,
+            totalTokens: 3000,
+            inputTokens: 2000,
+            outputTokens: 1000,
+            messageCount: 2,
+            costUsd: 0.0555, // Authoritative subagent cost
+          }),
+          description: 'test subagent',
+          subagentType: 'code',
+          isParallel: false,
+        },
+      ];
+
+      const detail = createMockDetail({
+        metrics: createMockMetrics({
+          durationMs: 1000,
+          totalTokens: 1000,
+          inputTokens: 500,
+          outputTokens: 500,
+          messageCount: 1,
+          costUsd: 0.01,
+        }),
+        messages,
+        processes,
+      });
+
+      const report = analyzeSession(detail);
+
+      expect(report.costAnalysis.subagentCostUsd).toBe(0.0555);
+      // Total should be parent + subagent
+      expect(report.costAnalysis.totalSessionCostUsd).toBe(
+        Math.round((0.01 + 0.0555) * 10000) / 10000
+      );
+    });
+  });
 });
