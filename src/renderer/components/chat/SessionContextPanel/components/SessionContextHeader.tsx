@@ -12,7 +12,6 @@ import {
   COLOR_TEXT_MUTED,
   COLOR_TEXT_SECONDARY,
 } from '@renderer/constants/cssVariables';
-import { formatCostUsd } from '@shared/utils/costFormatting';
 import { ArrowDownWideNarrow, FileText, LayoutList, X } from 'lucide-react';
 
 import { formatTokens } from '../utils/formatting';
@@ -21,13 +20,11 @@ import { SessionContextHelpTooltip } from './SessionContextHelpTooltip';
 
 import type { ContextViewMode } from '../types';
 import type { ContextPhaseInfo } from '@renderer/types/contextInjection';
-import type { SessionMetrics } from '@shared/types';
 
 interface SessionContextHeaderProps {
   injectionCount: number;
   totalTokens: number;
   totalSessionTokens?: number;
-  sessionMetrics?: SessionMetrics;
   onClose?: () => void;
   phaseInfo?: ContextPhaseInfo;
   selectedPhase: number | null;
@@ -40,7 +37,6 @@ export const SessionContextHeader = ({
   injectionCount,
   totalTokens,
   totalSessionTokens,
-  sessionMetrics,
   onClose,
   phaseInfo,
   selectedPhase,
@@ -118,24 +114,6 @@ export const SessionContextHeader = ({
           </span>
         )}
       </div>
-
-      {/* Session Metrics Breakdown */}
-      {sessionMetrics && (
-        <div
-          className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 pt-2 text-[10px]"
-          style={{ borderTop: `1px solid ${COLOR_BORDER_SUBTLE}` }}
-        >
-          {/* Cost */}
-          {sessionMetrics.costUsd !== undefined && sessionMetrics.costUsd > 0 && (
-            <div className="col-span-2">
-              <span style={{ color: COLOR_TEXT_MUTED }}>Session Cost: </span>
-              <span className="font-medium tabular-nums" style={{ color: COLOR_TEXT_SECONDARY }}>
-                {formatCostUsd(sessionMetrics.costUsd)}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Phase selector - only shown when compactions exist */}
       {phaseInfo && phaseInfo.phases.length > 1 && (

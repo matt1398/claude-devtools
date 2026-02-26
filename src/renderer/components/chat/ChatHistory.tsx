@@ -871,7 +871,6 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
               onNavigateToTool={handleNavigateToTool}
               onNavigateToUserGroup={handleNavigateToUserGroup}
               totalSessionTokens={lastAiGroupTotalTokens}
-              sessionMetrics={sessionDetail?.metrics}
               phaseInfo={sessionPhaseInfo ?? undefined}
               selectedPhase={selectedContextPhase}
               onPhaseChange={setSelectedContextPhase}

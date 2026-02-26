@@ -48,7 +48,6 @@ export const SessionContextPanel = ({
   onNavigateToTool,
   onNavigateToUserGroup,
   totalSessionTokens,
-  sessionMetrics,
   phaseInfo,
   selectedPhase,
   onPhaseChange,
@@ -191,7 +190,6 @@ export const SessionContextPanel = ({
         injectionCount={injections.length}
         totalTokens={totalTokens}
         totalSessionTokens={totalSessionTokens}
-        sessionMetrics={sessionMetrics}
         onClose={onClose}
         phaseInfo={phaseInfo}
         selectedPhase={selectedPhase}
