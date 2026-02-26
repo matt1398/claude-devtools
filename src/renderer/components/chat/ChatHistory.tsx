@@ -387,6 +387,15 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     checkScrollButton();
   }, [conversation, checkScrollButton]);
 
+  // Listen for session-refresh-scroll-bottom events (from Ctrl+R / refresh button)
+  useEffect(() => {
+    const handler = (): void => {
+      scrollToBottom('smooth');
+    };
+    window.addEventListener('session-refresh-scroll-bottom', handler);
+    return () => window.removeEventListener('session-refresh-scroll-bottom', handler);
+  }, [scrollToBottom]);
+
   // Callback to register AI group refs (combines with visibility hook)
   const registerAIGroupRefCombined = useCallback(
     (groupId: string) => {

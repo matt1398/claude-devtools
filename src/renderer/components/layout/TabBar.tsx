@@ -39,7 +39,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
     setSelectedTabIds,
     clearTabSelection,
     openDashboard,
-    fetchSessionDetail,
+    refreshSessionInPlace,
     fetchSessions,
     unreadCount,
     openNotificationsTab,
@@ -64,7 +64,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
       setSelectedTabIds: s.setSelectedTabIds,
       clearTabSelection: s.clearTabSelection,
       openDashboard: s.openDashboard,
-      fetchSessionDetail: s.fetchSessionDetail,
+      refreshSessionInPlace: s.refreshSessionInPlace,
       fetchSessions: s.fetchSessions,
       unreadCount: s.unreadCount,
       openNotificationsTab: s.openNotificationsTab,
@@ -215,9 +215,10 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
   const handleRefresh = async (): Promise<void> => {
     if (activeTab?.type === 'session' && activeTab.projectId && activeTab.sessionId) {
       await Promise.all([
-        fetchSessionDetail(activeTab.projectId, activeTab.sessionId, activeTabId ?? undefined),
+        refreshSessionInPlace(activeTab.projectId, activeTab.sessionId),
         fetchSessions(activeTab.projectId),
       ]);
+      window.dispatchEvent(new CustomEvent('session-refresh-scroll-bottom'));
     }
   };
 

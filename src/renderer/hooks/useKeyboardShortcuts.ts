@@ -29,7 +29,7 @@ export function useKeyboardShortcuts(): void {
     getActiveTab,
     selectedProjectId,
     selectedSessionId,
-    fetchSessionDetail,
+    refreshSessionInPlace,
     fetchSessions,
     openCommandPalette,
     openSettingsTab,
@@ -56,7 +56,7 @@ export function useKeyboardShortcuts(): void {
       getActiveTab: s.getActiveTab,
       selectedProjectId: s.selectedProjectId,
       selectedSessionId: s.selectedSessionId,
-      fetchSessionDetail: s.fetchSessionDetail,
+      refreshSessionInPlace: s.refreshSessionInPlace,
       fetchSessions: s.fetchSessions,
       openCommandPalette: s.openCommandPalette,
       openSettingsTab: s.openSettingsTab,
@@ -261,9 +261,11 @@ export function useKeyboardShortcuts(): void {
         event.preventDefault();
         if (selectedProjectId && selectedSessionId) {
           void Promise.all([
-            fetchSessionDetail(selectedProjectId, selectedSessionId),
+            refreshSessionInPlace(selectedProjectId, selectedSessionId),
             fetchSessions(selectedProjectId),
-          ]);
+          ]).then(() => {
+            window.dispatchEvent(new CustomEvent('session-refresh-scroll-bottom'));
+          });
         }
         return;
       }
@@ -290,7 +292,7 @@ export function useKeyboardShortcuts(): void {
     getActiveTab,
     selectedProjectId,
     selectedSessionId,
-    fetchSessionDetail,
+    refreshSessionInPlace,
     fetchSessions,
     openCommandPalette,
     openSettingsTab,

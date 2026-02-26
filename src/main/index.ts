@@ -481,12 +481,21 @@ function createWindow(): void {
   const ZOOM_OUT_KEYS = new Set(['-', '_']);
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
+
     if (input.type !== 'keyDown') return;
 
-    // Prevent Electron's default Ctrl+R / Cmd+R page reload so the renderer
-    // keyboard handler can use it as "Refresh Session" (fixes #58).
-    // Also prevent Ctrl+Shift+R / Cmd+Shift+R (hard reload).
-    if ((input.control || input.meta) && input.key.toLowerCase() === 'r') {
+    // Intercept Ctrl+R / Cmd+R to prevent Chromium's built-in page reload,
+    // then notify the renderer via IPC so it can refresh the session (fixes #58, #85).
+    // We must preventDefault here because Chromium handles Ctrl+R at the browser
+    // engine level, which also blocks the keydown from reaching the renderer —
+    // hence the IPC bridge.
+    if ((input.control || input.meta) && !input.shift && input.key.toLowerCase() === 'r') {
+      event.preventDefault();
+      mainWindow.webContents.send('session:refresh');
+      return;
+    }
+    // Also block Ctrl+Shift+R (hard reload)
+    if ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'r') {
       event.preventDefault();
       return;
     }

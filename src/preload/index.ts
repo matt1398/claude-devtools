@@ -10,6 +10,7 @@ import {
   HTTP_SERVER_GET_STATUS,
   HTTP_SERVER_START,
   HTTP_SERVER_STOP,
+  SESSION_REFRESH,
   SSH_CONNECT,
   SSH_DISCONNECT,
   SSH_GET_CONFIG_HOSTS,
@@ -344,6 +345,15 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.on('file-change', listener);
     return (): void => {
       ipcRenderer.removeListener('file-change', listener);
+    };
+  },
+
+  // Session refresh event (Ctrl+R / Cmd+R intercepted by main process)
+  onSessionRefresh: (callback: () => void): (() => void) => {
+    const listener = (): void => callback();
+    ipcRenderer.on(SESSION_REFRESH, listener);
+    return (): void => {
+      ipcRenderer.removeListener(SESSION_REFRESH, listener);
     };
   },
 
