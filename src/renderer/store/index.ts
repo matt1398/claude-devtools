@@ -268,6 +268,26 @@ export function initializeNotificationListeners(): () => void {
     }
   }
 
+  // Listen for Ctrl+R / Cmd+R session refresh from main process (fixes #85)
+  if (api.onSessionRefresh) {
+    const cleanup = api.onSessionRefresh(() => {
+      const state = useStore.getState();
+      const activeTabId = state.activeTabId;
+      const activeTab = activeTabId ? state.openTabs.find((t) => t.id === activeTabId) : null;
+      if (activeTab?.type === 'session' && activeTab.projectId && activeTab.sessionId) {
+        void Promise.all([
+          state.refreshSessionInPlace(activeTab.projectId, activeTab.sessionId),
+          state.fetchSessions(activeTab.projectId),
+        ]).then(() => {
+          window.dispatchEvent(new CustomEvent('session-refresh-scroll-bottom'));
+        });
+      }
+    });
+    if (typeof cleanup === 'function') {
+      cleanupFns.push(cleanup);
+    }
+  }
+
   // Listen for updater status events from main process
   if (api.updater?.onStatus) {
     const cleanup = api.updater.onStatus((_event: unknown, status: unknown) => {
