@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { ALL_THEME_CLASSES, getThemeDefinition } from '@renderer/constants/themes';
 import { useShallow } from 'zustand/react/shallow';
 
 import { useStore } from '../store';
 
-type Theme = 'dark' | 'light' | 'system';
+import type { ThemeName } from '@shared/types/notifications';
+
 type ResolvedTheme = 'dark' | 'light';
 
 const THEME_CACHE_KEY = 'claude-devtools-theme-cache';
@@ -17,7 +19,7 @@ const THEME_CACHE_KEY = 'claude-devtools-theme-cache';
  * - Caches theme in localStorage for flash prevention
  */
 export function useTheme(): {
-  theme: Theme;
+  theme: ThemeName;
   resolvedTheme: ResolvedTheme;
   isDark: boolean;
   isLight: boolean;
@@ -47,7 +49,7 @@ export function useTheme(): {
   }, [appConfig, fetchConfig]);
 
   // Get configured theme
-  const configuredTheme: Theme = appConfig?.general?.theme ?? 'dark';
+  const configuredTheme: ThemeName = appConfig?.general?.theme ?? 'dark';
 
   // Get system theme preference
   const getSystemTheme = useCallback((): ResolvedTheme => {
@@ -57,7 +59,15 @@ export function useTheme(): {
   // Resolve 'system' theme and listen for changes
   useEffect(() => {
     const updateTheme = (): void => {
-      const resolved = configuredTheme === 'system' ? getSystemTheme() : configuredTheme;
+      const themeDef = getThemeDefinition(configuredTheme);
+      let resolved: ResolvedTheme;
+
+      if (configuredTheme === 'system') {
+        resolved = getSystemTheme();
+      } else {
+        resolved = themeDef.isLight ? 'light' : 'dark';
+      }
+
       setResolvedTheme(resolved);
 
       // Cache for flash prevention
@@ -86,12 +96,21 @@ export function useTheme(): {
   useEffect(() => {
     const root = document.documentElement;
 
-    // Remove existing theme classes
-    root.classList.remove('dark', 'light');
+    // Remove all existing theme classes
+    root.classList.remove(...ALL_THEME_CLASSES);
 
-    // Add new theme class
-    root.classList.add(resolvedTheme);
-  }, [resolvedTheme]);
+    // Determine which class to apply
+    if (configuredTheme === 'system') {
+      // System mode: resolve to 'dark' or 'light'
+      root.classList.add(resolvedTheme);
+    } else {
+      // Named theme: use its CSS class directly
+      const themeDef = getThemeDefinition(configuredTheme);
+      if (themeDef.cssClass) {
+        root.classList.add(themeDef.cssClass);
+      }
+    }
+  }, [configuredTheme, resolvedTheme]);
 
   return {
     theme: configuredTheme,

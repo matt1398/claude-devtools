@@ -12,6 +12,27 @@
 import type { TriggerColor } from '@shared/constants/triggerColors';
 
 // =============================================================================
+// Theme Types
+// =============================================================================
+
+/**
+ * All available theme names.
+ * 'system' resolves to dark/light based on OS preference.
+ * Named themes apply their own CSS class on :root.
+ */
+export type ThemeName =
+  | 'dark'
+  | 'light'
+  | 'system'
+  | 'monokai'
+  | 'dracula'
+  | 'solarized-dark'
+  | 'solarized-light'
+  | 'nord'
+  | 'github-light'
+  | 'github-dark';
+
+// =============================================================================
 // Detected Error Types
 // =============================================================================
 
@@ -257,7 +278,7 @@ export interface AppConfig {
     /** Whether to show icon in dock (macOS) */
     showDockIcon: boolean;
     /** Application theme */
-    theme: 'dark' | 'light' | 'system';
+    theme: ThemeName;
     /** Default tab to show on app launch */
     defaultTab: 'dashboard' | 'last-session';
     /** Optional custom Claude root folder (auto-detected when null) */

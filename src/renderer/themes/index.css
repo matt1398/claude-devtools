@@ -1,0 +1,8 @@
+/* Theme barrel import - imports all theme CSS files */
+@import './monokai.css';
+@import './dracula.css';
+@import './solarized-dark.css';
+@import './solarized-light.css';
+@import './nord.css';
+@import './github-light.css';
+@import './github-dark.css';

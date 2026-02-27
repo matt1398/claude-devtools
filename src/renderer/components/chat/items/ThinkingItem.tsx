@@ -49,8 +49,9 @@ export const ThinkingItem: React.FC<ThinkingItemProps> = ({
       highlightClasses={highlightClasses}
       highlightStyle={highlightStyle}
       notificationDotColor={notificationDotColor}
+      variant="thinking"
     >
-      <MarkdownViewer content={fullContent} maxHeight="max-h-96" copyable />
+      <MarkdownViewer content={fullContent} maxHeight="max-h-96" copyable collapsible />
     </BaseItem>
   );
 };

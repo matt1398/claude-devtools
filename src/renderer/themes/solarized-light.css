@@ -1,0 +1,170 @@
+/* Solarized Light Theme - Warm light with teal/blue accents */
+:root.solarized-light {
+  --color-surface: #fdf6e3;
+  --color-surface-raised: #eee8d5;
+  --color-surface-overlay: #e8e1cc;
+  --color-surface-sidebar: #f5eed8;
+  --color-border: rgba(101, 123, 131, 0.2);
+  --color-border-subtle: rgba(101, 123, 131, 0.12);
+  --color-border-emphasis: rgba(101, 123, 131, 0.35);
+  --color-text: #073642;
+  --color-text-secondary: #586e75;
+  --color-text-muted: #93a1a1;
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+  --scrollbar-thumb-active: rgba(0, 0, 0, 0.4);
+
+  --highlight-bg: #b58900;
+  --highlight-bg-inactive: rgba(181, 137, 0, 0.3);
+  --highlight-text: #fdf6e3;
+  --highlight-text-inactive: #073642;
+  --highlight-ring: #b58900;
+
+  --chat-user-bg: #eee8d5;
+  --chat-user-text: #586e75;
+  --chat-user-border: rgba(101, 123, 131, 0.15);
+  --chat-user-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+
+  --chat-user-tag-bg: rgba(0, 0, 0, 0.05);
+  --chat-user-tag-text: #073642;
+  --chat-user-tag-border: rgba(0, 0, 0, 0.08);
+
+  --tool-item-name: #073642;
+  --tool-item-summary: #586e75;
+  --tool-item-muted: #93a1a1;
+  --tool-item-hover-bg: #eee8d5;
+
+  --chat-system-bg: #eee8d5;
+  --chat-system-text: #586e75;
+
+  --chat-ai-border: rgba(101, 123, 131, 0.15);
+  --chat-ai-icon: #93a1a1;
+
+  --code-bg: #eee8d5;
+  --code-header-bg: #e8e1cc;
+  --code-border: rgba(101, 123, 131, 0.2);
+  --code-line-number: #93a1a1;
+  --code-filename: #268bd2;
+
+  --syntax-string: #2aa198;
+  --syntax-comment: #93a1a1;
+  --syntax-number: #d33682;
+  --syntax-keyword: #859900;
+  --syntax-type: #b58900;
+  --syntax-operator: #657b83;
+  --syntax-function: #268bd2;
+
+  --inline-code-bg: rgba(0, 0, 0, 0.05);
+  --inline-code-text: #073642;
+
+  --diff-added-bg: rgba(133, 153, 0, 0.1);
+  --diff-added-text: #586e00;
+  --diff-added-border: #859900;
+  --diff-removed-bg: rgba(220, 50, 47, 0.1);
+  --diff-removed-text: #991b1b;
+  --diff-removed-border: #dc322f;
+
+  --prose-heading: #002b36;
+  --prose-body: #073642;
+  --prose-muted: #93a1a1;
+  --prose-link: #268bd2;
+  --prose-code-bg: rgba(0, 0, 0, 0.05);
+  --prose-code-text: #073642;
+  --prose-pre-bg: #eee8d5;
+  --prose-pre-border: rgba(101, 123, 131, 0.2);
+  --prose-blockquote-border: rgba(101, 123, 131, 0.2);
+  --prose-table-border: rgba(101, 123, 131, 0.15);
+  --prose-table-header-bg: #e8e1cc;
+
+  --thinking-bg: rgba(108, 113, 196, 0.08);
+  --thinking-border: rgba(108, 113, 196, 0.35);
+  --thinking-text: #6c71c4;
+  --thinking-text-muted: #6c71c4;
+  --thinking-content-border: rgba(108, 113, 196, 0.25);
+  --thinking-content-text: #5b609c;
+
+  --tool-call-bg: rgba(181, 137, 0, 0.08);
+  --tool-call-border: rgba(181, 137, 0, 0.35);
+  --tool-call-text: #b58900;
+  --tool-call-code-bg: rgba(181, 137, 0, 0.06);
+  --tool-call-content-border: rgba(181, 137, 0, 0.25);
+
+  --tool-result-success-bg: rgba(133, 153, 0, 0.08);
+  --tool-result-success-border: rgba(133, 153, 0, 0.35);
+  --tool-result-success-text: #586e00;
+  --tool-result-error-bg: rgba(220, 50, 47, 0.08);
+  --tool-result-error-border: rgba(220, 50, 47, 0.35);
+  --tool-result-error-text: #991b1b;
+
+  --output-bg: #eee8d5;
+  --output-border: rgba(101, 123, 131, 0.2);
+  --output-text: #073642;
+  --output-content-border: rgba(101, 123, 131, 0.15);
+
+  --badge-error-bg: #dc322f;
+  --badge-error-text: #ffffff;
+  --badge-warning-bg: #b58900;
+  --badge-warning-text: #ffffff;
+  --badge-success-bg: #859900;
+  --badge-success-text: #ffffff;
+  --badge-info-bg: #268bd2;
+  --badge-info-text: #ffffff;
+  --badge-neutral-bg: #eee8d5;
+  --badge-neutral-text: #586e75;
+
+  --tag-bg: #eee8d5;
+  --tag-text: #586e75;
+  --tag-border: rgba(101, 123, 131, 0.15);
+
+  --skill-highlight-bg: rgba(0, 0, 0, 0.05);
+  --skill-highlight-text: #073642;
+  --path-highlight-bg: rgba(0, 0, 0, 0.05);
+  --path-highlight-text: #073642;
+
+  --interruption-bg: rgba(220, 50, 47, 0.08);
+  --interruption-border: #dc322f;
+  --interruption-text: #991b1b;
+
+  --warning-bg: rgba(203, 75, 22, 0.1);
+  --warning-border: #cb4b16;
+  --warning-text: #b45309;
+
+  --plan-exit-bg: rgba(133, 153, 0, 0.05);
+  --plan-exit-header-bg: rgba(133, 153, 0, 0.08);
+  --plan-exit-border: rgba(133, 153, 0, 0.25);
+  --plan-exit-text: #586e00;
+
+  --error-highlight-ring: #dc322f;
+  --error-highlight-bg: rgba(220, 50, 47, 0.15);
+
+  --kbd-bg: #eee8d5;
+  --kbd-border: rgba(101, 123, 131, 0.25);
+  --kbd-text: #073642;
+
+  --card-bg: #fdf6e3;
+  --card-border: rgba(101, 123, 131, 0.2);
+  --card-header-bg: #eee8d5;
+  --card-header-hover: #e8e1cc;
+  --card-icon-muted: #93a1a1;
+  --card-text-light: #586e75;
+  --card-text-lighter: #073642;
+  --card-separator: rgba(101, 123, 131, 0.2);
+
+  --context-btn-bg: rgba(0, 0, 0, 0.06);
+  --context-btn-bg-hover: rgba(0, 0, 0, 0.1);
+  --context-btn-active-bg: rgba(38, 139, 210, 0.35);
+  --context-btn-active-text: #002b36;
+
+  --skeleton-base: #e8e1cc;
+  --skeleton-base-light: #ddd6be;
+  --skeleton-base-dim: rgba(232, 225, 204, 0.6);
+
+  --step-thinking-color: #6c71c4;
+  --step-output-color: #268bd2;
+  --step-tool-color: #b58900;
+  --step-success-color: #859900;
+  --step-error-color: #dc322f;
+  --step-slash-color: #d33682;
+  --step-subagent-color: #2aa198;
+}

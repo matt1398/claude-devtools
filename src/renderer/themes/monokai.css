@@ -1,0 +1,170 @@
+/* Monokai Theme - Warm dark with vibrant syntax colors */
+:root.monokai {
+  --color-surface: #272822;
+  --color-surface-raised: #3e3d32;
+  --color-surface-overlay: #3e3d32;
+  --color-surface-sidebar: #1e1f1c;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-emphasis: rgba(255, 255, 255, 0.12);
+  --color-text: #f8f8f2;
+  --color-text-secondary: #a6a69c;
+  --color-text-muted: #75715e;
+
+  --scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+  --scrollbar-thumb-active: rgba(255, 255, 255, 0.35);
+
+  --highlight-bg: rgba(230, 219, 116, 0.7);
+  --highlight-bg-inactive: rgba(230, 219, 116, 0.3);
+  --highlight-text: #272822;
+  --highlight-text-inactive: #f8f8f2;
+  --highlight-ring: #e6db74;
+
+  --chat-user-bg: #3e3d32;
+  --chat-user-text: #a6a69c;
+  --chat-user-border: rgba(255, 255, 255, 0.08);
+  --chat-user-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.03);
+
+  --chat-user-tag-bg: rgba(255, 255, 255, 0.08);
+  --chat-user-tag-text: #f8f8f2;
+  --chat-user-tag-border: rgba(255, 255, 255, 0.12);
+
+  --tool-item-name: #f8f8f2;
+  --tool-item-summary: #a6a69c;
+  --tool-item-muted: #75715e;
+  --tool-item-hover-bg: rgba(62, 61, 50, 0.5);
+
+  --chat-system-bg: rgba(62, 61, 50, 0.5);
+  --chat-system-text: #f8f8f2;
+
+  --chat-ai-border: rgba(255, 255, 255, 0.06);
+  --chat-ai-icon: #75715e;
+
+  --code-bg: #1e1f1c;
+  --code-header-bg: #1e1f1c;
+  --code-border: rgba(255, 255, 255, 0.1);
+  --code-line-number: #75715e;
+  --code-filename: #66d9ef;
+
+  --syntax-string: #e6db74;
+  --syntax-comment: #75715e;
+  --syntax-number: #ae81ff;
+  --syntax-keyword: #f92672;
+  --syntax-type: #a6e22e;
+  --syntax-operator: #f8f8f2;
+  --syntax-function: #66d9ef;
+
+  --inline-code-bg: rgba(255, 255, 255, 0.08);
+  --inline-code-text: #f8f8f2;
+
+  --diff-added-bg: rgba(166, 226, 46, 0.15);
+  --diff-added-text: #a6e22e;
+  --diff-added-border: #a6e22e;
+  --diff-removed-bg: rgba(249, 38, 114, 0.15);
+  --diff-removed-text: #f92672;
+  --diff-removed-border: #f92672;
+
+  --prose-heading: #f8f8f2;
+  --prose-body: #f8f8f2;
+  --prose-muted: #a6a69c;
+  --prose-link: #66d9ef;
+  --prose-code-bg: rgba(255, 255, 255, 0.08);
+  --prose-code-text: #f8f8f2;
+  --prose-pre-bg: #1e1f1c;
+  --prose-pre-border: rgba(255, 255, 255, 0.1);
+  --prose-blockquote-border: rgba(255, 255, 255, 0.1);
+  --prose-table-border: rgba(255, 255, 255, 0.08);
+  --prose-table-header-bg: #3e3d32;
+
+  --thinking-bg: rgba(174, 129, 255, 0.15);
+  --thinking-border: rgba(174, 129, 255, 0.4);
+  --thinking-text: #ae81ff;
+  --thinking-text-muted: #c8a8ff;
+  --thinking-content-border: rgba(174, 129, 255, 0.3);
+  --thinking-content-text: #e0d0ff;
+
+  --tool-call-bg: rgba(230, 219, 116, 0.12);
+  --tool-call-border: rgba(230, 219, 116, 0.4);
+  --tool-call-text: #e6db74;
+  --tool-call-code-bg: rgba(230, 219, 116, 0.1);
+  --tool-call-content-border: rgba(230, 219, 116, 0.3);
+
+  --tool-result-success-bg: rgba(166, 226, 46, 0.12);
+  --tool-result-success-border: rgba(166, 226, 46, 0.4);
+  --tool-result-success-text: #a6e22e;
+  --tool-result-error-bg: rgba(249, 38, 114, 0.15);
+  --tool-result-error-border: rgba(249, 38, 114, 0.4);
+  --tool-result-error-text: #f92672;
+
+  --output-bg: rgba(39, 40, 34, 0.3);
+  --output-border: #3e3d32;
+  --output-text: #f8f8f2;
+  --output-content-border: rgba(62, 61, 50, 0.5);
+
+  --badge-error-bg: #f92672;
+  --badge-error-text: #ffffff;
+  --badge-warning-bg: #e6db74;
+  --badge-warning-text: #272822;
+  --badge-success-bg: #a6e22e;
+  --badge-success-text: #272822;
+  --badge-info-bg: #66d9ef;
+  --badge-info-text: #272822;
+  --badge-neutral-bg: #3e3d32;
+  --badge-neutral-text: #f8f8f2;
+
+  --tag-bg: #3e3d32;
+  --tag-text: #a6a69c;
+  --tag-border: rgba(255, 255, 255, 0.08);
+
+  --skill-highlight-bg: rgba(255, 255, 255, 0.08);
+  --skill-highlight-text: #f8f8f2;
+  --path-highlight-bg: rgba(255, 255, 255, 0.08);
+  --path-highlight-text: #f8f8f2;
+
+  --interruption-bg: rgba(249, 38, 114, 0.2);
+  --interruption-border: #f92672;
+  --interruption-text: #f92672;
+
+  --warning-bg: rgba(230, 219, 116, 0.15);
+  --warning-border: rgba(230, 219, 116, 0.4);
+  --warning-text: #e6db74;
+
+  --plan-exit-bg: rgba(166, 226, 46, 0.05);
+  --plan-exit-header-bg: rgba(166, 226, 46, 0.1);
+  --plan-exit-border: rgba(166, 226, 46, 0.25);
+  --plan-exit-text: #a6e22e;
+
+  --error-highlight-ring: #f92672;
+  --error-highlight-bg: rgba(249, 38, 114, 0.2);
+
+  --kbd-bg: #3e3d32;
+  --kbd-border: rgba(255, 255, 255, 0.1);
+  --kbd-text: #f8f8f2;
+
+  --card-bg: #1e1f1c;
+  --card-border: #3e3d32;
+  --card-header-bg: #272822;
+  --card-header-hover: #3e3d32;
+  --card-icon-muted: #75715e;
+  --card-text-light: #f8f8f2;
+  --card-text-lighter: #f8f8f2;
+  --card-separator: #3e3d32;
+
+  --context-btn-bg: rgba(255, 255, 255, 0.08);
+  --context-btn-bg-hover: rgba(255, 255, 255, 0.14);
+  --context-btn-active-bg: rgba(249, 38, 114, 0.45);
+  --context-btn-active-text: #f8f8f2;
+
+  --skeleton-base: #3e3d32;
+  --skeleton-base-light: #49483e;
+  --skeleton-base-dim: rgba(62, 61, 50, 0.6);
+
+  --step-thinking-color: #ae81ff;
+  --step-output-color: #66d9ef;
+  --step-tool-color: #e6db74;
+  --step-success-color: #a6e22e;
+  --step-error-color: #f92672;
+  --step-slash-color: #ae81ff;
+  --step-subagent-color: #66d9ef;
+}

@@ -194,6 +194,31 @@ export const CARD_TEXT_LIGHTER = 'var(--card-text-lighter)';
 export const CARD_SEPARATOR = 'var(--card-separator)';
 
 // =============================================================================
+// Step Type Colors (for colored borders and icons per step type)
+// =============================================================================
+
+/** Thinking step color (purple) */
+export const STEP_THINKING_COLOR = 'var(--step-thinking-color)';
+
+/** Output step color (blue) */
+export const STEP_OUTPUT_COLOR = 'var(--step-output-color)';
+
+/** Tool step color (amber) */
+export const STEP_TOOL_COLOR = 'var(--step-tool-color)';
+
+/** Success step color (green) */
+export const STEP_SUCCESS_COLOR = 'var(--step-success-color)';
+
+/** Error step color (red) */
+export const STEP_ERROR_COLOR = 'var(--step-error-color)';
+
+/** Slash command step color (violet) */
+export const STEP_SLASH_COLOR = 'var(--step-slash-color)';
+
+/** Subagent step color (cyan) */
+export const STEP_SUBAGENT_COLOR = 'var(--step-subagent-color)';
+
+// =============================================================================
 // Form/Input Colors (Tailwind classes for select/input options)
 // =============================================================================
 

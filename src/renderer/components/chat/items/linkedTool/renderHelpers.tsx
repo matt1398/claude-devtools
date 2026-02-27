@@ -6,12 +6,29 @@
 
 import React from 'react';
 
+import { MarkdownViewer } from '@renderer/components/chat/viewers/MarkdownViewer';
 import {
   COLOR_TEXT,
   COLOR_TEXT_MUTED,
   DIFF_ADDED_TEXT,
   DIFF_REMOVED_TEXT,
 } from '@renderer/constants/cssVariables';
+
+/**
+ * Detect if a string contains markdown formatting worth rendering.
+ */
+function looksLikeMarkdown(text: string): boolean {
+  if (text.length < 20) return false;
+  // Use simple, non-backtracking patterns to avoid ReDoS
+  return (
+    /^#{1,6}\s/m.test(text) ||
+    text.includes('**') ||
+    /^[ \t]*[-*+] /m.test(text) ||
+    /^[ \t]*\d+\. /m.test(text) ||
+    /^```/m.test(text) ||
+    /^\|.*\|/m.test(text)
+  );
+}
 
 /**
  * Renders the input section based on tool type with theme-aware styling.
@@ -103,7 +120,11 @@ export function renderInput(toolName: string, input: Record<string, unknown>): R
           <div className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
             {key}
           </div>
-          <pre className="whitespace-pre-wrap break-all">{formatInputValue(value)}</pre>
+          {typeof value === 'string' && looksLikeMarkdown(value) ? (
+            <MarkdownViewer content={value} maxHeight="max-h-96" />
+          ) : (
+            <pre className="whitespace-pre-wrap break-all">{formatInputValue(value)}</pre>
+          )}
         </div>
       ))}
     </div>
@@ -181,6 +202,9 @@ function isContentBlock(value: unknown): boolean {
 
 export function renderOutput(content: string | unknown[]): React.ReactElement {
   const displayText = extractOutputText(content);
+  if (looksLikeMarkdown(displayText)) {
+    return <MarkdownViewer content={displayText} maxHeight="max-h-96" collapsible />;
+  }
   return (
     <pre className="whitespace-pre-wrap break-all" style={{ color: COLOR_TEXT }}>
       {displayText}

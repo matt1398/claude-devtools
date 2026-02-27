@@ -57,6 +57,7 @@ export const SlashItem: React.FC<SlashItemProps> = ({
       highlightClasses={highlightClasses}
       highlightStyle={highlightStyle}
       notificationDotColor={notificationDotColor}
+      variant="slash"
     >
       {hasInstructions && (
         <MarkdownViewer

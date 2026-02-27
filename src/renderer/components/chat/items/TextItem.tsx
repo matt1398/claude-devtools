@@ -49,8 +49,9 @@ export const TextItem: React.FC<TextItemProps> = ({
       highlightClasses={highlightClasses}
       highlightStyle={highlightStyle}
       notificationDotColor={notificationDotColor}
+      variant="output"
     >
-      <MarkdownViewer content={fullContent} maxHeight="max-h-96" copyable />
+      <MarkdownViewer content={fullContent} maxHeight="max-h-96" copyable collapsible />
     </BaseItem>
   );
 };

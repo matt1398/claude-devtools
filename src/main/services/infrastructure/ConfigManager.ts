@@ -20,6 +20,7 @@ import { DEFAULT_TRIGGERS, TriggerManager } from './TriggerManager';
 
 import type { TriggerColor } from '@shared/constants/triggerColors';
 import type { SshConnectionProfile } from '@shared/types/api';
+import type { ThemeName } from '@shared/types/notifications';
 
 const logger = createLogger('Service:ConfigManager');
 
@@ -178,7 +179,7 @@ export interface NotificationTrigger {
 export interface GeneralConfig {
   launchAtLogin: boolean;
   showDockIcon: boolean;
-  theme: 'dark' | 'light' | 'system';
+  theme: ThemeName;
   defaultTab: 'dashboard' | 'last-session';
   claudeRootPath: string | null;
   autoExpandAIGroups: boolean;

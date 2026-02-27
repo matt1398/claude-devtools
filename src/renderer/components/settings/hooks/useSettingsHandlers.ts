@@ -10,6 +10,7 @@ import { useStore } from '@renderer/store';
 
 import type { RepositoryDropdownItem } from './useSettingsConfig';
 import type { AppConfig, NotificationTrigger } from '@renderer/types/data';
+import type { ThemeName } from '@shared/types/notifications';
 
 // Get the setState function from the store to update appConfig globally
 const setStoreState = useStore.setState;
@@ -29,7 +30,7 @@ interface UseSettingsHandlersProps {
 interface SettingsHandlers {
   // General handlers
   handleGeneralToggle: (key: keyof AppConfig['general'], value: boolean) => void;
-  handleThemeChange: (value: 'dark' | 'light' | 'system') => void;
+  handleThemeChange: (value: ThemeName) => void;
   handleDefaultTabChange: (value: 'dashboard' | 'last-session') => void;
 
   // Notification handlers
@@ -75,7 +76,7 @@ export function useSettingsHandlers({
   );
 
   const handleThemeChange = useCallback(
-    (value: 'dark' | 'light' | 'system') => {
+    (value: ThemeName) => {
       void updateConfig('general', { theme: value });
     },
     [updateConfig]

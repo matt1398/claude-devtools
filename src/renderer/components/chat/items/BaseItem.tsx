@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { TOOL_ITEM_MUTED } from '@renderer/constants/cssVariables';
+import { getStepVariantStyle, type StepVariant } from '@renderer/constants/stepVariants';
 import { getTriggerColorDef, type TriggerColor } from '@shared/constants/triggerColors';
 import { ChevronRight } from 'lucide-react';
 
@@ -39,6 +40,8 @@ interface BaseItemProps {
   highlightStyle?: React.CSSProperties;
   /** Notification dot color for custom triggers */
   notificationDotColor?: TriggerColor;
+  /** Step variant for color-coded borders and icons */
+  variant?: StepVariant;
   /** Children rendered when expanded */
   children?: React.ReactNode;
 }
@@ -86,8 +89,11 @@ export const BaseItem: React.FC<BaseItemProps> = ({
   highlightClasses = '',
   highlightStyle,
   notificationDotColor,
+  variant,
   children,
 }) => {
+  const variantStyle = variant ? getStepVariantStyle(variant) : undefined;
+
   return (
     <div
       className={`rounded transition-all duration-300 ${highlightClasses}`}
@@ -114,12 +120,12 @@ export const BaseItem: React.FC<BaseItemProps> = ({
         }
       >
         {/* Icon */}
-        <span className="size-4 shrink-0" style={{ color: TOOL_ITEM_MUTED }}>
+        <span className="size-4 shrink-0" style={{ color: variantStyle?.iconColor ?? TOOL_ITEM_MUTED }}>
           {icon}
         </span>
 
         {/* Label */}
-        <span className="text-sm font-medium" style={{ color: 'var(--tool-item-name)' }}>
+        <span className="text-[13px] font-medium" style={{ color: 'var(--tool-item-name)' }}>
           {label}
         </span>
 
@@ -181,8 +187,8 @@ export const BaseItem: React.FC<BaseItemProps> = ({
       {/* Expanded Content */}
       {isExpanded && children && (
         <div
-          className="ml-2 mt-2 space-y-3 pl-6"
-          style={{ borderLeft: '2px solid var(--color-border)' }}
+          className="animate-expand ml-2 mt-2 space-y-3 pl-6"
+          style={{ borderLeft: `2px solid ${variantStyle?.borderColor ?? 'var(--color-border)'}` }}
         >
           {children}
         </div>

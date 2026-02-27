@@ -14,6 +14,13 @@ import type {
   NotificationTrigger,
   SshPersistConfig,
 } from '../services';
+import type { ThemeName } from '@shared/types/notifications';
+
+const VALID_THEMES: ThemeName[] = [
+  'dark', 'light', 'system',
+  'monokai', 'dracula', 'solarized-dark', 'solarized-light',
+  'nord', 'github-light', 'github-dark',
+];
 
 type ConfigSection = keyof AppConfig;
 
@@ -228,10 +235,10 @@ function validateGeneralSection(data: unknown): ValidationSuccess<'general'> | V
         result.showDockIcon = value;
         break;
       case 'theme':
-        if (value !== 'dark' && value !== 'light' && value !== 'system') {
-          return { valid: false, error: 'general.theme must be one of: dark, light, system' };
+        if (!VALID_THEMES.includes(value as ThemeName)) {
+          return { valid: false, error: `general.theme must be one of: ${VALID_THEMES.join(', ')}` };
         }
-        result.theme = value;
+        result.theme = value as ThemeName;
         break;
       case 'defaultTab':
         if (value !== 'dashboard' && value !== 'last-session') {

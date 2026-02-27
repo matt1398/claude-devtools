@@ -191,6 +191,15 @@
   --skeleton-base: #24262c;
   --skeleton-base-light: #2c2e35;
   --skeleton-base-dim: rgba(36, 38, 44, 0.6);
+
+  /* Step type colors */
+  --step-thinking-color: #a855f7;
+  --step-output-color: #3b82f6;
+  --step-tool-color: #f59e0b;
+  --step-success-color: #22c55e;
+  --step-error-color: #ef4444;
+  --step-slash-color: #8b5cf6;
+  --step-subagent-color: #06b6d4;
 }
 
 /* Light theme overrides - Warm neutral palette for eye comfort */
@@ -381,6 +390,15 @@
   --skeleton-base: #d6d8de;
   --skeleton-base-light: #cdd0d7;
   --skeleton-base-dim: rgba(205, 208, 215, 0.6);
+
+  /* Step type colors */
+  --step-thinking-color: #7c3aed;
+  --step-output-color: #2563eb;
+  --step-tool-color: #d97706;
+  --step-success-color: #16a34a;
+  --step-error-color: #dc2626;
+  --step-slash-color: #7c3aed;
+  --step-subagent-color: #0891b2;
 }
 
 * {
@@ -458,6 +476,25 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* Step content expand animation */
+@keyframes expandContent {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    max-height: 2000px;
+    transform: translateY(0);
+  }
+}
+
+.animate-expand {
+  animation: expandContent 0.2s ease-out forwards;
+  overflow: hidden;
 }
 
 /* Dashboard skeleton shimmer animation */

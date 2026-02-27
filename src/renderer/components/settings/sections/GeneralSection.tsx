@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { api, isElectronMode } from '@renderer/api';
 import { confirm } from '@renderer/components/common/ConfirmDialog';
+import { THEME_OPTIONS } from '@renderer/constants/themes';
 import { useStore } from '@renderer/store';
 import { getFullResetState } from '@renderer/store/utils/stateResetHelpers';
 import { Check, Copy, FolderOpen, Laptop, Loader2, RotateCcw } from 'lucide-react';
@@ -15,20 +16,13 @@ import { SettingRow, SettingsSectionHeader, SettingsSelect, SettingsToggle } fro
 import type { SafeConfig } from '../hooks/useSettingsConfig';
 import type { ClaudeRootInfo, WslClaudeRootCandidate } from '@shared/types';
 import type { HttpServerStatus } from '@shared/types/api';
-import type { AppConfig } from '@shared/types/notifications';
-
-// Theme options
-const THEME_OPTIONS = [
-  { value: 'dark', label: 'Dark' },
-  { value: 'light', label: 'Light' },
-  { value: 'system', label: 'System' },
-] as const;
+import type { AppConfig, ThemeName } from '@shared/types/notifications';
 
 interface GeneralSectionProps {
   readonly safeConfig: SafeConfig;
   readonly saving: boolean;
   readonly onGeneralToggle: (key: keyof AppConfig['general'], value: boolean) => void;
-  readonly onThemeChange: (value: 'dark' | 'light' | 'system') => void;
+  readonly onThemeChange: (value: ThemeName) => void;
 }
 
 export const GeneralSection = ({

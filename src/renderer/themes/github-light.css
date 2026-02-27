@@ -1,0 +1,170 @@
+/* GitHub Light Theme - Clean light theme inspired by GitHub */
+:root.github-light {
+  --color-surface: #ffffff;
+  --color-surface-raised: #f6f8fa;
+  --color-surface-overlay: #f0f2f4;
+  --color-surface-sidebar: #f6f8fa;
+  --color-border: #d0d7de;
+  --color-border-subtle: #e1e4e8;
+  --color-border-emphasis: #8c959f;
+  --color-text: #1f2328;
+  --color-text-secondary: #656d76;
+  --color-text-muted: #8b949e;
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+  --scrollbar-thumb-active: rgba(0, 0, 0, 0.4);
+
+  --highlight-bg: #fff8c5;
+  --highlight-bg-inactive: #fff8c5aa;
+  --highlight-text: #1f2328;
+  --highlight-text-inactive: #1f2328;
+  --highlight-ring: #bf8700;
+
+  --chat-user-bg: #f6f8fa;
+  --chat-user-text: #656d76;
+  --chat-user-border: #d0d7de;
+  --chat-user-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+
+  --chat-user-tag-bg: rgba(0, 0, 0, 0.04);
+  --chat-user-tag-text: #1f2328;
+  --chat-user-tag-border: rgba(0, 0, 0, 0.08);
+
+  --tool-item-name: #1f2328;
+  --tool-item-summary: #656d76;
+  --tool-item-muted: #8b949e;
+  --tool-item-hover-bg: #f6f8fa;
+
+  --chat-system-bg: #f6f8fa;
+  --chat-system-text: #656d76;
+
+  --chat-ai-border: #d0d7de;
+  --chat-ai-icon: #8b949e;
+
+  --code-bg: #f6f8fa;
+  --code-header-bg: #f0f2f4;
+  --code-border: #d0d7de;
+  --code-line-number: #8b949e;
+  --code-filename: #0550ae;
+
+  --syntax-string: #0a3069;
+  --syntax-comment: #6e7781;
+  --syntax-number: #0550ae;
+  --syntax-keyword: #cf222e;
+  --syntax-type: #8250df;
+  --syntax-operator: #24292f;
+  --syntax-function: #8250df;
+
+  --inline-code-bg: rgba(175, 184, 193, 0.2);
+  --inline-code-text: #1f2328;
+
+  --diff-added-bg: #dafbe1;
+  --diff-added-text: #116329;
+  --diff-added-border: #1a7f37;
+  --diff-removed-bg: #ffebe9;
+  --diff-removed-text: #82071e;
+  --diff-removed-border: #cf222e;
+
+  --prose-heading: #1f2328;
+  --prose-body: #1f2328;
+  --prose-muted: #656d76;
+  --prose-link: #0969da;
+  --prose-code-bg: rgba(175, 184, 193, 0.2);
+  --prose-code-text: #1f2328;
+  --prose-pre-bg: #f6f8fa;
+  --prose-pre-border: #d0d7de;
+  --prose-blockquote-border: #d0d7de;
+  --prose-table-border: #d0d7de;
+  --prose-table-header-bg: #f0f2f4;
+
+  --thinking-bg: rgba(130, 80, 223, 0.05);
+  --thinking-border: rgba(130, 80, 223, 0.35);
+  --thinking-text: #8250df;
+  --thinking-text-muted: #8250df;
+  --thinking-content-border: rgba(130, 80, 223, 0.2);
+  --thinking-content-text: #6639ba;
+
+  --tool-call-bg: rgba(191, 135, 0, 0.06);
+  --tool-call-border: rgba(191, 135, 0, 0.35);
+  --tool-call-text: #9a6700;
+  --tool-call-code-bg: rgba(191, 135, 0, 0.05);
+  --tool-call-content-border: rgba(191, 135, 0, 0.2);
+
+  --tool-result-success-bg: #dafbe1;
+  --tool-result-success-border: #4ac26b;
+  --tool-result-success-text: #116329;
+  --tool-result-error-bg: #ffebe9;
+  --tool-result-error-border: #ff8182;
+  --tool-result-error-text: #82071e;
+
+  --output-bg: #f6f8fa;
+  --output-border: #d0d7de;
+  --output-text: #1f2328;
+  --output-content-border: #d0d7de;
+
+  --badge-error-bg: #cf222e;
+  --badge-error-text: #ffffff;
+  --badge-warning-bg: #bf8700;
+  --badge-warning-text: #ffffff;
+  --badge-success-bg: #1a7f37;
+  --badge-success-text: #ffffff;
+  --badge-info-bg: #0969da;
+  --badge-info-text: #ffffff;
+  --badge-neutral-bg: #e1e4e8;
+  --badge-neutral-text: #1f2328;
+
+  --tag-bg: #f6f8fa;
+  --tag-text: #656d76;
+  --tag-border: #d0d7de;
+
+  --skill-highlight-bg: rgba(175, 184, 193, 0.2);
+  --skill-highlight-text: #1f2328;
+  --path-highlight-bg: rgba(175, 184, 193, 0.2);
+  --path-highlight-text: #1f2328;
+
+  --interruption-bg: #ffebe9;
+  --interruption-border: #cf222e;
+  --interruption-text: #82071e;
+
+  --warning-bg: #fff8c5;
+  --warning-border: #bf8700;
+  --warning-text: #9a6700;
+
+  --plan-exit-bg: #dafbe1;
+  --plan-exit-header-bg: rgba(74, 194, 107, 0.15);
+  --plan-exit-border: #4ac26b;
+  --plan-exit-text: #116329;
+
+  --error-highlight-ring: #cf222e;
+  --error-highlight-bg: rgba(207, 34, 46, 0.12);
+
+  --kbd-bg: #f6f8fa;
+  --kbd-border: #d0d7de;
+  --kbd-text: #1f2328;
+
+  --card-bg: #ffffff;
+  --card-border: #d0d7de;
+  --card-header-bg: #f6f8fa;
+  --card-header-hover: #f0f2f4;
+  --card-icon-muted: #8b949e;
+  --card-text-light: #656d76;
+  --card-text-lighter: #1f2328;
+  --card-separator: #d0d7de;
+
+  --context-btn-bg: rgba(0, 0, 0, 0.06);
+  --context-btn-bg-hover: rgba(0, 0, 0, 0.1);
+  --context-btn-active-bg: rgba(9, 105, 218, 0.35);
+  --context-btn-active-text: #0550ae;
+
+  --skeleton-base: #e1e4e8;
+  --skeleton-base-light: #d8dbe0;
+  --skeleton-base-dim: rgba(225, 228, 232, 0.6);
+
+  --step-thinking-color: #8250df;
+  --step-output-color: #0969da;
+  --step-tool-color: #bf8700;
+  --step-success-color: #1a7f37;
+  --step-error-color: #cf222e;
+  --step-slash-color: #8250df;
+  --step-subagent-color: #0969da;
+}

@@ -117,6 +117,30 @@ describe('configValidation', () => {
     }
   });
 
+  it('accepts all named theme values', () => {
+    const themes = [
+      'dark', 'light', 'system',
+      'monokai', 'dracula', 'solarized-dark', 'solarized-light',
+      'nord', 'github-light', 'github-dark',
+    ];
+
+    for (const theme of themes) {
+      const result = validateConfigUpdatePayload('general', { theme });
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.data).toEqual({ theme });
+      }
+    }
+  });
+
+  it('rejects unknown theme names', () => {
+    const result = validateConfigUpdatePayload('general', { theme: 'ocean-blue' });
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.error).toContain('general.theme must be one of');
+    }
+  });
+
   it('accepts valid display updates', () => {
     const result = validateConfigUpdatePayload('display', {
       compactMode: true,

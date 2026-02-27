@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 
 import { api } from '@renderer/api';
@@ -47,6 +47,10 @@ interface MarkdownViewerProps {
   itemId?: string;
   /** When true, shows a copy button (overlay when no label, inline in header when label exists) */
   copyable?: boolean;
+  /** When true, long content is auto-collapsed with a "Show more" link */
+  collapsible?: boolean;
+  /** Maximum number of lines to show when collapsed (default: 50) */
+  maxCollapsedLines?: number;
 }
 
 // =============================================================================
@@ -283,7 +287,20 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   label,
   itemId,
   copyable = false,
+  collapsible = false,
+  maxCollapsedLines = 50,
 }) => {
+  // Collapsible content logic
+  const [isCollapsed, setIsCollapsed] = useState(true);
+  const contentLines = useMemo(() => content.split('\n'), [content]);
+  const totalLines = contentLines.length;
+  const shouldCollapse = collapsible && totalLines > maxCollapsedLines;
+  const displayContent =
+    shouldCollapse && isCollapsed
+      ? contentLines.slice(0, maxCollapsedLines).join('\n')
+      : content;
+  const hiddenLines = totalLines - maxCollapsedLines;
+
   // Only subscribe to search store when itemId is provided
   const { searchQuery, searchMatches, currentSearchIndex } = useStore(
     useShallow((s) => ({
@@ -338,11 +355,29 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
       )}
 
       {/* Markdown content with scroll */}
-      <div className={`overflow-auto ${maxHeight}`}>
+      <div className={`overflow-auto ${shouldCollapse && isCollapsed ? '' : maxHeight}`}>
         <div className="p-4">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-            {content}
+            {displayContent}
           </ReactMarkdown>
+          {shouldCollapse && isCollapsed && (
+            <button
+              onClick={() => setIsCollapsed(false)}
+              className="mt-2 text-xs font-medium hover:underline"
+              style={{ color: 'var(--prose-link)' }}
+            >
+              Show more ({hiddenLines} more lines)
+            </button>
+          )}
+          {shouldCollapse && !isCollapsed && (
+            <button
+              onClick={() => setIsCollapsed(true)}
+              className="mt-2 text-xs font-medium hover:underline"
+              style={{ color: 'var(--prose-link)' }}
+            >
+              Show less
+            </button>
+          )}
         </div>
       </div>
     </div>

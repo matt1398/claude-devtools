@@ -10,6 +10,7 @@ import { useStore } from '@renderer/store';
 import { useShallow } from 'zustand/react/shallow';
 
 import type { AppConfig } from '@renderer/types/data';
+import type { ThemeName } from '@shared/types/notifications';
 
 // Get the setState function from the store to update appConfig globally
 const setStoreState = useStore.setState;
@@ -27,7 +28,7 @@ export interface SafeConfig {
   general: {
     launchAtLogin: boolean;
     showDockIcon: boolean;
-    theme: 'dark' | 'light' | 'system';
+    theme: ThemeName;
     defaultTab: 'dashboard' | 'last-session';
     claudeRootPath: string | null;
     autoExpandAIGroups: boolean;
