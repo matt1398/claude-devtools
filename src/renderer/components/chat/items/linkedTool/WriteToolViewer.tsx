@@ -23,6 +23,10 @@ export const WriteToolViewer: React.FC<WriteToolViewerProps> = ({ linkedTool }) 
   const isMarkdownFile = /\.mdx?$/i.test(filePath);
   const [viewMode, setViewMode] = React.useState<'code' | 'preview'>('code');
 
+  React.useEffect(() => {
+    setViewMode(isMarkdownFile ? 'preview' : 'code');
+  }, [isMarkdownFile]);
+
   return (
     <div className="space-y-2">
       <div className="mb-1 text-xs text-zinc-500">
