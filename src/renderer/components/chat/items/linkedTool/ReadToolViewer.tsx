@@ -6,7 +6,7 @@
 
 import React from 'react';
 
-import { CodeBlockViewer } from '@renderer/components/chat/viewers';
+import { CodeBlockViewer, MarkdownViewer } from '@renderer/components/chat/viewers';
 
 import type { LinkedToolItem } from '@renderer/types/groups';
 
@@ -54,12 +54,55 @@ export const ReadToolViewer: React.FC<ReadToolViewerProps> = ({ linkedTool }) =>
       ? startLine + limit - 1
       : undefined;
 
+  const isMarkdownFile = /\.mdx?$/i.test(filePath);
+  const [viewMode, setViewMode] = React.useState<'code' | 'preview'>('code');
+
+  React.useEffect(() => {
+    setViewMode(isMarkdownFile ? 'preview' : 'code');
+  }, [isMarkdownFile]);
+
   return (
-    <CodeBlockViewer
-      fileName={filePath}
-      content={content}
-      startLine={startLine}
-      endLine={endLine}
-    />
+    <div className="space-y-2">
+      {isMarkdownFile && (
+        <div className="flex items-center justify-end gap-1">
+          <button
+            type="button"
+            onClick={() => setViewMode('code')}
+            aria-pressed={viewMode === 'code'}
+            className="rounded px-2 py-1 text-xs transition-colors"
+            style={{
+              backgroundColor: viewMode === 'code' ? 'var(--tag-bg)' : 'transparent',
+              color: viewMode === 'code' ? 'var(--tag-text)' : 'var(--color-text-muted)',
+              border: '1px solid var(--tag-border)',
+            }}
+          >
+            Code
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('preview')}
+            aria-pressed={viewMode === 'preview'}
+            className="rounded px-2 py-1 text-xs transition-colors"
+            style={{
+              backgroundColor: viewMode === 'preview' ? 'var(--tag-bg)' : 'transparent',
+              color: viewMode === 'preview' ? 'var(--tag-text)' : 'var(--color-text-muted)',
+              border: '1px solid var(--tag-border)',
+            }}
+          >
+            Preview
+          </button>
+        </div>
+      )}
+      {isMarkdownFile && viewMode === 'preview' ? (
+        <MarkdownViewer content={content} label="Markdown Preview" copyable />
+      ) : (
+        <CodeBlockViewer
+          fileName={filePath}
+          content={content}
+          startLine={startLine}
+          endLine={endLine}
+        />
+      )}
+    </div>
   );
 };
