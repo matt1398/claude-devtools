@@ -6,8 +6,9 @@
 
 import React from 'react';
 
-import { type ItemStatus, StatusDot } from '../BaseItem';
+import { type ItemStatus } from '../BaseItem';
 
+import { CollapsibleOutputSection } from './CollapsibleOutputSection';
 import { renderInput, renderOutput } from './renderHelpers';
 
 import type { LinkedToolItem } from '@renderer/types/groups';
@@ -37,30 +38,11 @@ export const DefaultToolViewer: React.FC<DefaultToolViewerProps> = ({ linkedTool
         </div>
       </div>
 
-      {/* Output Section */}
+      {/* Output Section — Collapsed by default */}
       {!linkedTool.isOrphaned && linkedTool.result && (
-        <div>
-          <div
-            className="mb-1 flex items-center gap-2 text-xs"
-            style={{ color: 'var(--tool-item-muted)' }}
-          >
-            Output
-            <StatusDot status={status} />
-          </div>
-          <div
-            className="max-h-96 overflow-auto rounded p-3 font-mono text-xs"
-            style={{
-              backgroundColor: 'var(--code-bg)',
-              border: '1px solid var(--code-border)',
-              color:
-                status === 'error'
-                  ? 'var(--tool-result-error-text)'
-                  : 'var(--color-text-secondary)',
-            }}
-          >
-            {renderOutput(linkedTool.result.content)}
-          </div>
-        </div>
+        <CollapsibleOutputSection status={status}>
+          {renderOutput(linkedTool.result.content)}
+        </CollapsibleOutputSection>
       )}
     </>
   );
