@@ -15,6 +15,7 @@ import { buildSubagentsPath, extractBaseDir } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as readline from 'readline';
 
 import type { FileSystemProvider } from '@main/services/infrastructure/FileSystemProvider';
 
@@ -51,16 +52,13 @@ export class SubagentLocator {
         );
 
         // Check if at least one subagent file has content (not empty)
+        // Uses stat() to check file size instead of reading file contents
         for (const entry of subagentFiles) {
           const filePath = path.join(newSubagentsPath, entry.name);
           try {
             const stats = await this.fsProvider.stat(filePath);
-            // File must have size > 0 and contain at least one line
             if (stats.size > 0) {
-              const content = await this.fsProvider.readFile(filePath);
-              if (content.trim().length > 0) {
-                return true;
-              }
+              return true;
             }
           } catch (error) {
             // Skip this file if we can't read it - log for debugging
@@ -76,9 +74,6 @@ export class SubagentLocator {
     return false;
   }
 
-  /**
-   * Checks if a session has subagent files (session-specific only).
-   * Only checks the NEW structure: {projectId}/{sessionId}/subagents/
    * Verifies that at least one subagent file has non-empty content.
    *
    * @param projectId - The project ID
@@ -96,16 +91,13 @@ export class SubagentLocator {
         );
 
         // Check if at least one subagent file has content (not empty)
+        // Uses statSync() to check file size instead of reading file contents
         for (const fileName of subagentFiles) {
           const filePath = path.join(newSubagentsPath, fileName);
           try {
             const stats = fs.statSync(filePath);
-            // File must have size > 0 and contain at least one line
             if (stats.size > 0) {
-              const content = fs.readFileSync(filePath, 'utf8');
-              if (content.trim().length > 0) {
-                return true;
-              }
+              return true;
             }
           } catch (error) {
             // Skip this file if we can't read it - log for debugging
@@ -210,17 +202,26 @@ export class SubagentLocator {
    */
   async subagentBelongsToSession(filePath: string, sessionId: string): Promise<boolean> {
     try {
-      // Read just the first line to check sessionId
-      const content = await this.fsProvider.readFile(filePath);
-      const firstNewline = content.indexOf('\n');
-      const firstLine = firstNewline > 0 ? content.slice(0, firstNewline) : content;
+      // Stream only the first line instead of reading the entire file
+      const fileStream = this.fsProvider.createReadStream(filePath, { encoding: 'utf8' });
+      const rl = readline.createInterface({
+        input: fileStream,
+        crlfDelay: Infinity,
+      });
 
-      if (!firstLine.trim()) {
-        return false;
+      try {
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+
+          const entry = JSON.parse(line) as { sessionId?: string };
+          return entry.sessionId === sessionId;
+        }
+      } finally {
+        rl.close();
+        fileStream.destroy();
       }
 
-      const entry = JSON.parse(firstLine) as { sessionId?: string };
-      return entry.sessionId === sessionId;
+      return false;
     } catch (error) {
       // If we can't read or parse the file, don't include it - log for debugging
       logger.debug(`SubagentLocator: Could not parse file ${filePath}:`, error);
