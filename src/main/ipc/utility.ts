@@ -113,7 +113,9 @@ async function handleShellOpenPath(
     const safePath = validation.normalizedPath!;
 
     // Check if path exists
-    if (!fs.existsSync(safePath)) {
+    try {
+      await fs.promises.access(safePath);
+    } catch {
       logger.error(`shell:openPath - path does not exist: ${safePath}`);
       return { success: false, error: 'Path does not exist' };
     }
@@ -200,18 +202,20 @@ async function handleReadMentionedFile(
     const safePath = validation.normalizedPath!;
 
     // Check if file exists
-    if (!fs.existsSync(safePath)) {
+    try {
+      await fs.promises.access(safePath);
+    } catch {
       return null;
     }
 
     // Check if it's a file (not directory)
-    const stats = fs.statSync(safePath);
+    const stats = await fs.promises.stat(safePath);
     if (!stats.isFile()) {
       return null;
     }
 
     // Read file content
-    const content = fs.readFileSync(safePath, 'utf8');
+    const content = await fs.promises.readFile(safePath, 'utf8');
 
     // Calculate tokens
     const estimatedTokens = countTokens(content);

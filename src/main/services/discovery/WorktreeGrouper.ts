@@ -135,15 +135,15 @@ export class WorktreeGrouper {
     const repositoryGroups: RepositoryGroup[] = [];
 
     for (const [groupId, group] of repoGroups) {
-      const worktrees: Worktree[] = group.projects.map((project) => {
+      const worktrees: Worktree[] = await Promise.all(group.projects.map(async (project) => {
         const branch = group.branches.get(project.id) ?? null;
-        const isMainWorktree = !gitIdentityResolver.isWorktree(project.path);
+        const isMainWorktree = !(await gitIdentityResolver.isWorktree(project.path));
         // Use filtered sessions instead of raw sessions
         const filteredSessions = projectFilteredSessions.get(project.id) ?? [];
         // Detect worktree source for badge display
-        const source = gitIdentityResolver.detectWorktreeSource(project.path);
+        const source = await gitIdentityResolver.detectWorktreeSource(project.path);
         // Use source-aware display name generation
-        const displayName = gitIdentityResolver.getWorktreeDisplayName(
+        const displayName = await gitIdentityResolver.getWorktreeDisplayName(
           project.path,
           source,
           branch,
@@ -161,7 +161,7 @@ export class WorktreeGrouper {
           createdAt: project.createdAt,
           mostRecentSession: project.mostRecentSession,
         };
-      });
+      }));
 
       // Filter out worktrees with 0 visible sessions
       const nonEmptyWorktrees = worktrees.filter((wt) => wt.sessions.length > 0);

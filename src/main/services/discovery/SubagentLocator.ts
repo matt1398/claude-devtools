@@ -13,7 +13,6 @@
 import { LocalFileSystemProvider } from '@main/services/infrastructure/LocalFileSystemProvider';
 import { buildSubagentsPath, extractBaseDir } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
-import * as fs from 'fs';
 import * as path from 'path';
 
 import type { FileSystemProvider } from '@main/services/infrastructure/FileSystemProvider';
@@ -58,51 +57,6 @@ export class SubagentLocator {
             // File must have size > 0 and contain at least one line
             if (stats.size > 0) {
               const content = await this.fsProvider.readFile(filePath);
-              if (content.trim().length > 0) {
-                return true;
-              }
-            }
-          } catch (error) {
-            // Skip this file if we can't read it - log for debugging
-            logger.debug(`SubagentLocator: Could not read file ${filePath}:`, error);
-            continue;
-          }
-        }
-      } catch {
-        // Ignore errors
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Checks if a session has subagent files (session-specific only).
-   * Only checks the NEW structure: {projectId}/{sessionId}/subagents/
-   * Verifies that at least one subagent file has non-empty content.
-   *
-   * @param projectId - The project ID
-   * @param sessionId - The session ID
-   * @returns true if subagents exist
-   */
-  hasSubagentsSync(projectId: string, sessionId: string): boolean {
-    // Check NEW structure: {projectId}/{sessionId}/subagents/
-    const newSubagentsPath = this.getSubagentsPath(projectId, sessionId);
-    if (fs.existsSync(newSubagentsPath)) {
-      try {
-        const entries = fs.readdirSync(newSubagentsPath);
-        const subagentFiles = entries.filter(
-          (name) => name.startsWith('agent-') && name.endsWith('.jsonl')
-        );
-
-        // Check if at least one subagent file has content (not empty)
-        for (const fileName of subagentFiles) {
-          const filePath = path.join(newSubagentsPath, fileName);
-          try {
-            const stats = fs.statSync(filePath);
-            // File must have size > 0 and contain at least one line
-            if (stats.size > 0) {
-              const content = fs.readFileSync(filePath, 'utf8');
               if (content.trim().length > 0) {
                 return true;
               }

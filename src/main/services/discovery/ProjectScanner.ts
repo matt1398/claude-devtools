@@ -1005,15 +1005,6 @@ export class ProjectScanner {
   }
 
   /**
-   * Checks if a session has subagent files (session-specific only).
-   * Only checks the NEW structure: {projectId}/{sessionId}/subagents/
-   * Verifies that at least one subagent file has non-empty content.
-   */
-  hasSubagentsSync(projectId: string, sessionId: string): boolean {
-    return this.subagentLocator.hasSubagentsSync(projectId, sessionId);
-  }
-
-  /**
    * Lists all subagent files for a session from both NEW and OLD structures.
    * Returns NEW structure files first, then OLD structure files.
    */
