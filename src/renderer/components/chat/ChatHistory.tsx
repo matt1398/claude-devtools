@@ -50,6 +50,8 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     expandSubagentTrace,
     selectedContextPhase,
     setSelectedContextPhase,
+    aiGroupsExpandedByDefault,
+    toggleAIGroupsExpandedByDefault,
   } = useTabUI();
 
   // Global store subscriptions (shared data)
@@ -227,9 +229,8 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     [groupIndexMap, rowVirtualizer, shouldVirtualize]
   );
 
-  // Sticky context button height (py-3 = 12px padding * 2 + button height ~28px + pt-3 = 12px)
-  // Total: approximately 52px, round up to 60px for safety
-  const STICKY_BUTTON_OFFSET = allContextInjections.length > 0 ? 60 : 0;
+  // Sticky header is always rendered (expand/collapse toggle + optional context button)
+  const STICKY_BUTTON_OFFSET = 44;
 
   // Unified navigation controller - replaces useNavigationCoordinator + useSearchContextNavigation
   // Must be created before useAutoScrollBottom so we can pass shouldDisableAutoScroll
@@ -757,9 +758,19 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
           style={{ backgroundColor: 'var(--color-surface)' }}
           onScroll={checkScrollButton}
         >
-          {/* Sticky Context button */}
-          {allContextInjections.length > 0 && (
-            <div className="pointer-events-none sticky top-0 z-10 flex justify-end px-4 pb-0 pt-3">
+          {/* Sticky header: Expand/Collapse toggle + optional Context button */}
+          <div className="pointer-events-none sticky top-0 z-10 flex items-center justify-between px-4 pb-0 pt-3">
+            <button
+              onClick={toggleAIGroupsExpandedByDefault}
+              className="pointer-events-auto flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs shadow-lg backdrop-blur-md transition-colors hover:opacity-80"
+              style={{
+                backgroundColor: 'var(--context-btn-bg)',
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              {aiGroupsExpandedByDefault ? 'Collapse All' : 'Expand All'}
+            </button>
+            {allContextInjections.length > 0 && (
               <button
                 onClick={() => setContextPanelVisible(!isContextPanelVisible)}
                 onMouseEnter={() => setIsContextButtonHovered(true)}
@@ -778,12 +789,9 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
               >
                 Context ({allContextInjections.length})
               </button>
-            </div>
-          )}
-          <div
-            className="mx-auto max-w-5xl px-6 py-8"
-            style={{ marginTop: allContextInjections.length > 0 ? '-2rem' : 0 }}
-          >
+            )}
+          </div>
+          <div className="mx-auto max-w-5xl px-6 py-8" style={{ marginTop: '-2rem' }}>
             <div className="space-y-8">
               {shouldVirtualize ? (
                 <div

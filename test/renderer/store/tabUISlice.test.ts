@@ -40,7 +40,8 @@ describe('tabUISlice', () => {
       expect(store.getState().tabUIStates.has('tab-1')).toBe(true);
 
       const tabState = store.getState().tabUIStates.get('tab-1');
-      expect(tabState?.expandedAIGroupIds.size).toBe(0);
+      expect(tabState?.aiGroupsExpandedByDefault).toBe(true);
+      expect(tabState?.toggledAIGroupIds.size).toBe(0);
       expect(tabState?.expandedDisplayItemIds.size).toBe(0);
       expect(tabState?.expandedSubagentTraceIds.size).toBe(0);
       expect(tabState?.showContextPanel).toBe(false);
@@ -54,8 +55,8 @@ describe('tabUISlice', () => {
       // Try to reinitialize
       store.getState().initTabUIState('tab-1');
 
-      // Should still have the expanded group
-      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(true);
+      // Toggle overrode the default (expanded→collapsed), reinit should not reset it
+      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(false);
     });
   });
 
@@ -85,34 +86,37 @@ describe('tabUISlice', () => {
     it('should toggle AI group expansion for specific tab', () => {
       store.getState().initTabUIState('tab-1');
 
-      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(false);
-
-      store.getState().toggleAIGroupExpansionForTab('tab-1', 'group-1');
+      // Default is expanded (aiGroupsExpandedByDefault = true)
       expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(true);
 
+      // Toggle once → collapsed
       store.getState().toggleAIGroupExpansionForTab('tab-1', 'group-1');
       expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(false);
+
+      // Toggle again → back to expanded
+      store.getState().toggleAIGroupExpansionForTab('tab-1', 'group-1');
+      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(true);
     });
 
     it('should isolate AI group expansion between tabs', () => {
       store.getState().initTabUIState('tab-1');
       store.getState().initTabUIState('tab-2');
 
-      // Expand group-1 in tab-1 only
+      // Collapse group-1 in tab-1 only (default is expanded)
       store.getState().toggleAIGroupExpansionForTab('tab-1', 'group-1');
 
-      // tab-1 should have it expanded, tab-2 should not
-      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(true);
-      expect(store.getState().isAIGroupExpandedForTab('tab-2', 'group-1')).toBe(false);
+      // tab-1 has it collapsed, tab-2 still expanded by default
+      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(false);
+      expect(store.getState().isAIGroupExpandedForTab('tab-2', 'group-1')).toBe(true);
 
-      // Expand different group in tab-2
+      // Collapse group-2 in tab-2
       store.getState().toggleAIGroupExpansionForTab('tab-2', 'group-2');
 
-      // Each tab has its own expansion state
-      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(true);
-      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-2')).toBe(false);
-      expect(store.getState().isAIGroupExpandedForTab('tab-2', 'group-1')).toBe(false);
-      expect(store.getState().isAIGroupExpandedForTab('tab-2', 'group-2')).toBe(true);
+      // Each tab has its own override state
+      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-1')).toBe(false);
+      expect(store.getState().isAIGroupExpandedForTab('tab-1', 'group-2')).toBe(true);
+      expect(store.getState().isAIGroupExpandedForTab('tab-2', 'group-1')).toBe(true);
+      expect(store.getState().isAIGroupExpandedForTab('tab-2', 'group-2')).toBe(false);
     });
 
     it('should expand AI group programmatically', () => {
@@ -289,8 +293,8 @@ describe('tabUISlice', () => {
       store.getState().setContextPanelVisibleForTab(tabId, true);
       store.getState().saveScrollPositionForTab(tabId, 300);
 
-      // Verify state
-      expect(store.getState().isAIGroupExpandedForTab(tabId, 'group-1')).toBe(true);
+      // Verify state (default=expanded, one toggle → collapsed)
+      expect(store.getState().isAIGroupExpandedForTab(tabId, 'group-1')).toBe(false);
       expect(store.getState().isContextPanelVisibleForTab(tabId)).toBe(true);
       expect(store.getState().getScrollPositionForTab(tabId)).toBe(300);
 
@@ -335,11 +339,11 @@ describe('tabUISlice', () => {
       store.getState().saveScrollPositionForTab(tab1Id, 100);
       store.getState().saveScrollPositionForTab(tab2Id, 500);
 
-      // Verify states are isolated
-      expect(store.getState().isAIGroupExpandedForTab(tab1Id, 'group-1')).toBe(true);
-      expect(store.getState().isAIGroupExpandedForTab(tab1Id, 'group-2')).toBe(false);
-      expect(store.getState().isAIGroupExpandedForTab(tab2Id, 'group-1')).toBe(false);
-      expect(store.getState().isAIGroupExpandedForTab(tab2Id, 'group-2')).toBe(true);
+      // Verify states are isolated (default=expanded, toggle inverts the specific group)
+      expect(store.getState().isAIGroupExpandedForTab(tab1Id, 'group-1')).toBe(false); // toggled → collapsed
+      expect(store.getState().isAIGroupExpandedForTab(tab1Id, 'group-2')).toBe(true); // untouched → expanded
+      expect(store.getState().isAIGroupExpandedForTab(tab2Id, 'group-1')).toBe(true); // untouched → expanded
+      expect(store.getState().isAIGroupExpandedForTab(tab2Id, 'group-2')).toBe(false); // toggled → collapsed
 
       expect(store.getState().isContextPanelVisibleForTab(tab1Id)).toBe(true);
       expect(store.getState().isContextPanelVisibleForTab(tab2Id)).toBe(false);
@@ -351,8 +355,8 @@ describe('tabUISlice', () => {
 
   describe('Edge cases', () => {
     it('should return false/empty for uninitialized tab', () => {
-      // No initialization
-      expect(store.getState().isAIGroupExpandedForTab('nonexistent', 'group-1')).toBe(false);
+      // No initialization - uninitialized tabs default to expanded (aiGroupsExpandedByDefault=true)
+      expect(store.getState().isAIGroupExpandedForTab('nonexistent', 'group-1')).toBe(true);
       expect(store.getState().getExpandedDisplayItemIdsForTab('nonexistent', 'group-1').size).toBe(
         0
       );
@@ -367,9 +371,9 @@ describe('tabUISlice', () => {
       // Toggle without explicit init
       store.getState().toggleAIGroupExpansionForTab('lazy-tab', 'group-1');
 
-      // Should have created the state
+      // Should have created the state; default is expanded so one toggle → collapsed
       expect(store.getState().tabUIStates.has('lazy-tab')).toBe(true);
-      expect(store.getState().isAIGroupExpandedForTab('lazy-tab', 'group-1')).toBe(true);
+      expect(store.getState().isAIGroupExpandedForTab('lazy-tab', 'group-1')).toBe(false);
     });
   });
 });
