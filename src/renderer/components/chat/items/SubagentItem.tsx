@@ -60,7 +60,7 @@ interface SubagentItemProps {
 // Main Component - Linear-style DevTools Card
 // =============================================================================
 
-export const SubagentItem: React.FC<SubagentItemProps> = ({
+export const SubagentItem: React.FC<SubagentItemProps> = React.memo(({
   step,
   subagent,
   onClick,
@@ -573,4 +573,4 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
       )}
     </div>
   );
-};
+});

@@ -17,7 +17,7 @@ interface DefaultToolViewerProps {
   status: ItemStatus;
 }
 
-export const DefaultToolViewer: React.FC<DefaultToolViewerProps> = ({ linkedTool, status }) => {
+export const DefaultToolViewer: React.FC<DefaultToolViewerProps> = React.memo(({ linkedTool, status }) => {
   return (
     <>
       {/* Input Section */}
@@ -64,4 +64,4 @@ export const DefaultToolViewer: React.FC<DefaultToolViewerProps> = ({ linkedTool
       )}
     </>
   );
-};
+});

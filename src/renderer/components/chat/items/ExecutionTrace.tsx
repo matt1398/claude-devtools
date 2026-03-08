@@ -46,7 +46,7 @@ interface ExecutionTraceProps {
 // Execution Trace Component
 // =============================================================================
 
-export const ExecutionTrace: React.FC<ExecutionTraceProps> = ({
+export const ExecutionTrace: React.FC<ExecutionTraceProps> = React.memo(({
   items,
   aiGroupId: _aiGroupId,
   highlightToolUseId,
@@ -272,4 +272,4 @@ export const ExecutionTrace: React.FC<ExecutionTraceProps> = ({
       })}
     </div>
   );
-};
+});

@@ -14,7 +14,7 @@ interface ReadToolViewerProps {
   linkedTool: LinkedToolItem;
 }
 
-export const ReadToolViewer: React.FC<ReadToolViewerProps> = ({ linkedTool }) => {
+export const ReadToolViewer: React.FC<ReadToolViewerProps> = React.memo(({ linkedTool }) => {
   const filePath = linkedTool.input.file_path as string;
 
   // Prefer enriched toolUseResult data
@@ -62,4 +62,4 @@ export const ReadToolViewer: React.FC<ReadToolViewerProps> = ({ linkedTool }) =>
       endLine={endLine}
     />
   );
-};
+});

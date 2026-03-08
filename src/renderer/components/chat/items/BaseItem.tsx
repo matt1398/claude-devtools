@@ -50,14 +50,14 @@ interface BaseItemProps {
 /**
  * Small status dot indicator.
  */
-export const StatusDot: React.FC<{ status: ItemStatus }> = ({ status }) => {
+export const StatusDot: React.FC<{ status: ItemStatus }> = React.memo(({ status }) => {
   return (
     <span
       className="inline-block size-1.5 shrink-0 rounded-full"
       style={{ backgroundColor: getStatusDotColor(status) }}
     />
   );
-};
+});
 
 // =============================================================================
 // Main Component
@@ -72,7 +72,7 @@ export const StatusDot: React.FC<{ status: ItemStatus }> = ({ status }) => {
  *
  * Used by: ThinkingItem, TextItem, LinkedToolItem, SlashItem, SubagentItem
  */
-export const BaseItem: React.FC<BaseItemProps> = ({
+export const BaseItem: React.FC<BaseItemProps> = React.memo(({
   icon,
   label,
   summary,
@@ -189,4 +189,4 @@ export const BaseItem: React.FC<BaseItemProps> = ({
       )}
     </div>
   );
-};
+});

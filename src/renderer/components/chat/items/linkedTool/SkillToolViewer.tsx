@@ -14,7 +14,7 @@ interface SkillToolViewerProps {
   linkedTool: LinkedToolItem;
 }
 
-export const SkillToolViewer: React.FC<SkillToolViewerProps> = ({ linkedTool }) => {
+export const SkillToolViewer: React.FC<SkillToolViewerProps> = React.memo(({ linkedTool }) => {
   const skillInstructions = linkedTool.skillInstructions;
   const skillName = (linkedTool.input.skill as string) || 'Unknown Skill';
 
@@ -64,4 +64,4 @@ export const SkillToolViewer: React.FC<SkillToolViewerProps> = ({ linkedTool }) 
       )}
     </div>
   );
-};
+});

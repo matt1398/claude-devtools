@@ -23,7 +23,7 @@ interface TextItemProps {
   notificationDotColor?: TriggerColor;
 }
 
-export const TextItem: React.FC<TextItemProps> = ({
+export const TextItem: React.FC<TextItemProps> = React.memo(({
   step,
   preview,
   onClick,
@@ -53,4 +53,4 @@ export const TextItem: React.FC<TextItemProps> = ({
       <MarkdownViewer content={fullContent} maxHeight="max-h-96" copyable />
     </BaseItem>
   );
-};
+});

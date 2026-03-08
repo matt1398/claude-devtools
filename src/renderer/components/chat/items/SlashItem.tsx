@@ -30,7 +30,7 @@ interface SlashItemProps {
  * - MCP commands
  * - User-defined commands
  */
-export const SlashItem: React.FC<SlashItemProps> = ({
+export const SlashItem: React.FC<SlashItemProps> = React.memo(({
   slash,
   onClick,
   isExpanded,
@@ -68,4 +68,4 @@ export const SlashItem: React.FC<SlashItemProps> = ({
       )}
     </BaseItem>
   );
-};
+});

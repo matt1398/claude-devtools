@@ -20,7 +20,7 @@ interface EditToolViewerProps {
   status: ItemStatus;
 }
 
-export const EditToolViewer: React.FC<EditToolViewerProps> = ({ linkedTool, status }) => {
+export const EditToolViewer: React.FC<EditToolViewerProps> = React.memo(({ linkedTool, status }) => {
   const toolUseResult = linkedTool.result?.toolUseResult as Record<string, unknown> | undefined;
 
   const filePath = (toolUseResult?.filePath as string) || (linkedTool.input.file_path as string);
@@ -70,4 +70,4 @@ export const EditToolViewer: React.FC<EditToolViewerProps> = ({ linkedTool, stat
       )}
     </div>
   );
-};
+});

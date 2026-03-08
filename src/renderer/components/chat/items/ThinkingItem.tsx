@@ -23,7 +23,7 @@ interface ThinkingItemProps {
   notificationDotColor?: TriggerColor;
 }
 
-export const ThinkingItem: React.FC<ThinkingItemProps> = ({
+export const ThinkingItem: React.FC<ThinkingItemProps> = React.memo(({
   step,
   preview,
   onClick,
@@ -53,4 +53,4 @@ export const ThinkingItem: React.FC<ThinkingItemProps> = ({
       <MarkdownViewer content={fullContent} maxHeight="max-h-96" copyable />
     </BaseItem>
   );
-};
+});

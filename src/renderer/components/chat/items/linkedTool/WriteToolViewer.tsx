@@ -14,7 +14,7 @@ interface WriteToolViewerProps {
   linkedTool: LinkedToolItem;
 }
 
-export const WriteToolViewer: React.FC<WriteToolViewerProps> = ({ linkedTool }) => {
+export const WriteToolViewer: React.FC<WriteToolViewerProps> = React.memo(({ linkedTool }) => {
   const toolUseResult = linkedTool.result?.toolUseResult as Record<string, unknown> | undefined;
 
   const filePath = (toolUseResult?.filePath as string) || (linkedTool.input.file_path as string);
@@ -63,4 +63,4 @@ export const WriteToolViewer: React.FC<WriteToolViewerProps> = ({ linkedTool }) 
       )}
     </div>
   );
-};
+});

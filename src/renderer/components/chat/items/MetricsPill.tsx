@@ -41,7 +41,7 @@ interface MetricsPillProps {
 // Unified Metrics Pill - Compact monospace pill with tooltip
 // =============================================================================
 
-export const MetricsPill = ({
+export const MetricsPill = React.memo(({
   mainSessionImpact,
   lastUsage,
   isolatedLabel,
@@ -213,4 +213,4 @@ export const MetricsPill = ({
         )}
     </>
   );
-};
+});

@@ -116,7 +116,7 @@ function isResendMessage(message: TeammateMessage): boolean {
  *
  * Operational noise (idle/shutdown/terminated) renders as minimal inline text.
  */
-export const TeammateMessageItem: React.FC<TeammateMessageItemProps> = ({
+export const TeammateMessageItem: React.FC<TeammateMessageItemProps> = React.memo(({
   teammateMessage,
   onClick,
   isExpanded,
@@ -260,4 +260,4 @@ export const TeammateMessageItem: React.FC<TeammateMessageItemProps> = ({
       )}
     </div>
   );
-};
+});
