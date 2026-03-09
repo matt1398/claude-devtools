@@ -12,15 +12,53 @@ import { type ContentBlock, type ParsedMessage } from '@main/types';
 import { createSafeRegExp } from '@main/utils/regexValidation';
 
 // =============================================================================
+// Regex Cache
+// =============================================================================
+
+const MAX_CACHE_SIZE = 500;
+
+/**
+ * Module-level cache for compiled RegExp objects.
+ * Key: `${pattern}\0${flags}` (null byte separator avoids collisions).
+ * Value: compiled RegExp, or null if the pattern is invalid/dangerous.
+ */
+const regexCache = new Map<string, RegExp | null>();
+
+/**
+ * Returns a cached RegExp for the given pattern and flags.
+ * Compiles and caches on first access; returns null for invalid patterns.
+ * Cache is bounded to MAX_CACHE_SIZE entries (oldest evicted first via Map insertion order).
+ */
+function getCachedRegex(pattern: string, flags: string): RegExp | null {
+  const key = `${pattern}\0${flags}`;
+  if (regexCache.has(key)) {
+    return regexCache.get(key) ?? null;
+  }
+
+  // Evict oldest entries when cache is full
+  if (regexCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = regexCache.keys().next().value;
+    if (firstKey !== undefined) {
+      regexCache.delete(firstKey);
+    }
+  }
+
+  const regex = createSafeRegExp(pattern, flags);
+  regexCache.set(key, regex);
+  return regex;
+}
+
+// =============================================================================
 // Pattern Matching
 // =============================================================================
 
 /**
  * Checks if content matches a pattern.
  * Uses validated regex to prevent ReDoS attacks.
+ * Regex objects are cached to avoid recompilation on repeated calls.
  */
 export function matchesPattern(content: string, pattern: string): boolean {
-  const regex = createSafeRegExp(pattern, 'i');
+  const regex = getCachedRegex(pattern, 'i');
   if (!regex) {
     // Pattern is invalid or potentially dangerous, reject match
     return false;
@@ -31,6 +69,7 @@ export function matchesPattern(content: string, pattern: string): boolean {
 /**
  * Checks if content matches any of the ignore patterns.
  * Uses validated regex to prevent ReDoS attacks.
+ * Regex objects are cached to avoid recompilation on repeated calls.
  */
 export function matchesIgnorePatterns(content: string, ignorePatterns?: string[]): boolean {
   if (!ignorePatterns || ignorePatterns.length === 0) {
@@ -38,7 +77,7 @@ export function matchesIgnorePatterns(content: string, ignorePatterns?: string[]
   }
 
   for (const pattern of ignorePatterns) {
-    const regex = createSafeRegExp(pattern, 'i');
+    const regex = getCachedRegex(pattern, 'i');
     if (regex?.test(content)) {
       return true;
     }
