@@ -61,7 +61,7 @@ function truncateText(text: string, maxLength: number): string {
  *
  * The list is completely flat with no nested toggles or hierarchies.
  */
-export const DisplayItemList = ({
+export const DisplayItemList = React.memo(function DisplayItemList({
   items,
   onItemClick,
   expandedItemIds,
@@ -70,7 +70,7 @@ export const DisplayItemList = ({
   highlightColor,
   notificationColorMap,
   registerToolRef,
-}: Readonly<DisplayItemListProps>): React.JSX.Element => {
+}: Readonly<DisplayItemListProps>): React.JSX.Element {
   // Reply-link highlight: when hovering a reply badge, dim everything except the linked pair
   const [replyLinkToolId, setReplyLinkToolId] = useState<string | null>(null);
 
@@ -340,4 +340,4 @@ export const DisplayItemList = ({
       })}
     </div>
   );
-};
+});

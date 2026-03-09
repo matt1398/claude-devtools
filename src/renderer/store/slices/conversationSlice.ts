@@ -3,7 +3,6 @@
  */
 
 import { findLastOutput } from '@renderer/utils/aiGroupEnhancer';
-import { findMarkdownSearchMatches } from '@shared/utils/markdownTextSearch';
 
 import type { AppState, SearchMatch } from '../types';
 import type { AIGroupExpansionLevel } from '@renderer/types/groups';
@@ -15,6 +14,9 @@ import type { StateCreator } from 'zustand';
 // =============================================================================
 
 type DetailItemType = 'thinking' | 'text' | 'linked-tool' | 'subagent';
+
+/** Maximum number of search matches to track. Beyond this, results are capped. */
+const MAX_SEARCH_MATCHES = 500;
 
 const isSearchDebugEnabled = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -56,6 +58,10 @@ export interface ConversationSlice {
   searchResultCount: number;
   currentSearchIndex: number;
   searchMatches: SearchMatch[];
+  /** True when total matches exceeded the cap and results were truncated */
+  searchResultsCapped: boolean;
+  /** Item IDs that contain at least one search match — used by components to skip re-renders */
+  searchMatchItemIds: Set<string>;
 
   // Auto-expand state for search results
   /** AI group IDs that should be expanded to show search results */
@@ -125,6 +131,8 @@ export const createConversationSlice: StateCreator<AppState, [], [], Conversatio
   searchResultCount: 0,
   currentSearchIndex: -1,
   searchMatches: [],
+  searchResultsCapped: false,
+  searchMatchItemIds: new Set(),
 
   // Auto-expand state for search results (initial values)
   searchExpandedAIGroupIds: new Set(),
@@ -221,58 +229,65 @@ export const createConversationSlice: StateCreator<AppState, [], [], Conversatio
         searchResultCount: 0,
         currentSearchIndex: -1,
         searchMatches: [],
+        searchResultsCapped: false,
+        searchMatchItemIds: new Set(),
         searchCurrentDisplayItemId: null,
         searchCurrentSubagentItemId: null,
       });
       return;
     }
 
-    // Build search matches by scanning conversation
-    // ONLY searches: user message text and AI lastOutput text (not tool results)
-    // Uses remark-based markdown parsing to extract visible text segments,
-    // ensuring match counts align with what ReactMarkdown renders.
+    // Build search matches by scanning conversation.
+    // Plain indexOf search — no markdown parsing. Match counts may differ
+    // slightly from rendered highlights; syncSearchMatchesWithRendered corrects this.
     const matches: SearchMatch[] = [];
     const lowerQuery = query.toLowerCase();
     let globalIndex = 0;
+    let capped = false;
 
-    // Helper to find markdown-aware matches and add to matches array
-    const addMarkdownMatches = (
+    // Count occurrences of lowerQuery in text using plain indexOf
+    const addPlainTextMatches = (
       text: string,
       itemId: string,
       itemType: 'user' | 'ai',
       displayItemId?: string
     ): void => {
-      const mdMatches = findMarkdownSearchMatches(text, lowerQuery);
-      for (const mdMatch of mdMatches) {
+      if (capped) return;
+      const lowerText = text.toLowerCase();
+      let pos = 0;
+      let matchIndexInItem = 0;
+      while ((pos = lowerText.indexOf(lowerQuery, pos)) !== -1) {
+        if (matches.length >= MAX_SEARCH_MATCHES) {
+          capped = true;
+          return;
+        }
         matches.push({
           itemId,
           itemType,
-          matchIndexInItem: mdMatch.matchIndexInItem,
+          matchIndexInItem,
           globalIndex,
           displayItemId,
         });
+        matchIndexInItem++;
         globalIndex++;
+        pos += lowerQuery.length;
       }
     };
 
     for (const item of conversation.items) {
+      if (capped) break;
       if (item.type === 'user') {
-        // Search user message text
         const text = item.group.content.rawText ?? item.group.content.text ?? '';
-        addMarkdownMatches(text, item.group.id, 'user');
+        addPlainTextMatches(text, item.group.id, 'user');
       } else if (item.type === 'ai') {
-        // For AI items: ONLY search lastOutput text (not tool results, thinking, or subagents)
         const aiGroup = item.group;
         const itemId = aiGroup.id;
         const lastOutput = findLastOutput(aiGroup.steps, aiGroup.isOngoing ?? false);
 
         if (lastOutput?.type === 'text' && lastOutput.text) {
-          // Last output text - displayItemId indicates this is lastOutput content
-          addMarkdownMatches(lastOutput.text, itemId, 'ai', 'lastOutput');
+          addPlainTextMatches(lastOutput.text, itemId, 'ai', 'lastOutput');
         }
-        // Skip tool_result type - only searching text output
       }
-      // Skip system items entirely
     }
 
     if (isSearchDebugEnabled()) {
@@ -292,11 +307,19 @@ export const createConversationSlice: StateCreator<AppState, [], [], Conversatio
       console.info('[search] sample', sample);
     }
 
+    // Build set of item IDs that have matches — components use this to skip re-renders
+    const matchItemIds = new Set<string>();
+    for (const match of matches) {
+      matchItemIds.add(match.itemId);
+    }
+
     set({
       searchQuery: query,
       searchResultCount: matches.length,
       currentSearchIndex: matches.length > 0 ? 0 : -1,
       searchMatches: matches,
+      searchResultsCapped: capped,
+      searchMatchItemIds: matchItemIds,
     });
   },
 
@@ -405,6 +428,8 @@ export const createConversationSlice: StateCreator<AppState, [], [], Conversatio
       searchResultCount: 0,
       currentSearchIndex: -1,
       searchMatches: [],
+      searchResultsCapped: false,
+      searchMatchItemIds: new Set(),
       searchExpandedAIGroupIds: new Set(),
       searchExpandedSubagentIds: new Set(),
       searchCurrentDisplayItemId: null,

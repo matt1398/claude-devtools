@@ -15,10 +15,6 @@ import { LocalFileSystemProvider } from '@main/services/infrastructure/LocalFile
 import { parseJsonlFile } from '@main/utils/jsonl';
 import { extractBaseDir, extractSessionId } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
-import {
-  extractMarkdownPlainText,
-  findMarkdownSearchMatches,
-} from '@shared/utils/markdownTextSearch';
 import * as path from 'path';
 
 import { SearchTextCache } from './SearchTextCache';
@@ -109,7 +105,7 @@ export class SessionSearcher {
       sessionFiles.sort((a, b) => b.mtimeMs - a.mtimeMs);
 
       // Search session files with bounded concurrency and staged breadth in SSH mode.
-      const searchBatchSize = fastMode ? 3 : 8;
+      const searchBatchSize = fastMode ? 3 : 16;
       const stageBoundaries = fastMode
         ? this.buildFastSearchStageBoundaries(sessionFiles.length)
         : [sessionFiles.length];
@@ -229,6 +225,10 @@ export class SessionSearcher {
 
     const { entries, sessionTitle } = cached;
 
+    // Fast pre-filter: skip sessions where no entry contains the query in raw text
+    const hasAnyMatch = entries.some((entry) => entry.text.toLowerCase().includes(query));
+    if (!hasAnyMatch) return results;
+
     for (const entry of entries) {
       if (results.length >= maxResults) break;
 
@@ -255,31 +255,20 @@ export class SessionSearcher {
     sessionId: string,
     sessionTitle?: string
   ): void {
-    const mdMatches = findMarkdownSearchMatches(entry.text, query);
-    if (mdMatches.length === 0) return;
+    // Plain indexOf search — no markdown/remark parsing
+    const lowerText = entry.text.toLowerCase();
+    if (!lowerText.includes(query)) return;
 
-    // Build plain text once for context snippet extraction
-    const plainText = extractMarkdownPlainText(entry.text);
-    const lowerPlain = plainText.toLowerCase();
-
-    for (const mdMatch of mdMatches) {
+    // Use raw text directly for context snippets
+    let pos = 0;
+    let matchIndex = 0;
+    while ((pos = lowerText.indexOf(query, pos)) !== -1) {
       if (results.length >= maxResults) return;
 
-      // Find approximate position in plain text for context extraction
-      let pos = 0;
-      for (let i = 0; i < mdMatch.matchIndexInItem; i++) {
-        const idx = lowerPlain.indexOf(query, pos);
-        if (idx === -1) break;
-        pos = idx + query.length;
-      }
-      const matchPos = lowerPlain.indexOf(query, pos);
-      const effectivePos = matchPos >= 0 ? matchPos : 0;
-
-      const contextStart = Math.max(0, effectivePos - 50);
-      const contextEnd = Math.min(plainText.length, effectivePos + query.length + 50);
-      const context = plainText.slice(contextStart, contextEnd);
-      const matchedText =
-        matchPos >= 0 ? plainText.slice(matchPos, matchPos + query.length) : query;
+      const contextStart = Math.max(0, pos - 50);
+      const contextEnd = Math.min(entry.text.length, pos + query.length + 50);
+      const context = entry.text.slice(contextStart, contextEnd);
+      const matchedText = entry.text.slice(pos, pos + query.length);
 
       results.push({
         sessionId,
@@ -287,15 +276,18 @@ export class SessionSearcher {
         sessionTitle: sessionTitle ?? 'Untitled Session',
         matchedText,
         context:
-          (contextStart > 0 ? '...' : '') + context + (contextEnd < plainText.length ? '...' : ''),
+          (contextStart > 0 ? '...' : '') + context + (contextEnd < entry.text.length ? '...' : ''),
         messageType: entry.messageType,
         timestamp: entry.timestamp,
         groupId: entry.groupId,
         itemType: entry.itemType,
-        matchIndexInItem: mdMatch.matchIndexInItem,
-        matchStartOffset: effectivePos,
+        matchIndexInItem: matchIndex,
+        matchStartOffset: pos,
         messageUuid: entry.messageUuid,
       });
+
+      matchIndex++;
+      pos += query.length;
     }
   }
 

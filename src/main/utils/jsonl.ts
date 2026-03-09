@@ -11,6 +11,7 @@ import { isCommandOutputContent, sanitizeDisplayContent } from '@shared/utils/co
 import { createLogger } from '@shared/utils/logger';
 import * as readline from 'readline';
 
+import { SessionContentFilter } from '../services/discovery/SessionContentFilter';
 import { LocalFileSystemProvider } from '../services/infrastructure/LocalFileSystemProvider';
 import {
   type ChatHistoryEntry,
@@ -349,6 +350,7 @@ export interface SessionFileMetadata {
   compactionCount?: number;
   /** Per-phase token breakdown */
   phaseBreakdown?: PhaseTokenBreakdown[];
+  hasDisplayableContent: boolean;
 }
 
 /**
@@ -365,6 +367,7 @@ export async function analyzeSessionFileMetadata(
       messageCount: 0,
       isOngoing: false,
       gitBranch: null,
+      hasDisplayableContent: false,
     };
   }
 
@@ -377,6 +380,7 @@ export async function analyzeSessionFileMetadata(
   let firstUserMessage: { text: string; timestamp: string } | null = null;
   let firstCommandMessage: { text: string; timestamp: string } | null = null;
   let messageCount = 0;
+  let hasDisplayableContent = false;
   // After a UserGroup, await the first main-thread assistant message to count the AIGroup
   let awaitingAIGroup = false;
   let gitBranch: string | null = null;
@@ -411,6 +415,12 @@ export async function analyzeSessionFileMetadata(
     const parsed = parseChatHistoryEntry(entry);
     if (!parsed) {
       continue;
+    }
+
+    if (!hasDisplayableContent && entry.uuid) {
+      if (SessionContentFilter.isDisplayableEntry(entry)) {
+        hasDisplayableContent = true;
+      }
     }
 
     if (isParsedUserChunkMessage(parsed)) {
@@ -629,5 +639,6 @@ export async function analyzeSessionFileMetadata(
     contextConsumption,
     compactionCount: compactionPhases.length > 0 ? compactionPhases.length : undefined,
     phaseBreakdown,
+    hasDisplayableContent,
   };
 }

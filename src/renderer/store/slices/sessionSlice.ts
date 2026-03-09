@@ -131,11 +131,10 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
       sessionsTotalCount: 0,
     });
     try {
-      const { connectionMode } = get();
       const result = await api.getSessionsPaginated(projectId, null, 20, {
         includeTotalCount: false,
         prefilterAll: false,
-        metadataLevel: connectionMode === 'ssh' ? 'light' : 'deep',
+        metadataLevel: 'light',
       });
       set({
         sessions: result.sessions,
@@ -144,6 +143,17 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
         sessionsTotalCount: result.totalCount,
         sessionsLoading: false,
       });
+
+      const cacheProjectId = get().selectedProjectId;
+      if (cacheProjectId) {
+        get()._sessionCache.set(cacheProjectId, {
+          sessions: result.sessions,
+          cursor: result.nextCursor,
+          hasMore: result.hasMore,
+          totalCount: result.totalCount,
+          timestamp: Date.now(),
+        });
+      }
 
       // Load pinned and hidden sessions after fetching session list
       void get().loadPinnedSessions();
@@ -168,11 +178,10 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
 
     set({ sessionsLoadingMore: true });
     try {
-      const { connectionMode } = get();
       const result = await api.getSessionsPaginated(selectedProjectId, sessionsCursor, 20, {
         includeTotalCount: false,
         prefilterAll: false,
-        metadataLevel: connectionMode === 'ssh' ? 'light' : 'deep',
+        metadataLevel: 'light',
       });
       const existingIds = new Set(get().sessions.map((s) => s.id));
       const newSessions = result.sessions.filter((s) => !existingIds.has(s.id));
@@ -258,11 +267,10 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
     projectRefreshGeneration.set(projectId, generation);
 
     try {
-      const { connectionMode } = get();
       const result = await api.getSessionsPaginated(projectId, null, 20, {
         includeTotalCount: false,
         prefilterAll: false,
-        metadataLevel: connectionMode === 'ssh' ? 'light' : 'deep',
+        metadataLevel: 'light',
       });
 
       // Drop stale responses from older in-flight refreshes
@@ -276,11 +284,17 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
         sessionsCursor: result.nextCursor,
         sessionsHasMore: result.hasMore,
         sessionsTotalCount: result.totalCount,
-        // Don't touch sessionsLoading - keep it as-is
+      });
+
+      get()._sessionCache.set(projectId, {
+        sessions: result.sessions,
+        cursor: result.nextCursor,
+        hasMore: result.hasMore,
+        totalCount: result.totalCount,
+        timestamp: Date.now(),
       });
     } catch (error) {
       logger.error('refreshSessionsInPlace error:', error);
-      // Don't set error state - this is a background refresh
     }
   },
 
@@ -324,7 +338,6 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
     }
 
     try {
-      const { connectionMode } = get();
       const config = await api.config.get();
       const pins = config.sessions?.pinnedSessions?.[projectId] ?? [];
       const pinnedIds = pins.map((p) => p.sessionId);
@@ -337,7 +350,7 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
 
       if (missingIds.length > 0) {
         const missingSessions = await api.getSessionsByIds(projectId, missingIds, {
-          metadataLevel: connectionMode === 'ssh' ? 'light' : 'deep',
+          metadataLevel: 'light',
         });
         if (missingSessions.length > 0) {
           // Re-read sessions in case they changed during the async call

@@ -8,6 +8,9 @@ import React from 'react';
 
 import type { SearchMatch } from '@renderer/store/types';
 
+/** Stable empty array for item-scoped search selectors (avoids re-renders) */
+export const EMPTY_SEARCH_MATCHES: SearchMatch[] = [];
+
 // Highlight styles matching SearchHighlight.tsx
 const baseStyles: React.CSSProperties = {
   borderRadius: '0.125rem',

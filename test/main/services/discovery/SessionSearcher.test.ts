@@ -76,7 +76,7 @@ describe('SessionSearcher', () => {
     ).toBe(true);
   });
 
-  it('does not produce phantom matches for code fence language identifiers', async () => {
+  it('matches text in code fences with plain text search', async () => {
     const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-searcher-md-'));
     tempDirs.push(projectsDir);
 
@@ -110,13 +110,11 @@ describe('SessionSearcher', () => {
     const searcher = new SessionSearcher(projectsDir);
     const result = await searcher.searchSessions(projectId, 'tsx', 50);
 
-    // "tsx" should match in user text ("Show me tsx code") but NOT in the
-    // code fence language identifier (```tsx). It should also not match in
-    // the code block content since "const x = 1;" doesn't contain "tsx".
+    // Plain text search: "tsx" matches in user text AND in the code fence identifier
     const userResults = result.results.filter((r) => r.itemType === 'user');
     const aiResults = result.results.filter((r) => r.itemType === 'ai');
 
     expect(userResults).toHaveLength(1);
-    expect(aiResults).toHaveLength(0);
+    expect(aiResults).toHaveLength(1);
   });
 });

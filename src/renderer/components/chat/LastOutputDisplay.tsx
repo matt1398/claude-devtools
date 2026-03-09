@@ -10,7 +10,7 @@ import { CopyButton } from '../common/CopyButton';
 import { OngoingBanner } from '../common/OngoingIndicator';
 
 import { createMarkdownComponents, markdownComponents } from './markdownComponents';
-import { createSearchContext } from './searchHighlightUtils';
+import { createSearchContext, EMPTY_SEARCH_MATCHES } from './searchHighlightUtils';
 
 import type { AIGroupLastOutput } from '@renderer/types/groups';
 
@@ -40,12 +40,16 @@ export const LastOutputDisplay = ({
   isLastGroup = false,
   isSessionOngoing = false,
 }: Readonly<LastOutputDisplayProps>): React.JSX.Element | null => {
+  // Only re-render if THIS AI group has search matches
   const { searchQuery, searchMatches, currentSearchIndex } = useStore(
-    useShallow((s) => ({
-      searchQuery: s.searchQuery,
-      searchMatches: s.searchMatches,
-      currentSearchIndex: s.currentSearchIndex,
-    }))
+    useShallow((s) => {
+      const hasMatch = s.searchMatchItemIds.has(aiGroupId);
+      return {
+        searchQuery: hasMatch ? s.searchQuery : '',
+        searchMatches: hasMatch ? s.searchMatches : EMPTY_SEARCH_MATCHES,
+        currentSearchIndex: hasMatch ? s.currentSearchIndex : -1,
+      };
+    })
   );
   const isTextOutput = lastOutput?.type === 'text' && Boolean(lastOutput.text);
 

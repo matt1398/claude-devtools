@@ -14,6 +14,7 @@ import { CopyButton } from '../common/CopyButton';
 
 import {
   createSearchContext,
+  EMPTY_SEARCH_MATCHES,
   highlightSearchInChildren,
   type SearchContext,
 } from './searchHighlightUtils';
@@ -327,13 +328,16 @@ const UserChatGroupInner = ({ userGroup }: Readonly<UserChatGroupProps>): React.
     return (td?.sessionDetail ?? s.sessionDetail)?.session?.projectPath;
   });
 
-  // Get search state for highlighting
+  // Get search state for highlighting — only re-render if THIS item has matches
   const { searchQuery, searchMatches, currentSearchIndex } = useStore(
-    useShallow((s) => ({
-      searchQuery: s.searchQuery,
-      searchMatches: s.searchMatches,
-      currentSearchIndex: s.currentSearchIndex,
-    }))
+    useShallow((s) => {
+      const hasMatch = s.searchMatchItemIds.has(groupId);
+      return {
+        searchQuery: hasMatch ? s.searchQuery : '',
+        searchMatches: hasMatch ? s.searchMatches : EMPTY_SEARCH_MATCHES,
+        currentSearchIndex: hasMatch ? s.currentSearchIndex : -1,
+      };
+    })
   );
 
   const hasImages = content.images.length > 0;

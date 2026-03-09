@@ -7,12 +7,20 @@ import { api } from '@renderer/api';
 import { getSessionResetState } from '../utils/stateResetHelpers';
 
 import type { AppState } from '../types';
-import type { Project } from '@renderer/types/data';
+import type { Project, Session } from '@renderer/types/data';
 import type { StateCreator } from 'zustand';
 
 // =============================================================================
 // Slice Interface
 // =============================================================================
+
+export interface SessionCacheEntry {
+  sessions: Session[];
+  cursor: string | null;
+  hasMore: boolean;
+  totalCount: number;
+  timestamp: number;
+}
 
 export interface ProjectSlice {
   // State
@@ -20,6 +28,7 @@ export interface ProjectSlice {
   selectedProjectId: string | null;
   projectsLoading: boolean;
   projectsError: string | null;
+  _sessionCache: Map<string, SessionCacheEntry>;
 
   // Actions
   fetchProjects: () => Promise<void>;
@@ -36,6 +45,7 @@ export const createProjectSlice: StateCreator<AppState, [], [], ProjectSlice> = 
   selectedProjectId: null,
   projectsLoading: false,
   projectsError: null,
+  _sessionCache: new Map(),
 
   // Fetch all projects from main process
   fetchProjects: async () => {
@@ -57,13 +67,32 @@ export const createProjectSlice: StateCreator<AppState, [], [], ProjectSlice> = 
 
   // Select a project and fetch its sessions (paginated)
   selectProject: (id: string) => {
-    set({
-      selectedProjectId: id,
-      sidebarCollapsed: false, // Ensure session list is visible when a project is selected
-      ...getSessionResetState(),
-    });
+    const cached = get()._sessionCache.get(id);
 
-    // Fetch sessions for this project (paginated)
+    if (cached) {
+      set({
+        selectedProjectId: id,
+        sidebarCollapsed: false,
+        sessions: cached.sessions,
+        sessionsCursor: cached.cursor,
+        sessionsHasMore: cached.hasMore,
+        sessionsTotalCount: cached.totalCount,
+        sessionsLoading: false,
+        sessionsError: null,
+        selectedSessionId: null,
+        sessionDetail: null,
+        sessionContextStats: null,
+        sessionDetailError: null,
+      });
+    } else {
+      set({
+        selectedProjectId: id,
+        sidebarCollapsed: false,
+        ...getSessionResetState(),
+      });
+    }
+
+    // Always fetch fresh data (background refresh when cached)
     void get().fetchSessionsInitial(id);
   },
 });

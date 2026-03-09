@@ -55,7 +55,7 @@ interface LinkedToolItemProps {
   registerRef?: (el: HTMLDivElement | null) => void;
 }
 
-export const LinkedToolItem: React.FC<LinkedToolItemProps> = ({
+export const LinkedToolItem: React.FC<LinkedToolItemProps> = React.memo(function LinkedToolItem({
   linkedTool,
   onClick,
   isExpanded,
@@ -63,7 +63,7 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = ({
   highlightColor,
   notificationDotColor,
   registerRef,
-}) => {
+}) {
   const status = getToolStatus(linkedTool);
   const summary = getToolSummary(linkedTool.name, linkedTool.input);
   const elementRef = useRef<HTMLDivElement>(null);
@@ -204,4 +204,4 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = ({
       </BaseItem>
     </div>
   );
-};
+});

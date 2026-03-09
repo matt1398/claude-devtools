@@ -49,7 +49,7 @@ function parseMarkdown(text: string): MdastRoot {
 // Segment cache (parse once, search many times per query keystroke)
 // ---------------------------------------------------------------------------
 
-const MAX_CACHE_SIZE = 200;
+const MAX_CACHE_SIZE = 1000;
 const segmentCache = new Map<string, string[]>();
 
 function getCachedSegments(markdown: string): string[] {
@@ -154,6 +154,9 @@ export interface MarkdownSearchMatch {
 export function findMarkdownSearchMatches(markdown: string, query: string): MarkdownSearchMatch[] {
   if (!query || !markdown) return [];
 
+  // Fast pre-filter: skip expensive markdown parsing if query doesn't appear in raw text
+  if (!markdown.toLowerCase().includes(query.toLowerCase())) return [];
+
   const segments = getCachedSegments(markdown);
   const lowerQuery = query.toLowerCase();
   const matches: MarkdownSearchMatch[] = [];
@@ -177,6 +180,9 @@ export function findMarkdownSearchMatches(markdown: string, query: string): Mark
  */
 export function countMarkdownSearchMatches(markdown: string, query: string): number {
   if (!query || !markdown) return 0;
+
+  // Fast pre-filter: skip expensive markdown parsing if query doesn't appear in raw text
+  if (!markdown.toLowerCase().includes(query.toLowerCase())) return 0;
 
   const segments = getCachedSegments(markdown);
   const lowerQuery = query.toLowerCase();

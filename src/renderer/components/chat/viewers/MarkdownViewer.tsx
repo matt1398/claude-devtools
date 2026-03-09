@@ -29,6 +29,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import {
   createSearchContext,
+  EMPTY_SEARCH_MATCHES,
   highlightSearchInChildren,
   type SearchContext,
 } from '../searchHighlightUtils';
@@ -284,13 +285,16 @@ export const MarkdownViewer: React.FC<MarkdownViewerProps> = ({
   itemId,
   copyable = false,
 }) => {
-  // Only subscribe to search store when itemId is provided
+  // Only re-render if THIS item has search matches
   const { searchQuery, searchMatches, currentSearchIndex } = useStore(
-    useShallow((s) => ({
-      searchQuery: itemId ? s.searchQuery : '',
-      searchMatches: itemId ? s.searchMatches : [],
-      currentSearchIndex: itemId ? s.currentSearchIndex : -1,
-    }))
+    useShallow((s) => {
+      const hasMatch = itemId ? s.searchMatchItemIds.has(itemId) : false;
+      return {
+        searchQuery: hasMatch ? s.searchQuery : '',
+        searchMatches: hasMatch ? s.searchMatches : EMPTY_SEARCH_MATCHES,
+        currentSearchIndex: hasMatch ? s.currentSearchIndex : -1,
+      };
+    })
   );
 
   // Create search context (fresh each render so counter starts at 0)

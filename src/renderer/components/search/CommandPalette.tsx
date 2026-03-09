@@ -281,7 +281,7 @@ export const CommandPalette = (): React.JSX.Element | null => {
           setLoading(false);
         }
       }
-    }, 200);
+    }, 400);
 
     return () => clearTimeout(timeoutId);
   }, [query, selectedProjectId, commandPaletteOpen, searchMode, globalSearchEnabled]);

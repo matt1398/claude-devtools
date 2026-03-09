@@ -21,7 +21,7 @@ export class SearchTextCache {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly maxSize: number;
 
-  constructor(maxSize: number = 200) {
+  constructor(maxSize: number = 1000) {
     this.maxSize = maxSize;
   }
 
