@@ -82,21 +82,42 @@ export class SessionParser {
    * Process parsed messages into structured data.
    */
   private processMessages(messages: ParsedMessage[]): ParsedSession {
-    // Group by type
+    // Single-pass categorization instead of 8 separate filter passes
     const byType = {
-      user: messages.filter((m) => m.type === 'user'),
-      realUser: messages.filter(isParsedRealUserMessage),
-      internalUser: messages.filter(isParsedInternalUserMessage),
-      assistant: messages.filter((m) => m.type === 'assistant'),
-      system: messages.filter((m) => m.type === 'system'),
-      other: messages.filter(
-        (m) => m.type !== 'user' && m.type !== 'assistant' && m.type !== 'system'
-      ),
+      user: [] as ParsedMessage[],
+      realUser: [] as ParsedMessage[],
+      internalUser: [] as ParsedMessage[],
+      assistant: [] as ParsedMessage[],
+      system: [] as ParsedMessage[],
+      other: [] as ParsedMessage[],
     };
+    const sidechainMessages: ParsedMessage[] = [];
+    const mainMessages: ParsedMessage[] = [];
 
-    // Separate sidechain and main messages
-    const sidechainMessages = messages.filter((m) => m.isSidechain);
-    const mainMessages = messages.filter((m) => !m.isSidechain);
+    for (const m of messages) {
+      switch (m.type) {
+        case 'user':
+          byType.user.push(m);
+          if (isParsedRealUserMessage(m)) byType.realUser.push(m);
+          if (isParsedInternalUserMessage(m)) byType.internalUser.push(m);
+          break;
+        case 'assistant':
+          byType.assistant.push(m);
+          break;
+        case 'system':
+          byType.system.push(m);
+          break;
+        default:
+          byType.other.push(m);
+          break;
+      }
+
+      if (m.isSidechain) {
+        sidechainMessages.push(m);
+      } else {
+        mainMessages.push(m);
+      }
+    }
 
     // Calculate metrics
     const metrics = calculateMetrics(messages);
