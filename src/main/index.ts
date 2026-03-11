@@ -18,8 +18,30 @@ import {
 } from '@shared/constants';
 import { createLogger } from '@shared/utils/logger';
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { existsSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
 import { join } from 'path';
+
+/**
+ * Append a timestamped entry to ~/.claude/claude-devtools-crash.log.
+ * Uses sync I/O because crashes may happen in unstable states.
+ */
+function writeCrashLog(label: string, details: Record<string, unknown>): void {
+  try {
+    const dir = join(homedir(), '.claude');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const logPath = join(dir, 'claude-devtools-crash.log');
+    const entry =
+      `[${new Date().toISOString()}] ${label}\n` +
+      Object.entries(details)
+        .map(([k, v]) => `  ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+        .join('\n') +
+      '\n\n';
+    appendFileSync(logPath, entry, 'utf-8');
+  } catch {
+    // Best-effort — don't throw during crash handling
+  }
+}
 
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
 import { getProjectsBasePath, getTodosBasePath } from './utils/pathDecoder';
@@ -52,11 +74,22 @@ const HTTP_SERVER_GET_STATUS = 'httpServer:getStatus';
 
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled promise rejection in main process:', reason);
+  writeCrashLog('UNHANDLED_REJECTION (main)', {
+    reason: reason instanceof Error ? reason.stack ?? reason.message : String(reason),
+  });
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', (error: Error) => {
   logger.error('Uncaught exception in main process:', error);
+  writeCrashLog('UNCAUGHT_EXCEPTION (main)', {
+    message: error.message,
+    stack: error.stack ?? '',
+  });
 });
+
+// Increase renderer V8 heap limit to 8 GB to prevent OOM crashes on long sessions.
+// Default Chromium limit (~4 GB) is insufficient for sessions with hundreds of AI groups.
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=8192');
 
 import { HttpServer } from './services/infrastructure/HttpServer';
 import {
@@ -468,6 +501,11 @@ function createWindow(): void {
         logger.error(
           `Failed to load renderer (code=${errorCode}): ${errorDescription} - ${validatedURL}`
         );
+        writeCrashLog('RENDERER_LOAD_FAILURE', {
+          errorCode,
+          errorDescription,
+          validatedURL,
+        });
       }
     }
   );
@@ -536,10 +574,51 @@ function createWindow(): void {
     }
   });
 
-  // Handle renderer process crashes (render-process-gone replaces deprecated 'crashed' event)
+  // Handle renderer process crashes (render-process-gone replaces deprecated 'crashed' event).
+  // When the renderer runs out of memory (e.g., loading a very large session),
+  // the process dies and the window goes black. Log and auto-reload to recover.
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    const memUsage = process.memoryUsage();
     logger.error('Renderer process gone:', details.reason, details.exitCode);
-    // Could show an error dialog or attempt to reload the window
+    writeCrashLog('RENDERER_PROCESS_GONE', {
+      reason: details.reason,
+      exitCode: details.exitCode,
+      mainProcessRssMB: Math.round(memUsage.rss / 1024 / 1024),
+      mainProcessHeapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+      mainProcessHeapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+      uptime: `${Math.round(process.uptime())}s`,
+    });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (process.env.NODE_ENV === 'development') {
+        void mainWindow.loadURL(`http://localhost:${DEV_SERVER_PORT}`);
+      } else {
+        void mainWindow.loadFile(getRendererIndexPath());
+      }
+    }
+  });
+
+  // Log renderer console errors (captures uncaught errors from the renderer process)
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    // level 3 = error
+    if (level >= 3) {
+      writeCrashLog('RENDERER_CONSOLE_ERROR', {
+        message,
+        source: `${sourceId}:${line}`,
+      });
+    }
+  });
+
+  // Capture renderer unresponsive events
+  mainWindow.on('unresponsive', () => {
+    const memUsage = process.memoryUsage();
+    logger.error('Renderer became unresponsive');
+    writeCrashLog('RENDERER_UNRESPONSIVE', {
+      note: 'Window stopped responding — possibly processing a very large session',
+      mainProcessRssMB: Math.round(memUsage.rss / 1024 / 1024),
+      mainProcessHeapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+      mainProcessHeapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+      uptime: `${Math.round(process.uptime())}s`,
+    });
   });
 
   // Set main window reference for notification manager and updater

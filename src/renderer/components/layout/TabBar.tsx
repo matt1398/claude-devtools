@@ -89,10 +89,11 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
   // Derive stable tab IDs array for SortableContext
   const tabIds = useMemo(() => openTabs.map((t) => t.id), [openTabs]);
 
-  // Derive session detail for the active tab (used by export dropdown)
-  const activeTabSessionDetail = activeTabId
-    ? (tabSessionData[activeTabId]?.sessionDetail ?? null)
-    : null;
+  // Whether the active tab has session data loaded (for export menu visibility).
+  // We no longer pass full sessionDetail here — export re-fetches on demand to save memory.
+  const activeTabHasSession = activeTabId
+    ? tabSessionData[activeTabId]?.sessionDetail != null
+    : false;
 
   // Hover states for buttons
   const [expandHover, setExpandHover] = useState(false);
@@ -395,7 +396,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
         </button>
 
         {/* More menu (Search, Export, Settings) */}
-        <MoreMenu activeTab={activeTab} activeTabSessionDetail={activeTabSessionDetail} />
+        <MoreMenu activeTab={activeTab} activeTabHasSession={activeTabHasSession} />
       </div>
 
       {/* Context menu */}

@@ -477,27 +477,35 @@ interface ComputeClaudeMdStatsParams {
   userGroup: UserGroup | null;
   isFirstGroup: boolean;
   previousInjections: ClaudeMdInjection[];
+  /** Paths already seen in previous groups (threaded to avoid O(N) rebuild per group) */
+  previousPaths: Set<string>;
   projectRoot: string;
   contextTokens: number;
   tokenData?: Record<string, ClaudeMdFileInfo>;
 }
 
+interface ComputeClaudeMdStatsResult {
+  stats: ClaudeMdStats;
+  /** Updated previousPaths set — caller should thread this to the next group */
+  previousPaths: Set<string>;
+}
+
 /**
  * Compute CLAUDE.md injection statistics for an AI group.
  */
-function computeClaudeMdStats(params: ComputeClaudeMdStatsParams): ClaudeMdStats {
+function computeClaudeMdStats(params: ComputeClaudeMdStatsParams): ComputeClaudeMdStatsResult {
   const {
     aiGroup,
     userGroup,
     isFirstGroup,
     previousInjections,
+    previousPaths,
     projectRoot,
     contextTokens,
     tokenData,
   } = params;
 
   const newInjections: ClaudeMdInjection[] = [];
-  const previousPaths = new Set(previousInjections.map((inj) => inj.path));
 
   // For the first group, add global injections
   // Use "ai-N" format for firstSeenInGroup to enable turn navigation in SessionClaudeMdPanel
@@ -562,8 +570,11 @@ function computeClaudeMdStats(params: ComputeClaudeMdStatsParams): ClaudeMdStats
     }
   }
 
-  // Build accumulated injections
-  const accumulatedInjections = [...previousInjections, ...newInjections];
+  // Build accumulated injections (mutable push to avoid O(N²) spread)
+  for (const inj of newInjections) {
+    previousInjections.push(inj);
+  }
+  const accumulatedInjections = previousInjections;
 
   // Calculate totals
   const totalEstimatedTokens = accumulatedInjections.reduce(
@@ -575,12 +586,15 @@ function computeClaudeMdStats(params: ComputeClaudeMdStatsParams): ClaudeMdStats
   const percentageOfContext = contextTokens > 0 ? (totalEstimatedTokens / contextTokens) * 100 : 0;
 
   return {
-    newInjections,
-    accumulatedInjections,
-    totalEstimatedTokens,
-    percentageOfContext,
-    newCount: newInjections.length,
-    accumulatedCount: accumulatedInjections.length,
+    stats: {
+      newInjections,
+      accumulatedInjections,
+      totalEstimatedTokens,
+      percentageOfContext,
+      newCount: newInjections.length,
+      accumulatedCount: accumulatedInjections.length,
+    },
+    previousPaths,
   };
 }
 
@@ -599,6 +613,7 @@ export function processSessionClaudeMd(
 ): Map<string, ClaudeMdStats> {
   const statsMap = new Map<string, ClaudeMdStats>();
   let accumulatedInjections: ClaudeMdInjection[] = [];
+  let previousPaths = new Set<string>();
   let isFirstAiGroup = true;
   let previousUserGroup: UserGroup | null = null;
 
@@ -612,6 +627,7 @@ export function processSessionClaudeMd(
     // Handle compact items: reset accumulated state across compaction boundaries
     if (item.type === 'compact') {
       accumulatedInjections = [];
+      previousPaths = new Set<string>();
       isFirstAiGroup = true;
       previousUserGroup = null;
       continue;
@@ -626,21 +642,27 @@ export function processSessionClaudeMd(
       const contextTokens = aiGroup.tokens.input || 0;
 
       // Compute stats for this group
-      const stats = computeClaudeMdStats({
+      const result = computeClaudeMdStats({
         aiGroup,
         userGroup: previousUserGroup,
         isFirstGroup: isFirstAiGroup,
         previousInjections: accumulatedInjections,
+        previousPaths,
         projectRoot,
         contextTokens,
         tokenData,
       });
+      const stats = result.stats;
 
-      // Store stats
-      statsMap.set(aiGroup.id, stats);
+      // Store stats (snapshot accumulatedInjections so later mutations don't corrupt stored entries)
+      statsMap.set(aiGroup.id, {
+        ...stats,
+        accumulatedInjections: [...stats.accumulatedInjections],
+      });
 
       // Update accumulated state for next iteration
       accumulatedInjections = stats.accumulatedInjections;
+      previousPaths = result.previousPaths;
       isFirstAiGroup = false;
 
       // Clear the user group pairing after processing

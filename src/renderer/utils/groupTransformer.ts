@@ -4,6 +4,9 @@
  * This module converts chunk-based data into a flat list of ChatItems
  * (UserGroups, SystemGroups, AIGroups) for a chat-style display.
  * Each item is independent - no pairing between user and AI chunks.
+ *
+ * Also provides an incremental update path that reuses unchanged ChatItem
+ * objects to reduce allocation pressure during live-session refreshes.
  */
 
 import {
@@ -176,6 +179,158 @@ export function transformChunksToConversation(
 
   return {
     sessionId: chunks[0]?.id ?? 'unknown',
+    items,
+    totalUserGroups: userCount,
+    totalSystemGroups: systemCount,
+    totalAIGroups: aiCount,
+    totalCompactGroups: compactCount,
+  };
+}
+
+// =============================================================================
+// Incremental Update
+// =============================================================================
+
+/**
+ * Incrementally updates a conversation by reusing unchanged ChatItem objects.
+ *
+ * During live-session refreshes, only the last chunk may have streaming updates
+ * and new chunks may have been appended. Instead of re-creating ALL ChatItem
+ * objects (O(N) allocation), this function reuses the prefix of unchanged items
+ * and only transforms the tail (O(delta) allocation).
+ *
+ * Falls back to full transformation if chunk count decreased (rare edge case).
+ */
+export function incrementalUpdateConversation(
+  prevConversation: SessionConversation,
+  chunks: EnhancedChunk[],
+  _subagents: Process[],
+  isOngoing: boolean
+): SessionConversation {
+  const prevItems = prevConversation.items;
+  const newChunkCount = chunks.length;
+  const prevItemCount = prevItems.length;
+
+  // Fall back to full transform if chunks decreased or no previous items
+  if (newChunkCount < prevItemCount || prevItemCount === 0) {
+    return transformChunksToConversation(chunks, _subagents, isOngoing);
+  }
+
+  // Reuse all items except the last one (it might have streaming updates)
+  const reuseCount = prevItemCount - 1;
+  const items: ChatItem[] = prevItems.slice(0, reuseCount);
+
+  // Count type indices in reused items
+  let userCount = 0;
+  let systemCount = 0;
+  let aiCount = 0;
+  let compactCount = 0;
+  for (const item of items) {
+    switch (item.type) {
+      case 'user':
+        userCount++;
+        break;
+      case 'system':
+        systemCount++;
+        break;
+      case 'ai':
+        aiCount++;
+        break;
+      case 'compact':
+        compactCount++;
+        break;
+    }
+  }
+
+  // Clear isOngoing from the last reused AI group (it may have been set
+  // in the previous transform). Clone to avoid mutating React-referenced objects.
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].type === 'ai') {
+      const group = items[i].group as AIGroup;
+      if ((group as AIGroup & { isOngoing?: boolean }).isOngoing) {
+        items[i] = {
+          type: 'ai',
+          group: {
+            ...group,
+            isOngoing: false,
+            status: group.status === 'in_progress' ? 'completed' : group.status,
+          },
+        } as ChatItem;
+      }
+      break; // Only the last AI group could have isOngoing
+    }
+  }
+
+  // Transform only the last old chunk + any new chunks
+  for (let i = reuseCount; i < newChunkCount; i++) {
+    const chunk = chunks[i];
+    if (isEnhancedUserChunk(chunk)) {
+      items.push({
+        type: 'user',
+        group: createUserGroupFromChunk(chunk, userCount++),
+      });
+    } else if (isEnhancedSystemChunk(chunk)) {
+      items.push({
+        type: 'system',
+        group: createSystemGroup(chunk),
+      });
+      systemCount++;
+    } else if (isEnhancedAIChunk(chunk)) {
+      items.push({
+        type: 'ai',
+        group: createAIGroupFromChunk(chunk, aiCount),
+      });
+      aiCount++;
+    } else if (isEnhancedCompactChunk(chunk)) {
+      items.push({
+        type: 'compact',
+        group: createCompactGroup(chunk),
+      });
+      compactCount++;
+    }
+  }
+
+  // Post-pass: CompactGroup token deltas (re-run on full array — cheap iteration)
+  let phaseCounter = 1;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type === 'compact') {
+      phaseCounter++;
+      const compactItem = items[i] as { type: 'compact'; group: CompactGroup };
+      compactItem.group.startingPhaseNumber = phaseCounter;
+
+      const preAi = findLastAiBefore(items, i);
+      const postAi = findFirstAiAfter(items, i);
+      if (preAi && postAi) {
+        const pre = getLastAssistantTotalTokens(preAi);
+        const post = getFirstAssistantTotalTokens(postAi);
+        if (pre !== undefined && post !== undefined) {
+          compactItem.group.tokenDelta = {
+            preCompactionTokens: pre,
+            postCompactionTokens: post,
+            delta: post - pre,
+          };
+        }
+      }
+    }
+  }
+
+  // Post-pass: isOngoing flag on last AI group
+  if (isOngoing && aiCount > 0) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.type === 'ai') {
+        const currentStatus = item.group.status;
+        if (currentStatus !== 'interrupted') {
+          (item.group as AIGroup & { isOngoing?: boolean }).isOngoing = true;
+          (item.group as AIGroup & { status?: AIGroupStatus }).status = 'in_progress';
+        }
+        break;
+      }
+    }
+  }
+
+  return {
+    sessionId: prevConversation.sessionId,
     items,
     totalUserGroups: userCount,
     totalSystemGroups: systemCount,

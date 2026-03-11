@@ -76,22 +76,13 @@ const SessionContextSection = ({
   const contextPercent =
     totalTokens > 0 ? Math.min((adjustedContextTotal / totalTokens) * 100, 100).toFixed(1) : '0.0';
 
-  // Count accumulated injections by category
-  const claudeMdCount = contextStats.accumulatedInjections.filter(
-    (inj) => inj.category === 'claude-md'
-  ).length;
-  const mentionedFilesCount = contextStats.accumulatedInjections.filter(
-    (inj) => inj.category === 'mentioned-file'
-  ).length;
-  const toolOutputsCount = contextStats.accumulatedInjections.filter(
-    (inj) => inj.category === 'tool-output'
-  ).length;
-  const taskCoordinationCount = contextStats.accumulatedInjections.filter(
-    (inj) => inj.category === 'task-coordination'
-  ).length;
-  const userMessagesCount = contextStats.accumulatedInjections.filter(
-    (inj) => inj.category === 'user-message'
-  ).length;
+  // Use precomputed accumulated counts (avoids iterating the full injection array)
+  const counts = contextStats.accumulatedCounts;
+  const claudeMdCount = counts.claudeMd;
+  const mentionedFilesCount = counts.mentionedFiles;
+  const toolOutputsCount = counts.toolOutputs;
+  const taskCoordinationCount = counts.taskCoordination;
+  const userMessagesCount = counts.userMessages;
 
   // Calculate percentages for each category
   const claudeMdPercent =

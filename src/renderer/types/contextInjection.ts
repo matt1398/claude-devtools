@@ -267,7 +267,11 @@ export interface NewCountsByCategory {
 export interface ContextStats {
   /** Injections that are new in THIS group */
   newInjections: ContextInjection[];
-  /** All injections accumulated up to and including this group */
+  /**
+   * All injections accumulated up to and including this group.
+   * Only populated for the last AI group in each context phase (to save memory).
+   * Intermediate groups have an empty array here.
+   */
   accumulatedInjections: ContextInjection[];
   /** Total estimated tokens from all accumulated injections */
   totalEstimatedTokens: number;
@@ -275,6 +279,8 @@ export interface ContextStats {
   tokensByCategory: TokensByCategory;
   /** Counts of new injections in this group, by category */
   newCounts: NewCountsByCategory;
+  /** Running totals of accumulated injection counts by category (always populated) */
+  accumulatedCounts: NewCountsByCategory;
   /** Which context phase this stats belongs to (1-based) */
   phaseNumber?: number;
 }
