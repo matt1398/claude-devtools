@@ -4,9 +4,10 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import { api } from '@renderer/api';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useStore } from '@renderer/store';
+import { parseTaskNotifications } from '@shared/utils/contentSanitizer';
 import { createLogger } from '@shared/utils/logger';
 import { format } from 'date-fns';
-import { User } from 'lucide-react';
+import { CheckCircle, Circle, FileText, User, XCircle } from 'lucide-react';
 import remarkGfm from 'remark-gfm';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -345,6 +346,20 @@ const UserChatGroupInner = ({ userGroup }: Readonly<UserChatGroupProps>): React.
   const textContent = content.rawText ?? content.text ?? '';
   const isLongContent = textContent.length > 500;
 
+  // Parse task notifications from the original message content (before sanitization)
+  const taskNotifications = useMemo(() => {
+    const raw =
+      typeof userGroup.message.content === 'string'
+        ? userGroup.message.content
+        : Array.isArray(userGroup.message.content)
+          ? userGroup.message.content
+              .filter((b): b is { type: 'text'; text: string } => b.type === 'text' && 'text' in b)
+              .map((b) => b.text)
+              .join('')
+          : '';
+    return parseTaskNotifications(raw);
+  }, [userGroup.message.content]);
+
   // Extract @path mentions from text
   const pathMentions = useMemo(() => {
     if (!textContent) return [];
@@ -461,6 +476,60 @@ const UserChatGroupInner = ({ userGroup }: Readonly<UserChatGroupProps>): React.
             )}
           </div>
         )}
+
+        {/* Task notification cards */}
+        {taskNotifications.length > 0 &&
+          taskNotifications.map((notif) => {
+            const isCompleted = notif.status === 'completed';
+            const isFailed = notif.status === 'failed' || notif.status === 'error';
+            const StatusIcon = isFailed ? XCircle : isCompleted ? CheckCircle : Circle;
+            const statusColor = isFailed
+              ? 'var(--error-highlight-text, #ef4444)'
+              : isCompleted
+                ? 'var(--badge-success-text, #22c55e)'
+                : 'var(--color-text-muted)';
+
+            // Extract quoted command name from summary (e.g., 'Background command "Run foo" completed')
+            const cmdMatch = /"([^"]+)"/.exec(notif.summary);
+            const cmdName = cmdMatch?.[1] ?? notif.summary;
+            // Extract exit code
+            const exitMatch = /\(exit code (\d+)\)/.exec(notif.summary);
+            const exitCode = exitMatch?.[1];
+
+            return (
+              <div
+                key={notif.taskId}
+                className="flex items-start gap-2.5 rounded-lg px-3 py-2"
+                style={{
+                  backgroundColor: 'var(--card-bg)',
+                  border: '1px solid var(--card-border)',
+                }}
+              >
+                <StatusIcon
+                  className="mt-0.5 size-3.5 shrink-0"
+                  style={{ color: statusColor }}
+                />
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div
+                    className="text-xs font-medium leading-snug"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                  >
+                    {cmdName}
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                    <span className="capitalize">{notif.status}</span>
+                    {exitCode != null && <span>exit {exitCode}</span>}
+                    {notif.outputFile && (
+                      <span className="flex items-center gap-0.5 truncate">
+                        <FileText className="size-2.5" />
+                        <span className="truncate">{notif.outputFile.split('/').pop()}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
 
         {/* Images indicator */}
         {hasImages && (

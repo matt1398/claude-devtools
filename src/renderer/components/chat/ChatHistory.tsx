@@ -37,7 +37,7 @@ interface ChatHistoryProps {
 }
 
 export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
-  const VIRTUALIZATION_THRESHOLD = 120;
+  const VIRTUALIZATION_THRESHOLD = 30;
   const ESTIMATED_CHAT_ITEM_HEIGHT = 260;
 
   // Per-tab UI state (context panel, scroll position, expansion) from useTabUI

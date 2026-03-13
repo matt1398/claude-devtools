@@ -19,7 +19,15 @@
 const NOISE_TAG_PATTERNS = [
   /<local-command-caveat>[\s\S]*?<\/local-command-caveat>/gi,
   /<system-reminder>[\s\S]*?<\/system-reminder>/gi,
+  /<task-notification>[\s\S]*?<\/task-notification>/gi,
 ];
+
+/**
+ * Pattern to match the trailing "Read the output file to retrieve the result: /path"
+ * instruction that follows task notifications.
+ */
+const TASK_OUTPUT_INSTRUCTION_PATTERN =
+  / ?Read the output file to retrieve the result: [^\s]+/g;
 
 /**
  * Extract content from <local-command-stdout> tags.
@@ -110,6 +118,9 @@ export function sanitizeDisplayContent(content: string): string {
     .replace(/<command-message>[\s\S]*?<\/command-message>/gi, '')
     .replace(/<command-args>[\s\S]*?<\/command-args>/gi, '');
 
+  // Remove trailing "Read the output file..." instructions from task notifications
+  sanitized = sanitized.replace(TASK_OUTPUT_INSTRUCTION_PATTERN, '');
+
   return sanitized.trim();
 }
 
@@ -148,4 +159,40 @@ export function extractSlashInfo(content: string): SlashInfo | null {
     message: messageMatch?.[1]?.trim() ?? undefined,
     args: argsMatch?.[1]?.trim() ?? undefined,
   };
+}
+
+// =============================================================================
+// Task Notification Parsing
+// =============================================================================
+
+/**
+ * Parsed task notification from Claude Code's background task system.
+ */
+export interface TaskNotification {
+  taskId: string;
+  status: string;
+  summary: string;
+  outputFile: string;
+}
+
+/**
+ * Extract task notifications from raw message content.
+ * These are XML blocks injected by Claude Code when background tasks complete.
+ */
+export function parseTaskNotifications(content: string): TaskNotification[] {
+  const notifications: TaskNotification[] = [];
+  const pattern = /<task-notification>([\s\S]*?)<\/task-notification>/gi;
+  let match;
+
+  while ((match = pattern.exec(content)) !== null) {
+    const block = match[1];
+    notifications.push({
+      taskId: /<task-id>([^<]*)<\/task-id>/.exec(block)?.[1] ?? '',
+      status: /<status>([^<]*)<\/status>/.exec(block)?.[1] ?? '',
+      summary: /<summary>([\s\S]*?)<\/summary>/.exec(block)?.[1]?.trim() ?? '',
+      outputFile: /<output-file>([^<]*)<\/output-file>/.exec(block)?.[1] ?? '',
+    });
+  }
+
+  return notifications;
 }

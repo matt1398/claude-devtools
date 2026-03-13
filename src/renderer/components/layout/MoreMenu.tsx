@@ -7,18 +7,19 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { api } from '@renderer/api';
 import { useStore } from '@renderer/store';
 import { triggerDownload } from '@renderer/utils/sessionExporter';
 import { formatShortcut } from '@renderer/utils/stringUtils';
 import { Braces, FileText, MoreHorizontal, Search, Settings, Type } from 'lucide-react';
 
-import type { SessionDetail } from '@renderer/types/data';
 import type { Tab } from '@renderer/types/tabs';
 import type { ExportFormat } from '@renderer/utils/sessionExporter';
 
 interface MoreMenuProps {
   activeTab: Tab | undefined;
-  activeTabSessionDetail: SessionDetail | null;
+  /** Whether the active tab has session data loaded (used to show export options). */
+  activeTabHasSession: boolean;
 }
 
 interface MenuItem {
@@ -31,11 +32,12 @@ interface MenuItem {
 
 export const MoreMenu = ({
   activeTab,
-  activeTabSessionDetail,
+  activeTabHasSession,
 }: Readonly<MoreMenuProps>): React.JSX.Element => {
   const [isOpen, setIsOpen] = useState(false);
   const [buttonHover, setButtonHover] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const openCommandPalette = useStore((s) => s.openCommandPalette);
@@ -71,15 +73,24 @@ export const MoreMenu = ({
 
   const handleExport = useCallback(
     (format: ExportFormat) => {
-      if (activeTabSessionDetail) {
-        triggerDownload(activeTabSessionDetail, format);
-      }
+      if (activeTab?.type !== 'session' || !activeTab.projectId || !activeTab.sessionId) return;
+      const { projectId, sessionId } = activeTab;
       setIsOpen(false);
+      setExportLoading(true);
+      // Re-fetch full detail (with chunks) since we strip them from the store to save memory.
+      void api
+        .getSessionDetail(projectId, sessionId)
+        .then((detail) => {
+          if (detail) triggerDownload(detail, format);
+        })
+        .finally(() => {
+          setExportLoading(false);
+        });
     },
-    [activeTabSessionDetail]
+    [activeTab]
   );
 
-  const isSessionWithData = activeTab?.type === 'session' && activeTabSessionDetail != null;
+  const isSessionWithData = activeTab?.type === 'session' && activeTabHasSession;
 
   // Build menu sections
   const topItems: MenuItem[] = [
@@ -99,21 +110,21 @@ export const MoreMenu = ({
     ? [
         {
           id: 'export-md',
-          label: 'Export as Markdown',
+          label: exportLoading ? 'Exporting…' : 'Export as Markdown',
           icon: FileText,
           shortcut: '.md',
           onClick: () => handleExport('markdown'),
         },
         {
           id: 'export-json',
-          label: 'Export as JSON',
+          label: exportLoading ? 'Exporting…' : 'Export as JSON',
           icon: Braces,
           shortcut: '.json',
           onClick: () => handleExport('json'),
         },
         {
           id: 'export-txt',
-          label: 'Export as Plain Text',
+          label: exportLoading ? 'Exporting…' : 'Export as Plain Text',
           icon: Type,
           shortcut: '.txt',
           onClick: () => handleExport('plaintext'),
