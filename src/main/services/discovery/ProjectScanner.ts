@@ -30,6 +30,7 @@ import {
   analyzeSessionFileMetadata,
   extractCwd,
   extractFirstUserMessagePreview,
+  extractSessionName,
 } from '@main/utils/jsonl';
 import {
   buildSessionPath,
@@ -78,7 +79,11 @@ export class ProjectScanner {
   >();
   private readonly sessionPreviewCache = new Map<
     string,
-    { mtimeMs: number; size: number; preview: { text: string; timestamp: string } | null }
+    {
+      mtimeMs: number;
+      size: number;
+      preview: { text: string; timestamp: string; sessionName?: string } | null;
+    }
   >();
 
   /** Cached project list for search — avoids re-scanning disk on every query */
@@ -767,6 +772,7 @@ export class ProjectScanner {
       todoData,
       createdAt: Math.floor(createdAt),
       firstMessage: metadata.firstUserMessage?.text,
+      sessionName: metadata.sessionName,
       messageTimestamp: metadata.firstUserMessage?.timestamp,
       hasSubagents,
       messageCount: metadata.messageCount,
@@ -812,6 +818,9 @@ export class ProjectScanner {
         preview,
       });
     }
+    // Extract session name from custom-title entries (fast scan for "custom-title" string)
+    const resolvedSessionName =
+      preview?.sessionName ?? (await extractSessionName(filePath, this.fsProvider));
     const metadataLevel: SessionMetadataLevel = 'light';
     const previewTimestampMs = this.parseTimestampMs(preview?.timestamp);
     const createdAt =
@@ -825,6 +834,7 @@ export class ProjectScanner {
       projectPath,
       createdAt: Math.floor(createdAt),
       firstMessage: preview?.text,
+      sessionName: resolvedSessionName,
       messageTimestamp: preview?.timestamp,
       hasSubagents: false,
       messageCount: 0,
@@ -1216,7 +1226,7 @@ export class ProjectScanner {
 
   private async extractLightPreviewWithRetry(
     filePath: string
-  ): Promise<{ text: string; timestamp: string } | null> {
+  ): Promise<{ text: string; timestamp: string; sessionName?: string } | null> {
     const maxAttempts = this.fsProvider.type === 'ssh' ? 3 : 1;
     let lastError: unknown;
 

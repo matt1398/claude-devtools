@@ -38,7 +38,7 @@ const logger = createLogger('Util:jsonl');
 const defaultProvider = new LocalFileSystemProvider();
 
 // Re-export for backwards compatibility
-export { extractCwd, extractFirstUserMessagePreview } from './metadataExtraction';
+export { extractCwd, extractFirstUserMessagePreview, extractSessionName } from './metadataExtraction';
 export { checkMessagesOngoing } from './sessionStateDetection';
 
 // =============================================================================
@@ -341,6 +341,8 @@ export function getTaskCalls(messages: ParsedMessage[]): ToolCall[] {
 
 export interface SessionFileMetadata {
   firstUserMessage: { text: string; timestamp: string } | null;
+  /** Session name set via /rename command (last rename wins) */
+  sessionName?: string;
   messageCount: number;
   isOngoing: boolean;
   gitBranch: string | null;
@@ -379,6 +381,7 @@ export async function analyzeSessionFileMetadata(
 
   let firstUserMessage: { text: string; timestamp: string } | null = null;
   let firstCommandMessage: { text: string; timestamp: string } | null = null;
+  let sessionName: string | undefined;
   let messageCount = 0;
   let hasDisplayableContent = false;
   // After a UserGroup, await the first main-thread assistant message to count the AIGroup
@@ -409,6 +412,15 @@ export async function analyzeSessionFileMetadata(
     try {
       entry = JSON.parse(trimmed) as ChatHistoryEntry;
     } catch {
+      continue;
+    }
+
+    // Detect custom-title entries (written at top of file by /rename).
+    // These have an unrecognized type so parseChatHistoryEntry returns null — check first.
+    const rawEntry = entry as unknown as { type: string; customTitle?: string };
+    if (rawEntry.type === 'custom-title' && typeof rawEntry.customTitle === 'string') {
+      const title = rawEntry.customTitle.trim();
+      if (title) sessionName = title;
       continue;
     }
 
@@ -633,6 +645,7 @@ export async function analyzeSessionFileMetadata(
 
   return {
     firstUserMessage: firstUserMessage ?? firstCommandMessage,
+    sessionName,
     messageCount,
     isOngoing: lastEndingIndex === -1 ? hasAnyOngoingActivity : hasActivityAfterLastEnding,
     gitBranch,

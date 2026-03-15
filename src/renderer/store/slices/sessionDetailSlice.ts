@@ -398,9 +398,11 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
       }
       const existingTab = findTabBySession(currentState.openTabs, sessionId);
       if (existingTab && detail) {
-        const newLabel = detail.session.firstMessage
-          ? truncateLabel(detail.session.firstMessage)
-          : `Session ${sessionId.slice(0, 8)}`;
+        const newLabel =
+          detail.session.sessionName ??
+          (detail.session.firstMessage
+            ? truncateLabel(detail.session.firstMessage)
+            : `Session ${sessionId.slice(0, 8)}`);
         currentState.updateTabLabel(existingTab.id, newLabel);
       }
 
@@ -538,6 +540,19 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         latestAllTabs.some((tab) => tab.type === 'session' && tab.sessionId === sessionId);
       if (!stillViewingSession) {
         return;
+      }
+
+      // Update tab label if session name changed (e.g., after /rename)
+      const existingTab = findTabBySession(latestState.openTabs, sessionId);
+      if (existingTab && detail.session) {
+        const newLabel =
+          detail.session.sessionName ??
+          (detail.session.firstMessage
+            ? truncateLabel(detail.session.firstMessage)
+            : `Session ${sessionId.slice(0, 8)}`);
+        if (existingTab.label !== newLabel) {
+          latestState.updateTabLabel(existingTab.id, newLabel);
+        }
       }
 
       // Preserve current visibleAIGroupId if it still exists in new conversation

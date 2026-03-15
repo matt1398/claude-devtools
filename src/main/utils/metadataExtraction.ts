@@ -69,7 +69,7 @@ export async function extractFirstUserMessagePreview(
   filePath: string,
   fsProvider: FileSystemProvider = defaultProvider,
   maxLines: number = 200
-): Promise<{ text: string; timestamp: string } | null> {
+): Promise<{ text: string; timestamp: string; sessionName?: string } | null> {
   const safeMaxLines = Math.max(1, maxLines);
   const fileStream = fsProvider.createReadStream(filePath, { encoding: 'utf8' });
   const rl = readline.createInterface({
@@ -78,6 +78,7 @@ export async function extractFirstUserMessagePreview(
   });
 
   let commandFallback: { text: string; timestamp: string } | null = null;
+  let sessionName: string | undefined;
   let linesRead = 0;
 
   try {
@@ -96,6 +97,14 @@ export async function extractFirstUserMessagePreview(
         continue;
       }
 
+      // Detect custom-title entries (written at top of file by /rename)
+      const rawEntry = entry as unknown as { type: string; customTitle?: string };
+      if (rawEntry.type === 'custom-title' && typeof rawEntry.customTitle === 'string') {
+        const title = rawEntry.customTitle.trim();
+        if (title) sessionName = title;
+        continue;
+      }
+
       if (entry.type !== 'user') {
         continue;
       }
@@ -106,7 +115,7 @@ export async function extractFirstUserMessagePreview(
       }
 
       if (!preview.isCommand) {
-        return { text: preview.text, timestamp: preview.timestamp };
+        return { text: preview.text, timestamp: preview.timestamp, sessionName };
       }
 
       if (!commandFallback) {
@@ -121,7 +130,60 @@ export async function extractFirstUserMessagePreview(
     fileStream.destroy();
   }
 
-  return commandFallback;
+  if (commandFallback) {
+    return { ...commandFallback, sessionName };
+  }
+
+  // Session may only have custom-title but no user messages
+  if (sessionName) {
+    return { text: sessionName, timestamp: new Date().toISOString(), sessionName };
+  }
+
+  return null;
+}
+
+/**
+ * Extract session name from custom-title entries in the file.
+ * These can appear at the top (new sessions) or be appended (mid-session renames).
+ * Scans the full file but only parses lines containing "custom-title".
+ */
+export async function extractSessionName(
+  filePath: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<string | undefined> {
+  if (!(await fsProvider.exists(filePath))) {
+    return undefined;
+  }
+
+  const fileStream = fsProvider.createReadStream(filePath, { encoding: 'utf8' });
+  const rl = readline.createInterface({
+    input: fileStream,
+    crlfDelay: Infinity,
+  });
+
+  let sessionName: string | undefined;
+
+  try {
+    for await (const line of rl) {
+      // Fast string check before JSON parsing
+      if (!line.includes('"custom-title"')) continue;
+
+      try {
+        const entry = JSON.parse(line.trim()) as { type: string; customTitle?: string };
+        if (entry.type === 'custom-title' && typeof entry.customTitle === 'string') {
+          const title = entry.customTitle.trim();
+          if (title) sessionName = title;
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+  } finally {
+    rl.close();
+    fileStream.destroy();
+  }
+
+  return sessionName;
 }
 
 function extractPreviewFromUserEntry(entry: UserEntry): MessagePreview | null {

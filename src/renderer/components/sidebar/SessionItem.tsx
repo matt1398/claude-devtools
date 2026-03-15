@@ -178,7 +178,7 @@ export const SessionItem = React.memo(function SessionItem({
         type: 'session',
         sessionId: session.id,
         projectId: activeProjectId,
-        label: session.firstMessage?.slice(0, 50) ?? 'Session',
+        label: session.sessionName ?? session.firstMessage?.slice(0, 50) ?? 'Session',
       },
       forceNewTab ? { forceNewTab } : { replaceActiveTab: true }
     );
@@ -191,7 +191,7 @@ export const SessionItem = React.memo(function SessionItem({
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const sessionLabel = session.firstMessage?.slice(0, 50) ?? 'Session';
+  const sessionLabel = session.sessionName ?? session.firstMessage?.slice(0, 50) ?? 'Session';
 
   const handleOpenInCurrentPane = useCallback(() => {
     if (!activeProjectId) return;
@@ -271,7 +271,7 @@ export const SessionItem = React.memo(function SessionItem({
             className="truncate text-[13px] font-medium leading-tight"
             style={{ color: isActive ? 'var(--color-text)' : 'var(--color-text-muted)' }}
           >
-            {session.firstMessage ?? 'Untitled'}
+            {session.sessionName ?? session.firstMessage ?? 'Untitled'}
           </span>
         </div>
 

@@ -137,6 +137,104 @@ describe('jsonl', () => {
   });
 
   describe('analyzeSessionFileMetadata', () => {
+    it('should extract sessionName from custom-title entry', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsonl-rename-'));
+      try {
+        const filePath = path.join(tempDir, 'session.jsonl');
+        const lines = [
+          // custom-title entries are written at the top of the file by /rename
+          JSON.stringify({
+            type: 'custom-title',
+            customTitle: 'My Custom Session',
+            sessionId: 'test-session-id',
+          }),
+          JSON.stringify({
+            type: 'user',
+            uuid: 'u1',
+            timestamp: '2026-01-01T00:00:00.000Z',
+            message: { role: 'user', content: 'hello world' },
+            isMeta: false,
+          }),
+        ];
+        fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf8');
+
+        const result = await analyzeSessionFileMetadata(filePath);
+
+        expect(result.sessionName).toBe('My Custom Session');
+        expect(result.firstUserMessage?.text).toBe('hello world');
+      } finally {
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+    });
+
+    it('should use the last custom-title when multiple exist', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsonl-rename2-'));
+      try {
+        const filePath = path.join(tempDir, 'session.jsonl');
+        const lines = [
+          JSON.stringify({
+            type: 'custom-title',
+            customTitle: 'First Name',
+            sessionId: 'test-session-id',
+          }),
+          JSON.stringify({
+            type: 'custom-title',
+            customTitle: 'Final Name',
+            sessionId: 'test-session-id',
+          }),
+          JSON.stringify({
+            type: 'user',
+            uuid: 'u1',
+            timestamp: '2026-01-01T00:00:00.000Z',
+            message: { role: 'user', content: 'hello world' },
+            isMeta: false,
+          }),
+        ];
+        fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf8');
+
+        const result = await analyzeSessionFileMetadata(filePath);
+
+        expect(result.sessionName).toBe('Final Name');
+      } finally {
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+    });
+
+    it('should leave sessionName undefined when no custom-title exists', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsonl-no-rename-'));
+      try {
+        const filePath = path.join(tempDir, 'session.jsonl');
+        const lines = [
+          JSON.stringify({
+            type: 'user',
+            uuid: 'u1',
+            timestamp: '2026-01-01T00:00:00.000Z',
+            message: { role: 'user', content: 'hello world' },
+            isMeta: false,
+          }),
+        ];
+        fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf8');
+
+        const result = await analyzeSessionFileMetadata(filePath);
+
+        expect(result.sessionName).toBeUndefined();
+      } finally {
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+        } catch {
+          // Best-effort cleanup
+        }
+      }
+    });
+
     it('should extract first message, count, ongoing state, and git branch in one pass', async () => {
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsonl-meta-'));
       try {
