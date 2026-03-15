@@ -136,7 +136,7 @@ export async function extractFirstUserMessagePreview(
 
   // Session may only have custom-title but no user messages
   if (sessionName) {
-    return { text: sessionName, timestamp: new Date().toISOString(), sessionName };
+    return { text: sessionName, sessionName };
   }
 
   return null;
