@@ -82,7 +82,7 @@ export class ProjectScanner {
     {
       mtimeMs: number;
       size: number;
-      preview: { text: string; timestamp: string; sessionName?: string } | null;
+      preview: { text: string; timestamp?: string; sessionName?: string } | null;
     }
   >();
 
@@ -1226,7 +1226,7 @@ export class ProjectScanner {
 
   private async extractLightPreviewWithRetry(
     filePath: string
-  ): Promise<{ text: string; timestamp: string; sessionName?: string } | null> {
+  ): Promise<{ text: string; timestamp?: string; sessionName?: string } | null> {
     const maxAttempts = this.fsProvider.type === 'ssh' ? 3 : 1;
     let lastError: unknown;
 

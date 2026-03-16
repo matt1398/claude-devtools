@@ -69,7 +69,7 @@ export async function extractFirstUserMessagePreview(
   filePath: string,
   fsProvider: FileSystemProvider = defaultProvider,
   maxLines: number = 200
-): Promise<{ text: string; timestamp: string; sessionName?: string } | null> {
+): Promise<{ text: string; timestamp?: string; sessionName?: string } | null> {
   const safeMaxLines = Math.max(1, maxLines);
   const fileStream = fsProvider.createReadStream(filePath, { encoding: 'utf8' });
   const rl = readline.createInterface({
