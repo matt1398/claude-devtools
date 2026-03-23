@@ -398,9 +398,10 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
       }
       const existingTab = findTabBySession(currentState.openTabs, sessionId);
       if (existingTab && detail) {
-        const newLabel = detail.session.firstMessage
-          ? truncateLabel(detail.session.firstMessage)
-          : `Session ${sessionId.slice(0, 8)}`;
+        const newLabel = detail.session.customTitle
+          ?? (detail.session.firstMessage
+            ? truncateLabel(detail.session.firstMessage)
+            : `Session ${sessionId.slice(0, 8)}`);
         currentState.updateTabLabel(existingTab.id, newLabel);
       }
 

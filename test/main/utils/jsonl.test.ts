@@ -182,5 +182,115 @@ describe('jsonl', () => {
         }
       }
     });
+
+    it('should extract customTitle from custom-title JSONL entries', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsonl-meta-'));
+      try {
+        const filePath = path.join(tempDir, 'session.jsonl');
+        const lines = [
+          JSON.stringify({
+            type: 'user',
+            uuid: 'u1',
+            timestamp: '2026-01-01T00:00:00.000Z',
+            message: { role: 'user', content: 'hello world' },
+            isMeta: false,
+          }),
+          JSON.stringify({
+            type: 'custom-title',
+            customTitle: 'my-renamed-session',
+            sessionId: 'sess-123',
+          }),
+          JSON.stringify({
+            type: 'agent-name',
+            agentName: 'my-renamed-session',
+            sessionId: 'sess-123',
+          }),
+        ];
+        fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf8');
+
+        const result = await analyzeSessionFileMetadata(filePath);
+
+        expect(result.customTitle).toBe('my-renamed-session');
+        expect(result.firstUserMessage?.text).toBe('hello world');
+      } finally {
+        try {
+          fs.rmSync(tempDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 200,
+          });
+        } catch {
+          // Best-effort cleanup; ignore ENOTEMPTY on Windows when dir is in use
+        }
+      }
+    });
+
+    it('should return undefined customTitle when no custom-title entry exists', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsonl-meta-'));
+      try {
+        const filePath = path.join(tempDir, 'session.jsonl');
+        const lines = [
+          JSON.stringify({
+            type: 'user',
+            uuid: 'u1',
+            timestamp: '2026-01-01T00:00:00.000Z',
+            message: { role: 'user', content: 'hello world' },
+            isMeta: false,
+          }),
+        ];
+        fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf8');
+
+        const result = await analyzeSessionFileMetadata(filePath);
+
+        expect(result.customTitle).toBeUndefined();
+      } finally {
+        try {
+          fs.rmSync(tempDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 200,
+          });
+        } catch {
+          // Best-effort cleanup; ignore ENOTEMPTY on Windows when dir is in use
+        }
+      }
+    });
+
+    it('should use the last custom-title when renamed multiple times', async () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'jsonl-meta-'));
+      try {
+        const filePath = path.join(tempDir, 'session.jsonl');
+        const lines = [
+          JSON.stringify({
+            type: 'custom-title',
+            customTitle: 'first-name',
+            sessionId: 'sess-123',
+          }),
+          JSON.stringify({
+            type: 'custom-title',
+            customTitle: 'second-name',
+            sessionId: 'sess-123',
+          }),
+        ];
+        fs.writeFileSync(filePath, `${lines.join('\n')}\n`, 'utf8');
+
+        const result = await analyzeSessionFileMetadata(filePath);
+
+        expect(result.customTitle).toBe('second-name');
+      } finally {
+        try {
+          fs.rmSync(tempDir, {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 200,
+          });
+        } catch {
+          // Best-effort cleanup; ignore ENOTEMPTY on Windows when dir is in use
+        }
+      }
+    });
   });
 });

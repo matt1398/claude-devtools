@@ -28,6 +28,7 @@ import {
 } from '@main/types';
 import {
   analyzeSessionFileMetadata,
+  extractCustomTitle,
   extractCwd,
   extractFirstUserMessagePreview,
 } from '@main/utils/jsonl';
@@ -767,6 +768,7 @@ export class ProjectScanner {
       todoData,
       createdAt: Math.floor(createdAt),
       firstMessage: metadata.firstUserMessage?.text,
+      customTitle: metadata.customTitle,
       messageTimestamp: metadata.firstUserMessage?.timestamp,
       hasSubagents,
       messageCount: metadata.messageCount,
@@ -819,12 +821,16 @@ export class ProjectScanner {
         ? previewTimestampMs
         : birthtimeMs;
 
+    // Fast scan for /rename custom title (only parses lines containing "custom-title")
+    const customTitle = await extractCustomTitle(filePath, this.fsProvider);
+
     return {
       id: sessionId,
       projectId,
       projectPath,
       createdAt: Math.floor(createdAt),
       firstMessage: preview?.text,
+      customTitle,
       messageTimestamp: preview?.timestamp,
       hasSubagents: false,
       messageCount: 0,
