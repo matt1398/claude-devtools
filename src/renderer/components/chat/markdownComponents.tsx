@@ -2,6 +2,7 @@ import React from 'react';
 
 import { PROSE_BODY } from '@renderer/constants/cssVariables';
 
+import { MermaidViewer } from './viewers/MermaidViewer';
 import { highlightSearchInChildren, type SearchContext } from './searchHighlightUtils';
 
 import type { Components } from 'react-markdown';
@@ -118,6 +119,13 @@ export function createMarkdownComponents(searchCtx: SearchContext | null): Compo
       const isBlock = (hasLanguageClass ?? false) || isMultiLine;
 
       if (isBlock) {
+        const lang = className?.replace('language-', '') ?? '';
+        const text = content.replace(/\n$/, '');
+
+        if (lang === 'mermaid') {
+          return <MermaidViewer code={text} />;
+        }
+
         return (
           <code className="block font-mono text-xs" style={{ color: 'var(--color-text)' }}>
             {hl(children)}
@@ -138,19 +146,25 @@ export function createMarkdownComponents(searchCtx: SearchContext | null): Compo
       );
     },
 
-    // Code blocks
-    pre: ({ children }) => (
-      <pre
-        className="my-3 overflow-x-auto rounded-lg p-3 font-mono text-xs leading-relaxed"
-        style={{
-          backgroundColor: 'var(--prose-pre-bg)',
-          border: '1px solid var(--prose-pre-border)',
-          color: 'var(--color-text)',
-        }}
-      >
-        {children}
-      </pre>
-    ),
+    // Code blocks — skip <pre> wrapper for mermaid diagrams
+    pre: ({ children }) => {
+      const child = React.Children.only(children) as React.ReactElement;
+      if (child?.type === MermaidViewer) {
+        return children as React.ReactElement;
+      }
+      return (
+        <pre
+          className="my-3 overflow-x-auto rounded-lg p-3 font-mono text-xs leading-relaxed"
+          style={{
+            backgroundColor: 'var(--prose-pre-bg)',
+            border: '1px solid var(--prose-pre-border)',
+            color: 'var(--color-text)',
+          }}
+        >
+          {children}
+        </pre>
+      );
+    },
 
     // Blockquotes
     blockquote: ({ children }) => (

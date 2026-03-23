@@ -33,6 +33,7 @@ import {
   highlightSearchInChildren,
   type SearchContext,
 } from '../searchHighlightUtils';
+import { MermaidViewer } from '../viewers/MermaidViewer';
 import { highlightLine } from '../viewers/syntaxHighlighter';
 
 // =============================================================================
@@ -159,6 +160,11 @@ function createViewerMarkdownComponents(searchCtx: SearchContext | null): Compon
         const lang = codeClassName?.replace('language-', '') ?? '';
         const raw = typeof children === 'string' ? children : '';
         const text = raw.replace(/\n$/, '');
+
+        if (lang === 'mermaid') {
+          return <MermaidViewer code={text} />;
+        }
+
         const lines = text.split('\n');
         return (
           <code className="font-mono text-xs" style={{ color: COLOR_TEXT }}>
@@ -185,18 +191,24 @@ function createViewerMarkdownComponents(searchCtx: SearchContext | null): Compon
       );
     },
 
-    // Code blocks
-    pre: ({ children }) => (
-      <pre
-        className="my-3 overflow-x-auto rounded-lg p-3 text-xs leading-relaxed"
-        style={{
-          backgroundColor: PROSE_PRE_BG,
-          border: `1px solid ${PROSE_PRE_BORDER}`,
-        }}
-      >
-        {children}
-      </pre>
-    ),
+    // Code blocks — skip <pre> wrapper for mermaid diagrams
+    pre: ({ children }) => {
+      const child = React.Children.only(children) as React.ReactElement;
+      if (child?.type === MermaidViewer) {
+        return children as React.ReactElement;
+      }
+      return (
+        <pre
+          className="my-3 overflow-x-auto rounded-lg p-3 text-xs leading-relaxed"
+          style={{
+            backgroundColor: PROSE_PRE_BG,
+            border: `1px solid ${PROSE_PRE_BORDER}`,
+          }}
+        >
+          {children}
+        </pre>
+      );
+    },
 
     // Blockquotes
     blockquote: ({ children }) => (
