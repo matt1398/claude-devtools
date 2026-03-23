@@ -81,6 +81,10 @@ export class ProjectScanner {
     string,
     { mtimeMs: number; size: number; preview: { text: string; timestamp: string } | null }
   >();
+  private readonly sessionCustomTitleCache = new Map<
+    string,
+    { mtimeMs: number; size: number; customTitle: string | undefined }
+  >();
 
   /** Cached project list for search — avoids re-scanning disk on every query */
   private searchProjectCache: { projects: Project[]; timestamp: number } | null = null;
@@ -822,7 +826,18 @@ export class ProjectScanner {
         : birthtimeMs;
 
     // Fast scan for /rename custom title (only parses lines containing "custom-title")
-    const customTitle = await extractCustomTitle(filePath, this.fsProvider);
+    const cachedCustomTitle = this.sessionCustomTitleCache.get(filePath);
+    const customTitle =
+      cachedCustomTitle?.mtimeMs === effectiveMtime && cachedCustomTitle.size === effectiveSize
+        ? cachedCustomTitle.customTitle
+        : await extractCustomTitle(filePath, this.fsProvider);
+    if (cachedCustomTitle?.mtimeMs !== effectiveMtime || cachedCustomTitle.size !== effectiveSize) {
+      this.sessionCustomTitleCache.set(filePath, {
+        mtimeMs: effectiveMtime,
+        size: effectiveSize,
+        customTitle,
+      });
+    }
 
     return {
       id: sessionId,

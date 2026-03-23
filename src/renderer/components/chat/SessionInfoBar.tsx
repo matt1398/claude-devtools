@@ -58,7 +58,11 @@ export const SessionInfoBar: React.FC<SessionInfoBarProps> = ({ tabId }) => {
         style={{ borderColor: 'var(--color-border)' }}
       />
       <button
-        onClick={() => navigator.clipboard.writeText(resumeCommand)}
+        onClick={() => {
+          navigator.clipboard.writeText(resumeCommand).catch(() => {
+            // Clipboard API may be unavailable in some environments
+          });
+        }}
         className="flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:opacity-80"
         title={resumeCommand}
         style={{ color: 'var(--color-text-muted)' }}
