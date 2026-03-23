@@ -28,6 +28,7 @@ import {
 } from '@main/types';
 import {
   analyzeSessionFileMetadata,
+  extractCustomTitle,
   extractCwd,
   extractFirstUserMessagePreview,
 } from '@main/utils/jsonl';
@@ -79,6 +80,10 @@ export class ProjectScanner {
   private readonly sessionPreviewCache = new Map<
     string,
     { mtimeMs: number; size: number; preview: { text: string; timestamp: string } | null }
+  >();
+  private readonly sessionCustomTitleCache = new Map<
+    string,
+    { mtimeMs: number; size: number; customTitle: string | undefined }
   >();
 
   /** Cached project list for search — avoids re-scanning disk on every query */
@@ -767,6 +772,7 @@ export class ProjectScanner {
       todoData,
       createdAt: Math.floor(createdAt),
       firstMessage: metadata.firstUserMessage?.text,
+      customTitle: metadata.customTitle,
       messageTimestamp: metadata.firstUserMessage?.timestamp,
       hasSubagents,
       messageCount: metadata.messageCount,
@@ -819,12 +825,27 @@ export class ProjectScanner {
         ? previewTimestampMs
         : birthtimeMs;
 
+    // Fast scan for /rename custom title (only parses lines containing "custom-title")
+    const cachedCustomTitle = this.sessionCustomTitleCache.get(filePath);
+    const customTitle =
+      cachedCustomTitle?.mtimeMs === effectiveMtime && cachedCustomTitle.size === effectiveSize
+        ? cachedCustomTitle.customTitle
+        : await extractCustomTitle(filePath, this.fsProvider);
+    if (cachedCustomTitle?.mtimeMs !== effectiveMtime || cachedCustomTitle.size !== effectiveSize) {
+      this.sessionCustomTitleCache.set(filePath, {
+        mtimeMs: effectiveMtime,
+        size: effectiveSize,
+        customTitle,
+      });
+    }
+
     return {
       id: sessionId,
       projectId,
       projectPath,
       createdAt: Math.floor(createdAt),
       firstMessage: preview?.text,
+      customTitle,
       messageTimestamp: preview?.timestamp,
       hasSubagents: false,
       messageCount: 0,

@@ -38,7 +38,7 @@ const logger = createLogger('Util:jsonl');
 const defaultProvider = new LocalFileSystemProvider();
 
 // Re-export for backwards compatibility
-export { extractCwd, extractFirstUserMessagePreview } from './metadataExtraction';
+export { extractCustomTitle, extractCwd, extractFirstUserMessagePreview } from './metadataExtraction';
 export { checkMessagesOngoing } from './sessionStateDetection';
 
 // =============================================================================
@@ -344,6 +344,8 @@ export interface SessionFileMetadata {
   messageCount: number;
   isOngoing: boolean;
   gitBranch: string | null;
+  /** Custom title set via /rename command */
+  customTitle?: string;
   /** Total context consumed (compaction-aware) */
   contextConsumption?: number;
   /** Number of compaction events */
@@ -381,6 +383,7 @@ export async function analyzeSessionFileMetadata(
   let firstCommandMessage: { text: string; timestamp: string } | null = null;
   let messageCount = 0;
   let hasDisplayableContent = false;
+  let customTitle: string | undefined;
   // After a UserGroup, await the first main-thread assistant message to count the AIGroup
   let awaitingAIGroup = false;
   let gitBranch: string | null = null;
@@ -410,6 +413,12 @@ export async function analyzeSessionFileMetadata(
       entry = JSON.parse(trimmed) as ChatHistoryEntry;
     } catch {
       continue;
+    }
+
+    // Detect custom-title entries (standalone, no uuid — not part of ChatHistoryEntry union)
+    const rawEntry = entry as unknown as Record<string, unknown>;
+    if (rawEntry.type === 'custom-title' && typeof rawEntry.customTitle === 'string') {
+      customTitle = rawEntry.customTitle;
     }
 
     const parsed = parseChatHistoryEntry(entry);
@@ -636,6 +645,7 @@ export async function analyzeSessionFileMetadata(
     messageCount,
     isOngoing: lastEndingIndex === -1 ? hasAnyOngoingActivity : hasActivityAfterLastEnding,
     gitBranch,
+    customTitle,
     contextConsumption,
     compactionCount: compactionPhases.length > 0 ? compactionPhases.length : undefined,
     phaseBreakdown,

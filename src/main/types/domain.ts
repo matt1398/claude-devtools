@@ -91,6 +91,8 @@ export interface Session {
   createdAt: number;
   /** First user message text (for preview) */
   firstMessage?: string;
+  /** Custom title set via /rename command */
+  customTitle?: string;
   /** Timestamp of first user message (RFC3339) */
   messageTimestamp?: string;
   /** Whether this session has subagents */

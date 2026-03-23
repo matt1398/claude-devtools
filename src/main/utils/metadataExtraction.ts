@@ -207,3 +207,48 @@ function extractCommandName(content: string): string {
   const commandMatch = /<command-name>\/([^<]+)<\/command-name>/.exec(content);
   return commandMatch ? `/${commandMatch[1]}` : '/command';
 }
+
+/**
+ * Extract the last custom title from a session JSONL file.
+ * Scans the full file but only JSON-parses lines containing "custom-title",
+ * so the cost is minimal even for large files.
+ */
+export async function extractCustomTitle(
+  filePath: string,
+  fsProvider: FileSystemProvider = defaultProvider
+): Promise<string | undefined> {
+  if (!(await fsProvider.exists(filePath))) {
+    return undefined;
+  }
+
+  const fileStream = fsProvider.createReadStream(filePath, { encoding: 'utf8' });
+  const rl = readline.createInterface({
+    input: fileStream,
+    crlfDelay: Infinity,
+  });
+
+  let customTitle: string | undefined;
+
+  try {
+    for await (const line of rl) {
+      // Fast string check — skip JSON parse for non-matching lines
+      if (!line.includes('"custom-title"')) continue;
+
+      try {
+        const entry = JSON.parse(line) as Record<string, unknown>;
+        if (entry.type === 'custom-title' && typeof entry.customTitle === 'string') {
+          customTitle = entry.customTitle;
+        }
+      } catch {
+        // Malformed line, skip
+      }
+    }
+  } catch (error) {
+    logger.debug(`Error extracting custom title from ${filePath}:`, error);
+  } finally {
+    rl.close();
+    fileStream.destroy();
+  }
+
+  return customTitle;
+}
