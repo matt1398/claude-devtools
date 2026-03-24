@@ -104,6 +104,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(
     null
   );
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
 
   // Track last clicked tab for Shift range selection
   const lastClickedTabIdRef = useRef<string | null>(null);
@@ -260,9 +261,11 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
         {
           height: `${HEADER_ROW1_HEIGHT}px`,
           paddingLeft:
-            sidebarCollapsed && isLeftmostPane
+            sidebarCollapsed && isLeftmostPane && navigator.userAgent.includes('Macintosh')
               ? 'var(--macos-traffic-light-padding-left, 72px)'
-              : '8px',
+              : sidebarCollapsed && isLeftmostPane
+                ? '4px'
+                : '8px',
           WebkitAppRegion: isElectronMode() && isLeftmostPane ? 'drag' : undefined,
           backgroundColor: 'var(--color-surface)',
           borderBottom: '1px solid var(--color-border)',
@@ -315,6 +318,9 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
               paneId={paneId}
               isActive={tab.id === activeTabId}
               isSelected={selectedSet.has(tab.id)}
+              isRenameRequested={renamingTabId === tab.id}
+              onRenameComplete={() => setRenamingTabId(null)}
+              onRequestRename={(id) => setRenamingTabId(id)}
               onTabClick={handleTabClick}
               onMouseDown={handleMouseDown}
               onContextMenu={handleContextMenu}
@@ -429,6 +435,7 @@ export const TabBar = ({ paneId }: TabBarProps): React.JSX.Element => {
               ? () => toggleHideSession(contextMenuTab.sessionId!)
               : undefined
           }
+          onRename={() => setRenamingTabId(contextMenuTabId)}
         />
       )}
     </div>

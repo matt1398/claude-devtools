@@ -3,7 +3,7 @@
  * Wraps useSortable from @dnd-kit for tab reordering and cross-pane movement.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -18,6 +18,9 @@ interface SortableTabProps {
   paneId: string;
   isActive: boolean;
   isSelected: boolean;
+  isRenameRequested?: boolean;
+  onRenameComplete?: () => void;
+  onRequestRename?: (tabId: string) => void;
   onTabClick: (tabId: string, e: React.MouseEvent) => void;
   onMouseDown: (tabId: string, e: React.MouseEvent) => void;
   onContextMenu: (tabId: string, e: React.MouseEvent) => void;
@@ -37,6 +40,9 @@ export const SortableTab = ({
   paneId,
   isActive,
   isSelected,
+  isRenameRequested,
+  onRenameComplete,
+  onRequestRename,
   onTabClick,
   onMouseDown,
   onContextMenu,
@@ -44,6 +50,34 @@ export const SortableTab = ({
   setRef,
 }: SortableTabProps): React.JSX.Element => {
   const [isHovered, setIsHovered] = useState(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  const updateTabLabel = useStore((s) => s.updateTabLabel);
+
+  // Rename is driven by parent via isRenameRequested prop (context menu)
+  // or by double-click (sets renamingTabId in parent via onRenameComplete callback)
+  const isRenaming = isRenameRequested ?? false;
+
+  const commitRename = useCallback(() => {
+    const trimmed = renameInputRef.current?.value.trim() ?? '';
+    if (trimmed && trimmed !== tab.label) {
+      updateTabLabel(tab.id, trimmed);
+    }
+    onRenameComplete?.();
+  }, [tab.label, tab.id, updateTabLabel, onRenameComplete]);
+
+  const cancelRename = useCallback(() => {
+    onRenameComplete?.();
+  }, [onRenameComplete]);
+
+  // Auto-focus input when entering rename mode
+  useEffect(() => {
+    if (isRenaming && renameInputRef.current) {
+      renameInputRef.current.value = tab.label;
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [isRenaming, tab.label]);
 
   const isPinned = useStore(
     useShallow((s) =>
@@ -120,7 +154,46 @@ export const SortableTab = ({
           <Pin className="size-3 shrink-0 text-blue-400" />
         </span>
       )}
-      <span className="truncate text-sm">{tab.label}</span>
+      {isRenaming ? (
+        <input
+          ref={renameInputRef}
+          type="text"
+          defaultValue={tab.label}
+          onBlur={commitRename}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commitRename();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              cancelRename();
+            }
+            e.stopPropagation();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full min-w-0 truncate rounded px-0.5 text-sm outline-none"
+          style={{
+            background: 'var(--color-surface)',
+            color: 'var(--color-text)',
+            border: '1px solid var(--color-border-emphasis)',
+          }}
+          maxLength={50}
+        />
+      ) : (
+        <span
+          className="truncate text-sm"
+          role="textbox"
+          tabIndex={-1}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            onRequestRename?.(tab.id);
+          }}
+        >
+          {tab.label}
+        </span>
+      )}
       <button
         className="flex size-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity group-hover:opacity-100"
         style={{ backgroundColor: 'transparent' }}

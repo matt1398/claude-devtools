@@ -33,6 +33,8 @@ interface TabContextMenuProps {
   isHidden?: boolean;
   /** Callback to toggle hide state */
   onToggleHide?: () => void;
+  /** Callback to rename the tab */
+  onRename?: () => void;
 }
 
 export const TabContextMenu = ({
@@ -52,6 +54,7 @@ export const TabContextMenu = ({
   onTogglePin,
   isHidden,
   onToggleHide,
+  onRename,
 }: TabContextMenuProps): React.JSX.Element => {
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -127,6 +130,12 @@ export const TabContextMenu = ({
           label={isHidden ? 'Unhide from Sidebar' : 'Hide from Sidebar'}
           onClick={handleClick(onToggleHide)}
         />
+      )}
+      {onRename && (
+        <>
+          <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
+          <MenuItem label="Rename Tab" onClick={handleClick(onRename)} />
+        </>
       )}
       <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
       <MenuItem label="Close All Tabs" shortcut={formatShortcut('W', { shift: true })} onClick={handleClick(onCloseAllTabs)} />
