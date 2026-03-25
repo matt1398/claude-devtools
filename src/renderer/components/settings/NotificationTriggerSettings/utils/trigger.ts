@@ -2,13 +2,15 @@
  * Utility functions for notification triggers.
  */
 
+import { generateUUID } from '@renderer/utils/stringUtils';
+
 import type { NotificationTrigger, TriggerContentType, TriggerMode } from '@renderer/types/data';
 
 /**
  * Generates a UUID v4 for new triggers.
  */
 export function generateId(): string {
-  return crypto.randomUUID();
+  return generateUUID();
 }
 
 /**
