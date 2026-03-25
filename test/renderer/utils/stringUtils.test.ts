@@ -6,8 +6,13 @@ const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 describe('generateUUID', () => {
   it('delegates to crypto.randomUUID when available', () => {
+    const KNOWN_UUID = '12345678-1234-4234-8234-123456789abc';
+    const spy = vi.spyOn(crypto, 'randomUUID').mockReturnValue(KNOWN_UUID);
     const result = generateUUID();
+    expect(spy).toHaveBeenCalled();
+    expect(result).toBe(KNOWN_UUID);
     expect(result).toMatch(UUID_V4_PATTERN);
+    spy.mockRestore();
   });
 
   describe('getRandomValues fallback (non-secure context)', () => {
