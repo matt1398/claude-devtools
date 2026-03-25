@@ -9,7 +9,7 @@
  * Falls back to `crypto.getRandomValues()` for non-secure contexts.
  */
 export function generateUUID(): string {
-  if (typeof crypto.randomUUID === 'function') {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
   // UUID v4 via getRandomValues - available in non-secure contexts
