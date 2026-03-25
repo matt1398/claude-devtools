@@ -3,12 +3,13 @@
  */
 
 import type { NotificationTrigger, TriggerContentType, TriggerMode } from '@renderer/types/data';
+import { generateUUID } from '@renderer/utils/uuid';
 
 /**
  * Generates a UUID v4 for new triggers.
  */
 export function generateId(): string {
-  return crypto.randomUUID();
+  return generateUUID();
 }
 
 /**

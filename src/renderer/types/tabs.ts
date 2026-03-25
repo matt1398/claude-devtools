@@ -5,6 +5,7 @@
 
 import type { Session } from './data';
 import type { TriggerColor } from '@shared/constants/triggerColors';
+import { generateUUID } from '@renderer/utils/uuid';
 
 // =============================================================================
 // Navigation Request Types
@@ -52,7 +53,7 @@ export interface SearchNavigationPayload {
  * The nonce ensures repeated clicks produce new navigations.
  */
 export interface TabNavigationRequest {
-  /** Unique nonce per click/action (crypto.randomUUID) */
+  /** Unique nonce per click/action (generateUUID) */
   id: string;
   /** Kind of navigation */
   kind: 'error' | 'search' | 'autoBottom';
@@ -194,7 +195,7 @@ export function createErrorNavigationRequest(
   highlightColor?: TriggerColor
 ): TabNavigationRequest {
   return {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     kind: 'error',
     source,
     highlight: highlightColor ?? 'red',
@@ -209,7 +210,7 @@ export function createSearchNavigationRequest(
   payload: SearchNavigationPayload
 ): TabNavigationRequest {
   return {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     kind: 'search',
     source: 'commandPalette',
     highlight: 'yellow',

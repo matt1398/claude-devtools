@@ -12,6 +12,7 @@ import {
   findTabBySessionAndProject,
   truncateLabel,
 } from '@renderer/types/tabs';
+import { generateUUID } from '@renderer/utils/uuid';
 
 import {
   findPane,
@@ -172,7 +173,7 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
     // Create new tab with generated id and timestamp
     const newTab: Tab = {
       ...tab,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       label: truncateLabel(tab.label),
       createdAt: Date.now(),
     };
@@ -365,7 +366,7 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
     if (!focusedPane) return;
 
     const newTab: Tab = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       type: 'dashboard',
       label: 'Dashboard',
       createdAt: Date.now(),
