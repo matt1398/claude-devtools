@@ -1050,6 +1050,26 @@ export class ProjectScanner {
   }
 
   /**
+   * Invalidate internal caches for a project.
+   * Called by FileWatcher when session files change so stale cache entries
+   * (e.g. sessions previously flagged as empty) are re-evaluated.
+   */
+  invalidateCachesForProject(projectId: string): void {
+    // projectId is URL-encoded; the cache keys are absolute file paths containing the decoded dir
+    const decoded = decodeURIComponent(projectId);
+    const prefix = path.join(this.projectsDir, decoded);
+    for (const key of this.contentPresenceCache.keys()) {
+      if (key.startsWith(prefix)) this.contentPresenceCache.delete(key);
+    }
+    for (const key of this.sessionMetadataCache.keys()) {
+      if (key.startsWith(prefix)) this.sessionMetadataCache.delete(key);
+    }
+    for (const key of this.sessionPreviewCache.keys()) {
+      if (key.startsWith(prefix)) this.sessionPreviewCache.delete(key);
+    }
+  }
+
+  /**
    * Checks if the projects directory exists.
    */
   async projectsDirExists(): Promise<boolean> {

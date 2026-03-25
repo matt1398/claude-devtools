@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { projectPathResolver } from '../discovery/ProjectPathResolver';
+import { type ProjectScanner } from '../discovery/ProjectScanner';
 import { errorDetector } from '../error/ErrorDetector';
 
 import { ConfigManager } from './ConfigManager';
@@ -60,6 +61,7 @@ export class FileWatcher extends EventEmitter {
   private dataCache: DataCache;
   private fsProvider: FileSystemProvider;
   private notificationManager: NotificationManager | null = null;
+  private projectScanner: ProjectScanner | null = null;
   private isWatching: boolean = false;
   private debounceTimers = new Map<string, NodeJS.Timeout>();
   /** Track last processed line count per file for incremental error detection */
@@ -109,6 +111,13 @@ export class FileWatcher extends EventEmitter {
   }
 
   /**
+   * Sets the ProjectScanner for cache invalidation on file changes.
+   */
+  setProjectScanner(scanner: ProjectScanner): void {
+    this.projectScanner = scanner;
+  }
+
+  /**
    * Sets the filesystem provider. Used when switching between local and SSH modes.
    */
   setFileSystemProvider(provider: FileSystemProvider): void {
@@ -139,6 +148,9 @@ export class FileWatcher extends EventEmitter {
     } else {
       this.ensureWatchers();
     }
+    this.seedActiveSessionFiles().catch((err) => {
+      logger.error('Error seeding active session files:', err);
+    });
     this.startCatchUpTimer();
   }
 
@@ -535,6 +547,7 @@ export class FileWatcher extends EventEmitter {
     if (sessionId) {
       // Invalidate cache
       this.dataCache.invalidateSession(projectId, sessionId);
+      this.projectScanner?.invalidateCachesForProject(projectId);
       projectPathResolver.invalidateProject(projectId);
       if (changeType === 'unlink') {
         this.clearErrorTracking(fullPath);
@@ -806,6 +819,63 @@ export class FileWatcher extends EventEmitter {
 
     this.emit('todo-change', event);
     logger.info(`FileWatcher: ${changeType} todo - ${filename}`);
+  }
+
+  // ===========================================================================
+  // Active Session Seeding
+  // ===========================================================================
+
+  /**
+   * Seeds activeSessionFiles with recently modified .jsonl files so the
+   * catch-up scan can detect growth in sessions that were already active
+   * before the FileWatcher started.
+   */
+  private async seedActiveSessionFiles(): Promise<void> {
+    const now = Date.now();
+    try {
+      if (!(await this.fsProvider.exists(this.projectsPath))) {
+        return;
+      }
+
+      const projectDirs = await this.fsProvider.readdir(this.projectsPath);
+      for (const dir of projectDirs) {
+        if (!dir.isDirectory()) continue;
+
+        const projectPath = path.join(this.projectsPath, dir.name);
+        let entries: FsDirent[];
+        try {
+          entries = await this.fsProvider.readdir(projectPath);
+        } catch {
+          continue;
+        }
+
+        for (const entry of entries) {
+          if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+
+          const fullPath = path.join(projectPath, entry.name);
+          try {
+            const stats = await this.fsProvider.stat(fullPath);
+            if (now - stats.mtimeMs <= CATCH_UP_MAX_AGE_MS) {
+              const sessionId = path.basename(entry.name, '.jsonl');
+              this.activeSessionFiles.set(fullPath, {
+                projectId: dir.name,
+                sessionId,
+              });
+            }
+          } catch {
+            continue;
+          }
+        }
+      }
+
+      if (this.activeSessionFiles.size > 0) {
+        logger.info(
+          `FileWatcher: Seeded ${this.activeSessionFiles.size} active session files`
+        );
+      }
+    } catch (err) {
+      logger.error('Error seeding active session files:', err);
+    }
   }
 
   // ===========================================================================

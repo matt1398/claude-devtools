@@ -114,6 +114,7 @@ export class ServiceContext {
       config.todosDir,
       config.fsProvider
     );
+    this.fileWatcher.setProjectScanner(this.projectScanner);
 
     logger.info(`ServiceContext created: ${config.id}`);
   }
