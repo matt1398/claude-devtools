@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '@renderer/api';
+import { generateUUID } from '@renderer/utils/stringUtils';
 import { confirm } from '@renderer/components/common/ConfirmDialog';
 import { useStore } from '@renderer/store';
 import { Edit2, Loader2, Plus, Save, Server, Trash2, X } from 'lucide-react';
@@ -102,7 +103,7 @@ export const WorkspaceSection = (): React.JSX.Element => {
 
   const handleAdd = async (): Promise<void> => {
     const newProfile: SshConnectionProfile = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       name: formName.trim(),
       host: formHost.trim(),
       port: parseInt(formPort, 10) || 22,

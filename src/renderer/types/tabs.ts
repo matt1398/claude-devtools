@@ -3,6 +3,8 @@
  * Based on specs/001-tabbed-layout-dashboard/contracts/tab-state.ts
  */
 
+import { generateUUID } from '@renderer/utils/stringUtils';
+
 import type { Session } from './data';
 import type { TriggerColor } from '@shared/constants/triggerColors';
 
@@ -194,7 +196,7 @@ export function createErrorNavigationRequest(
   highlightColor?: TriggerColor
 ): TabNavigationRequest {
   return {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     kind: 'error',
     source,
     highlight: highlightColor ?? 'red',
@@ -209,7 +211,7 @@ export function createSearchNavigationRequest(
   payload: SearchNavigationPayload
 ): TabNavigationRequest {
   return {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     kind: 'search',
     source: 'commandPalette',
     highlight: 'yellow',

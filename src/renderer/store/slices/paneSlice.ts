@@ -4,6 +4,7 @@
  */
 
 import { MAX_PANES } from '@renderer/types/panes';
+import { generateUUID } from '@renderer/utils/stringUtils';
 
 import {
   createEmptyPane,
@@ -140,7 +141,7 @@ export const createPaneSlice: StateCreator<AppState, [], [], PaneSlice> = (set, 
     };
 
     // Create new pane with the tab
-    const newPaneId = crypto.randomUUID();
+    const newPaneId = generateUUID();
     const newPane = {
       ...createEmptyPane(newPaneId),
       tabs: [tab],
@@ -277,7 +278,7 @@ export const createPaneSlice: StateCreator<AppState, [], [], PaneSlice> = (set, 
       newSourceActiveTabId = newSourceTabs[oldIndex]?.id ?? newSourceTabs[oldIndex - 1]?.id ?? null;
     }
 
-    const newPaneId = crypto.randomUUID();
+    const newPaneId = generateUUID();
     const newPane = {
       ...createEmptyPane(newPaneId),
       tabs: [tab],
