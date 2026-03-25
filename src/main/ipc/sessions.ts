@@ -220,39 +220,44 @@ async function handleGetSessionDetail(
     // Check cache first
     let sessionDetail = dataCache.get(cacheKey);
 
-    if (sessionDetail) {
-      return sessionDetail;
+    if (!sessionDetail) {
+      const fsType = projectScanner.getFileSystemProvider().type;
+      // In SSH mode, avoid an extra deep metadata scan before full parse.
+      const session = await projectScanner.getSessionWithOptions(safeProjectId, safeSessionId, {
+        metadataLevel: fsType === 'ssh' ? 'light' : 'deep',
+      });
+      if (!session) {
+        logger.error(`Session not found: ${sessionId}`);
+        return null;
+      }
+
+      // Parse session messages
+      const parsedSession = await sessionParser.parseSession(safeProjectId, safeSessionId);
+
+      // Resolve subagents
+      const subagents = await subagentResolver.resolveSubagents(
+        safeProjectId,
+        safeSessionId,
+        parsedSession.taskCalls,
+        parsedSession.messages
+      );
+      session.hasSubagents = subagents.length > 0;
+
+      // Build session detail with chunks
+      sessionDetail = chunkBuilder.buildSessionDetail(session, parsedSession.messages, subagents);
+
+      // Cache the result
+      dataCache.set(cacheKey, sessionDetail);
     }
 
-    const fsType = projectScanner.getFileSystemProvider().type;
-    // In SSH mode, avoid an extra deep metadata scan before full parse.
-    const session = await projectScanner.getSessionWithOptions(safeProjectId, safeSessionId, {
-      metadataLevel: fsType === 'ssh' ? 'light' : 'deep',
-    });
-    if (!session) {
-      logger.error(`Session not found: ${sessionId}`);
-      return null;
-    }
-
-    // Parse session messages
-    const parsedSession = await sessionParser.parseSession(safeProjectId, safeSessionId);
-
-    // Resolve subagents
-    const subagents = await subagentResolver.resolveSubagents(
-      safeProjectId,
-      safeSessionId,
-      parsedSession.taskCalls,
-      parsedSession.messages
-    );
-    session.hasSubagents = subagents.length > 0;
-
-    // Build session detail with chunks
-    sessionDetail = chunkBuilder.buildSessionDetail(session, parsedSession.messages, subagents);
-
-    // Cache the result
-    dataCache.set(cacheKey, sessionDetail);
-
-    return sessionDetail;
+    // Strip raw messages before IPC transfer — the renderer never uses them.
+    // Only chunks (with semantic steps) and process summaries cross the boundary.
+    // This cuts IPC serialization + renderer heap by ~50-60%.
+    return {
+      ...sessionDetail,
+      messages: [],
+      processes: sessionDetail.processes.map((p) => ({ ...p, messages: [] })),
+    };
   } catch (error) {
     logger.error(`Error in get-session-detail for ${projectId}/${sessionId}:`, error);
     return null;

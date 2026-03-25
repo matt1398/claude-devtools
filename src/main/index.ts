@@ -19,10 +19,18 @@ import {
 import { createLogger } from '@shared/utils/logger';
 import { app, BrowserWindow, ipcMain } from 'electron';
 import { existsSync } from 'fs';
+import { totalmem } from 'os';
 import { join } from 'path';
 
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
 import { getProjectsBasePath, getTodosBasePath } from './utils/pathDecoder';
+
+// Dynamic renderer heap limit — proportional to system RAM so low-end devices
+// are not starved.  50% of total RAM, clamped to [2 GB, 4 GB].
+// Must run before app.whenReady() so the flag is picked up by the renderer.
+const totalMB = Math.floor(totalmem() / (1024 * 1024));
+const heapMB = Math.min(4096, Math.max(2048, Math.floor(totalMB * 0.5)));
+app.commandLine.appendSwitch('js-flags', `--max-old-space-size=${heapMB}`);
 
 // Window icon path for non-mac platforms.
 const getWindowIconPath = (): string | undefined => {

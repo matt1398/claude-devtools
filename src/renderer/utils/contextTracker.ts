@@ -436,6 +436,8 @@ interface ComputeContextStatsParams {
   isFirstGroup: boolean;
   /** Accumulated injections from previous groups */
   previousInjections: ContextInjection[];
+  /** Paths already seen in previous groups (threaded to avoid O(N) rebuild per group) */
+  previousPaths: Set<string>;
   /** Project root path for resolving relative paths */
   projectRoot: string;
   /** Token data for CLAUDE.md files (global sources) */
@@ -444,6 +446,12 @@ interface ComputeContextStatsParams {
   mentionedFileTokenData?: Map<string, MentionedFileInfo>;
   /** Token data for validated directory CLAUDE.md files (keyed by full path) */
   directoryTokenData?: Record<string, ClaudeMdFileInfo>;
+}
+
+interface ComputeContextStatsResult {
+  stats: ContextStats;
+  /** Updated previousPaths set — caller should thread this to the next group */
+  previousPaths: Set<string>;
 }
 
 /**
@@ -589,7 +597,7 @@ function createDirectoryInjection(path: string, aiGroupId: string): ClaudeMdInje
  * Compute context stats for an AI group.
  * Tracks CLAUDE.md injections, mentioned files, and tool outputs.
  */
-function computeContextStats(params: ComputeContextStatsParams): ContextStats {
+function computeContextStats(params: ComputeContextStatsParams): ComputeContextStatsResult {
   const {
     aiGroup,
     userGroup,
@@ -597,6 +605,7 @@ function computeContextStats(params: ComputeContextStatsParams): ContextStats {
     displayItems,
     isFirstGroup,
     previousInjections,
+    previousPaths,
     projectRoot,
     claudeMdTokenData,
     mentionedFileTokenData,
@@ -604,14 +613,6 @@ function computeContextStats(params: ComputeContextStatsParams): ContextStats {
   } = params;
 
   const newInjections: ContextInjection[] = [];
-  const previousPaths = new Set(
-    previousInjections
-      .filter(
-        (inj): inj is ClaudeMdContextInjection | MentionedFileInjection =>
-          inj.category === 'claude-md' || inj.category === CATEGORY_MENTIONED_FILE
-      )
-      .map((inj) => inj.path)
-  );
 
   // Use "ai-N" format for firstSeenInGroup to enable turn navigation
   const turnGroupId = `ai-${aiGroup.turnIndex}`;
@@ -804,8 +805,11 @@ function computeContextStats(params: ComputeContextStatsParams): ContextStats {
     }
   }
 
-  // f) Build accumulated injections
-  const accumulatedInjections = [...previousInjections, ...newInjections];
+  // f) Build accumulated injections (mutable push to avoid O(N²) spread)
+  for (const inj of newInjections) {
+    previousInjections.push(inj);
+  }
+  const accumulatedInjections = previousInjections;
 
   // g) Calculate totals and category breakdowns
   const tokensByCategory: TokensByCategory = {
@@ -850,26 +854,41 @@ function computeContextStats(params: ComputeContextStatsParams): ContextStats {
     }
   }
 
-  // Sum tokens by category from accumulated injections
+  // Sum tokens and counts by category from accumulated injections
+  const accumulatedCounts: NewCountsByCategory = {
+    claudeMd: 0,
+    mentionedFiles: 0,
+    toolOutputs: 0,
+    thinkingText: 0,
+    taskCoordination: 0,
+    userMessages: 0,
+  };
+
   for (const injection of accumulatedInjections) {
     switch (injection.category) {
       case 'claude-md':
         tokensByCategory.claudeMd += injection.estimatedTokens;
+        accumulatedCounts.claudeMd++;
         break;
       case CATEGORY_MENTIONED_FILE:
         tokensByCategory.mentionedFiles += injection.estimatedTokens;
+        accumulatedCounts.mentionedFiles++;
         break;
       case 'tool-output':
         tokensByCategory.toolOutputs += injection.estimatedTokens;
+        accumulatedCounts.toolOutputs += injection.toolCount;
         break;
       case 'thinking-text':
         tokensByCategory.thinkingText += injection.estimatedTokens;
+        accumulatedCounts.thinkingText++;
         break;
       case 'task-coordination':
         tokensByCategory.taskCoordination += injection.estimatedTokens;
+        accumulatedCounts.taskCoordination += injection.breakdown.length;
         break;
       case 'user-message':
         tokensByCategory.userMessages += injection.estimatedTokens;
+        accumulatedCounts.userMessages++;
         break;
     }
   }
@@ -883,11 +902,15 @@ function computeContextStats(params: ComputeContextStatsParams): ContextStats {
     tokensByCategory.userMessages;
 
   return {
-    newInjections,
-    accumulatedInjections,
-    totalEstimatedTokens,
-    tokensByCategory,
-    newCounts,
+    stats: {
+      newInjections,
+      accumulatedInjections,
+      totalEstimatedTokens,
+      tokensByCategory,
+      newCounts,
+      accumulatedCounts,
+    },
+    previousPaths,
   };
 }
 
@@ -948,6 +971,7 @@ export function processSessionContextWithPhases(
 ): { statsMap: Map<string, ContextStats>; phaseInfo: ContextPhaseInfo } {
   const statsMap = new Map<string, ContextStats>();
   let accumulatedInjections: ContextInjection[] = [];
+  let previousPaths = new Set<string>();
   let isFirstAiGroup = true;
   let previousUserGroup: UserGroup | null = null;
 
@@ -972,6 +996,17 @@ export function processSessionContextWithPhases(
 
     // Handle compact items: reset accumulated state and start new phase
     if (item.type === 'compact') {
+      // Backfill accumulatedInjections for the last group in the ending phase
+      if (currentPhaseLastAIGroupId) {
+        const lastStats = statsMap.get(currentPhaseLastAIGroupId);
+        if (lastStats) {
+          statsMap.set(currentPhaseLastAIGroupId, {
+            ...lastStats,
+            accumulatedInjections: [...accumulatedInjections],
+          });
+        }
+      }
+
       // Finalize the current phase before starting a new one
       if (currentPhaseFirstAIGroupId && currentPhaseLastAIGroupId) {
         phases.push({
@@ -984,6 +1019,7 @@ export function processSessionContextWithPhases(
 
       // Reset context tracking state
       accumulatedInjections = [];
+      previousPaths = new Set<string>();
       isFirstAiGroup = true;
       previousUserGroup = null;
 
@@ -1004,18 +1040,11 @@ export function processSessionContextWithPhases(
     if (item.type === 'ai') {
       const aiGroup = item.group;
 
-      // Compute linked tools for this AI group
-      interface EnhancedAIGroupProps {
-        linkedTools?: Map<string, LinkedToolItem>;
-        displayItems?: AIGroupDisplayItem[];
-      }
-      let linkedTools = (aiGroup as AIGroup & EnhancedAIGroupProps).linkedTools;
-      if (!linkedTools || linkedTools.size === 0) {
-        linkedTools = linkToolCallsToResults(aiGroup.steps, aiGroup.responses);
-      }
+      // Compute linked tools and display items for this AI group
+      const linkedTools = linkToolCallsToResults(aiGroup.steps, aiGroup.responses);
 
-      let displayItems = (aiGroup as AIGroup & EnhancedAIGroupProps).displayItems;
-      if (!displayItems && aiGroup.steps && aiGroup.steps.length > 0) {
+      let displayItems: AIGroupDisplayItem[] | undefined;
+      if (aiGroup.steps && aiGroup.steps.length > 0) {
         const lastOutput = findLastOutput(aiGroup.steps, aiGroup.isOngoing ?? false);
         displayItems = buildDisplayItems(
           aiGroup.steps,
@@ -1026,18 +1055,20 @@ export function processSessionContextWithPhases(
       }
 
       // Compute stats for this group
-      const stats = computeContextStats({
+      const result = computeContextStats({
         aiGroup,
         userGroup: previousUserGroup,
         linkedTools,
         displayItems,
         isFirstGroup: isFirstAiGroup,
         previousInjections: accumulatedInjections,
+        previousPaths,
         projectRoot,
         claudeMdTokenData,
         mentionedFileTokenData,
         directoryTokenData,
       });
+      const stats = result.stats;
 
       // Tag with phase number
       stats.phaseNumber = currentPhaseNumber;
@@ -1057,8 +1088,12 @@ export function processSessionContextWithPhases(
         }
       }
 
-      // Store stats
-      statsMap.set(aiGroup.id, stats);
+      // Store stats WITHOUT the full accumulatedInjections array (saves O(N²) memory).
+      // Only the last group per phase gets the full snapshot (backfilled below).
+      statsMap.set(aiGroup.id, {
+        ...stats,
+        accumulatedInjections: [],
+      });
 
       // Track phase boundaries
       aiGroupPhaseMap.set(aiGroup.id, currentPhaseNumber);
@@ -1070,8 +1105,21 @@ export function processSessionContextWithPhases(
 
       // Update accumulated state for next iteration
       accumulatedInjections = stats.accumulatedInjections;
+      previousPaths = result.previousPaths;
       isFirstAiGroup = false;
       previousUserGroup = null;
+    }
+  }
+
+  // Backfill accumulatedInjections for the last group in each phase.
+  // Snapshot the current accumulatedInjections for the overall last group.
+  if (currentPhaseLastAIGroupId) {
+    const lastStats = statsMap.get(currentPhaseLastAIGroupId);
+    if (lastStats) {
+      statsMap.set(currentPhaseLastAIGroupId, {
+        ...lastStats,
+        accumulatedInjections: [...accumulatedInjections],
+      });
     }
   }
 
