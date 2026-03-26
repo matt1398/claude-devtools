@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { api } from '@renderer/api';
 import { PROSE_BODY } from '@renderer/constants/cssVariables';
 
 import { highlightSearchInChildren, type SearchContext } from './searchHighlightUtils';
@@ -76,14 +77,18 @@ export function createMarkdownComponents(searchCtx: SearchContext | null): Compo
       </p>
     ),
 
-    // Links — inline element, no hl(); parent block element's hl() descends here
+    // Links — open in system browser via IPC, not in Electron window
     a: ({ href, children }) => (
       <a
         href={href}
-        className="no-underline hover:underline"
+        className="cursor-pointer no-underline hover:underline"
         style={{ color: 'var(--prose-link)' }}
-        target="_blank"
-        rel="noopener noreferrer"
+        onClick={(e) => {
+          e.preventDefault();
+          if (href) {
+            void api.openExternal(href);
+          }
+        }}
       >
         {children}
       </a>
