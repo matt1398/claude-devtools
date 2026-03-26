@@ -171,10 +171,14 @@ function createUserMarkdownComponents(
     a: ({ href, children }) => (
       <a
         href={href}
-        className="no-underline hover:underline"
+        className="cursor-pointer no-underline hover:underline"
         style={{ color: 'var(--chat-user-tag-text)' }}
-        target="_blank"
-        rel="noopener noreferrer"
+        onClick={(e) => {
+          e.preventDefault();
+          if (href) {
+            void api.openExternal(href);
+          }
+        }}
       >
         {children}
       </a>
