@@ -315,4 +315,17 @@ export interface AppConfig {
     /** Port for the HTTP server (default 3456) */
     port: number;
   };
+  /** Subscription payment history for ROI tracking */
+  subscriptions?: {
+    entries: Array<{
+      id: string;
+      /** ISO date string, e.g. "2026-03-01" */
+      date: string;
+      /** Plan label: "Pro", "Max", "Team", etc. */
+      plan: string;
+      /** Amount paid in USD */
+      amountUsd: number;
+      note?: string;
+    }>;
+  };
 }

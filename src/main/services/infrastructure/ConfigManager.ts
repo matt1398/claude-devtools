@@ -214,6 +214,28 @@ export interface HttpServerConfig {
   port: number;
 }
 
+/**
+ * A single subscription payment entry.
+ * Users can record multiple payments per month (e.g. Pro then Max upgrade).
+ */
+export interface SubscriptionEntry {
+  /** Unique identifier */
+  id: string;
+  /** ISO date string of the payment, e.g. "2026-03-01" */
+  date: string;
+  /** Human-readable plan label: "Pro", "Max", "Team", etc. */
+  plan: string;
+  /** Amount paid in USD */
+  amountUsd: number;
+  /** Optional free-text note */
+  note?: string;
+}
+
+export interface SubscriptionsConfig {
+  /** Recorded subscription payments, oldest first */
+  entries: SubscriptionEntry[];
+}
+
 export interface AppConfig {
   notifications: NotificationConfig;
   general: GeneralConfig;
@@ -221,6 +243,7 @@ export interface AppConfig {
   sessions: SessionsConfig;
   ssh: SshPersistConfig;
   httpServer: HttpServerConfig;
+  subscriptions: SubscriptionsConfig;
 }
 
 // Config section keys for type-safe updates
@@ -271,6 +294,9 @@ const DEFAULT_CONFIG: AppConfig = {
   httpServer: {
     enabled: false,
     port: 3456,
+  },
+  subscriptions: {
+    entries: [],
   },
 };
 
@@ -460,6 +486,11 @@ export class ConfigManager {
       httpServer: {
         ...DEFAULT_CONFIG.httpServer,
         ...(loaded.httpServer ?? {}),
+      },
+      subscriptions: {
+        ...DEFAULT_CONFIG.subscriptions,
+        ...(loaded.subscriptions ?? {}),
+        entries: loaded.subscriptions?.entries ?? DEFAULT_CONFIG.subscriptions.entries,
       },
     };
   }

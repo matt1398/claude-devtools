@@ -270,6 +270,9 @@ export class HttpAPIClient implements ElectronAPI {
   getWorktreeSessions = (worktreeId: string): Promise<Session[]> =>
     this.get<Session[]>(`/api/worktrees/${encodeURIComponent(worktreeId)}/sessions`);
 
+  getUsageStats = (year: number, month: number): Promise<import('@shared/types').UsageStats> =>
+    this.get(`/api/usage-stats?year=${year}&month=${month}`);
+
   // ---------------------------------------------------------------------------
   // Validation
   // ---------------------------------------------------------------------------
