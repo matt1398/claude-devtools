@@ -21,6 +21,8 @@ import { Command, FolderGit2, FolderOpen, GitBranch, Search, Settings } from 'lu
 
 import type { RepositoryGroup } from '@renderer/types/data';
 
+import { RoiBlock } from './RoiBlock';
+
 // =============================================================================
 // Command Search Input
 // =============================================================================
@@ -408,8 +410,13 @@ export const DashboardView = (): React.JSX.Element => {
       {/* Content */}
       <div className="relative mx-auto max-w-5xl px-8 py-12">
         {/* Command Search */}
-        <div className="mb-12">
+        <div className="mb-8">
           <CommandSearch value={searchQuery} onChange={setSearchQuery} />
+        </div>
+
+        {/* Subscription ROI block */}
+        <div className="mb-8">
+          <RoiBlock />
         </div>
 
         {/* Section header */}
