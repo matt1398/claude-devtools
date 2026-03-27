@@ -50,7 +50,7 @@ export const TextItem: React.FC<TextItemProps> = React.memo(function TextItem({
       highlightStyle={highlightStyle}
       notificationDotColor={notificationDotColor}
     >
-      <MarkdownViewer content={fullContent} maxHeight="max-h-96" copyable />
+      <MarkdownViewer content={fullContent} maxHeight="max-h-96" />
     </BaseItem>
   );
 });
