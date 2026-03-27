@@ -20,6 +20,7 @@ import { DEFAULT_TRIGGERS, TriggerManager } from './TriggerManager';
 
 import type { TriggerColor } from '@shared/constants/triggerColors';
 import type { SshConnectionProfile } from '@shared/types/api';
+import type { SubscriptionEntry, SubscriptionsConfig } from '@shared/types/notifications';
 
 const logger = createLogger('Service:ConfigManager');
 
@@ -214,27 +215,8 @@ export interface HttpServerConfig {
   port: number;
 }
 
-/**
- * A single subscription payment entry.
- * Users can record multiple payments per month (e.g. Pro then Max upgrade).
- */
-export interface SubscriptionEntry {
-  /** Unique identifier */
-  id: string;
-  /** ISO date string of the payment, e.g. "2026-03-01" */
-  date: string;
-  /** Human-readable plan label: "Pro", "Max", "Team", etc. */
-  plan: string;
-  /** Amount paid in USD */
-  amountUsd: number;
-  /** Optional free-text note */
-  note?: string;
-}
-
-export interface SubscriptionsConfig {
-  /** Recorded subscription payments, oldest first */
-  entries: SubscriptionEntry[];
-}
+// Re-export from shared types so consumers can import from either location
+export type { SubscriptionEntry, SubscriptionsConfig };
 
 export interface AppConfig {
   notifications: NotificationConfig;

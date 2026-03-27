@@ -50,15 +50,7 @@ const PRICING_TABLE: [string, ModelPricing][] = [
     { inputPerMillion: 3.0, outputPerMillion: 15.0, cacheWritePerMillion: 3.75, cacheReadPerMillion: 0.3 },
   ],
   [
-    'claude-3.5-sonnet',
-    { inputPerMillion: 3.0, outputPerMillion: 15.0, cacheWritePerMillion: 3.75, cacheReadPerMillion: 0.3 },
-  ],
-  [
     'claude-3-5-haiku',
-    { inputPerMillion: 0.8, outputPerMillion: 4.0, cacheWritePerMillion: 1.0, cacheReadPerMillion: 0.08 },
-  ],
-  [
-    'claude-3.5-haiku',
     { inputPerMillion: 0.8, outputPerMillion: 4.0, cacheWritePerMillion: 1.0, cacheReadPerMillion: 0.08 },
   ],
 
