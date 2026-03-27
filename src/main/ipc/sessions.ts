@@ -22,11 +22,12 @@ import {
   type SessionsByIdsOptions,
   type SessionsPaginationOptions,
 } from '../types';
+import { calculateMetrics, parseJsonlFile } from '../utils/jsonl';
 
 import { coercePageLimit, validateProjectId, validateSessionId } from './guards';
 
 import type { ServiceContextRegistry } from '../services';
-import type { WaterfallData } from '@shared/types';
+import type { UsageStats, WaterfallData } from '@shared/types';
 
 const logger = createLogger('IPC:sessions');
 
@@ -51,6 +52,7 @@ export function registerSessionHandlers(ipcMain: IpcMain): void {
   ipcMain.handle('get-session-groups', handleGetSessionGroups);
   ipcMain.handle('get-session-metrics', handleGetSessionMetrics);
   ipcMain.handle('get-waterfall-data', handleGetWaterfallData);
+  ipcMain.handle('get-usage-stats', handleGetUsageStats);
 
   logger.info('Session handlers registered');
 }
@@ -66,6 +68,7 @@ export function removeSessionHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler('get-session-groups');
   ipcMain.removeHandler('get-session-metrics');
   ipcMain.removeHandler('get-waterfall-data');
+  ipcMain.removeHandler('get-usage-stats');
 
   logger.info('Session handlers removed');
 }
@@ -359,5 +362,70 @@ async function handleGetWaterfallData(
   } catch (error) {
     logger.error(`Error in get-waterfall-data for ${projectId}/${sessionId}:`, error);
     return null;
+  }
+}
+
+/**
+ * Handler for 'get-usage-stats' IPC call.
+ * Aggregates token usage and estimated API cost across all sessions
+ * that started within the specified calendar month (local time).
+ *
+ * @param year  Full year, e.g. 2026
+ * @param month 1-based month, e.g. 3 for March
+ */
+async function handleGetUsageStats(
+  _event: IpcMainInvokeEvent,
+  year: number,
+  month: number
+): Promise<UsageStats> {
+  const empty: UsageStats = {
+    totalCostUsd: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    sessionCount: 0,
+  };
+
+  try {
+    const { projectScanner, fsProvider } = registry.getActive();
+
+    // Date range for the requested month (Unix ms, inclusive)
+    const start = new Date(year, month - 1, 1).getTime();
+    const end = new Date(year, month, 1).getTime(); // exclusive
+
+    // Collect all projects
+    const projects = await projectScanner.scan();
+
+    const stats: UsageStats = { ...empty };
+
+    for (const project of projects) {
+      const sessions = await projectScanner.listSessions(project.id);
+
+      for (const session of sessions) {
+        // Use createdAt (unix ms) for date filtering
+        if (session.createdAt < start || session.createdAt >= end) continue;
+
+        try {
+          const sessionPath = projectScanner.getSessionPath(project.id, session.id);
+          const messages = await parseJsonlFile(sessionPath, fsProvider);
+          const metrics = calculateMetrics(messages);
+
+          stats.inputTokens += metrics.inputTokens;
+          stats.outputTokens += metrics.outputTokens;
+          stats.cacheReadTokens += metrics.cacheReadTokens;
+          stats.cacheCreationTokens += metrics.cacheCreationTokens;
+          stats.totalCostUsd += metrics.costUsd ?? 0;
+          stats.sessionCount += 1;
+        } catch (sessionErr) {
+          logger.warn(`get-usage-stats: skipping session ${session.id}:`, sessionErr);
+        }
+      }
+    }
+
+    return stats;
+  } catch (error) {
+    logger.error(`Error in get-usage-stats for ${year}-${month}:`, error);
+    return empty;
   }
 }
