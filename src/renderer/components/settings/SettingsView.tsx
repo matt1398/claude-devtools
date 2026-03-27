@@ -19,7 +19,6 @@ import {
 } from './sections';
 import { type SettingsSection, SettingsTabs } from './SettingsTabs';
 
-import type { AppConfig } from '@shared/types/notifications';
 
 export const SettingsView = (): React.JSX.Element | null => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general');

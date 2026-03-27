@@ -317,7 +317,7 @@ export interface AppConfig {
   };
   /** Subscription payment history for ROI tracking */
   subscriptions?: {
-    entries: Array<{
+    entries: {
       id: string;
       /** ISO date string, e.g. "2026-03-01" */
       date: string;
@@ -326,6 +326,6 @@ export interface AppConfig {
       /** Amount paid in USD */
       amountUsd: number;
       note?: string;
-    }>;
+    }[];
   };
 }

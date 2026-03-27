@@ -13,11 +13,11 @@ import { api } from '@renderer/api';
 import { useStore } from '@renderer/store';
 import { formatShortcut } from '@renderer/utils/stringUtils';
 import { createLogger } from '@shared/utils/logger';
+import { formatDistanceToNow } from 'date-fns';
+import { Command, FolderGit2, FolderOpen, GitBranch, Search, Settings } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 const logger = createLogger('Component:DashboardView');
-import { formatDistanceToNow } from 'date-fns';
-import { Command, FolderGit2, FolderOpen, GitBranch, Search, Settings } from 'lucide-react';
 
 import type { RepositoryGroup } from '@renderer/types/data';
 

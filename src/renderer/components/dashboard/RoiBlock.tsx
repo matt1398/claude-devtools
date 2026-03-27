@@ -19,8 +19,8 @@ import { createLogger } from '@shared/utils/logger';
 import { ArrowRight, CreditCard, Loader2, TrendingDown, TrendingUp, Zap } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
+import type { AppConfig } from '@renderer/types/data';
 import type { UsageStats } from '@shared/types';
-import type { AppConfig } from '@shared/types/notifications';
 
 const logger = createLogger('Component:RoiBlock');
 
@@ -109,7 +109,7 @@ export const RoiBlock = (): React.JSX.Element | null => {
   const { year, month } = currentYearMonth();
   const { appConfig, openSettingsTab } = useStore(
     useShallow((s) => ({
-      appConfig: s.appConfig as AppConfig | null,
+      appConfig: s.appConfig,
       openSettingsTab: s.openSettingsTab,
     }))
   );

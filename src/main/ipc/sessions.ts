@@ -26,9 +26,8 @@ import { calculateMetrics, parseJsonlFile } from '../utils/jsonl';
 
 import { coercePageLimit, validateProjectId, validateSessionId } from './guards';
 
-import type { UsageStats } from '@shared/types';
 import type { ServiceContextRegistry } from '../services';
-import type { WaterfallData } from '@shared/types';
+import type { UsageStats, WaterfallData } from '@shared/types';
 
 const logger = createLogger('IPC:sessions');
 

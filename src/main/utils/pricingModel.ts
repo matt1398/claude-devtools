@@ -23,7 +23,7 @@ export interface ModelPricing {
  * Entries are ordered from most-specific to least-specific.
  * Matching is done via startsWith or includes on the lowercased model string.
  */
-const PRICING_TABLE: Array<[string, ModelPricing]> = [
+const PRICING_TABLE: [string, ModelPricing][] = [
   // ── Claude 4 ──────────────────────────────────────────────────────────
   [
     'claude-opus-4',

@@ -11,8 +11,6 @@ import { isCommandOutputContent, sanitizeDisplayContent } from '@shared/utils/co
 import { createLogger } from '@shared/utils/logger';
 import * as readline from 'readline';
 
-import { calculateTokenCost } from './pricingModel';
-
 import { SessionContentFilter } from '../services/discovery/SessionContentFilter';
 import { LocalFileSystemProvider } from '../services/infrastructure/LocalFileSystemProvider';
 import {
@@ -30,6 +28,7 @@ import {
 } from '../types';
 
 // Import from extracted modules
+import { calculateTokenCost } from './pricingModel';
 import { extractToolCalls, extractToolResults } from './toolExtraction';
 
 import type { FileSystemProvider } from '../services/infrastructure/FileSystemProvider';

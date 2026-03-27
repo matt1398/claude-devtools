@@ -5,10 +5,8 @@
  * The data is stored in the local config file and used by the Dashboard ROI block.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
-import { api } from '@renderer/api';
-import { useStore } from '@renderer/store';
 import { createLogger } from '@shared/utils/logger';
 import { Calendar, DollarSign, Plus, Trash2 } from 'lucide-react';
 
@@ -58,7 +56,7 @@ function formatDate(iso: string): string {
 }
 
 function newId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return crypto.randomUUID();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -70,7 +68,10 @@ export const SubscriptionsSection = ({
   saving,
   onSave,
 }: SubscriptionsSectionProps): React.JSX.Element => {
-  const entries: SubscriptionEntry[] = config?.subscriptions?.entries ?? [];
+  const entries: SubscriptionEntry[] = useMemo(
+    () => config?.subscriptions?.entries ?? [],
+    [config?.subscriptions?.entries]
+  );
 
   const [showForm, setShowForm] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -96,7 +97,7 @@ export const SubscriptionsSection = ({
     setAmountError(null);
     const next: SubscriptionEntry[] = [
       ...entries,
-      { id: newId(), date: form.date, plan: effectivePlan, amountUsd: amountNum!, note: form.note.trim() || undefined },
+      { id: newId(), date: form.date, plan: effectivePlan, amountUsd: amountNum, note: form.note.trim() || undefined },
     ].sort((a, b) => a.date.localeCompare(b.date));
     await onSave(next);
     setAmountError(null);
@@ -148,7 +149,6 @@ export const SubscriptionsSection = ({
       )}
 
       {monthKeys.map((monthKey) => {
-        const [y, m] = monthKey.split('-');
         const monthLabel = new Date(`${monthKey}-01T00:00:00`).toLocaleDateString('en-US', {
           year: 'numeric',
           month: 'long',
@@ -220,8 +220,9 @@ export const SubscriptionsSection = ({
           <div className="grid grid-cols-2 gap-3">
             {/* Date */}
             <div>
-              <label className="mb-1 block text-xs text-text-muted">Date</label>
+              <label htmlFor="sub-date" className="mb-1 block text-xs text-text-muted">Date</label>
               <input
+                id="sub-date"
                 type="date"
                 value={form.date}
                 onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
@@ -231,10 +232,11 @@ export const SubscriptionsSection = ({
 
             {/* Amount */}
             <div>
-              <label className="mb-1 block text-xs text-text-muted">Amount (USD)</label>
+              <label htmlFor="sub-amount" className="mb-1 block text-xs text-text-muted">Amount (USD)</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-text-muted">$</span>
                 <input
+                  id="sub-amount"
                   type="number"
                   min="0"
                   step="0.01"
@@ -256,7 +258,7 @@ export const SubscriptionsSection = ({
 
             {/* Plan */}
             <div>
-              <label className="mb-1 block text-xs text-text-muted">Plan</label>
+              <p className="mb-1 text-xs text-text-muted">Plan</p>
               <div className="flex flex-wrap gap-1.5">
                 {PLAN_OPTIONS.map((p) => (
                   <button
@@ -287,8 +289,9 @@ export const SubscriptionsSection = ({
             {/* Custom plan name */}
             {form.plan === 'Custom' && (
               <div>
-                <label className="mb-1 block text-xs text-text-muted">Plan name</label>
+                <label htmlFor="sub-custom-plan" className="mb-1 block text-xs text-text-muted">Plan name</label>
                 <input
+                  id="sub-custom-plan"
                   type="text"
                   placeholder="e.g. Business"
                   value={form.customPlan}
@@ -300,8 +303,9 @@ export const SubscriptionsSection = ({
 
             {/* Note (full width) */}
             <div className="col-span-2">
-              <label className="mb-1 block text-xs text-text-muted">Note (optional)</label>
+              <label htmlFor="sub-note" className="mb-1 block text-xs text-text-muted">Note (optional)</label>
               <input
+                id="sub-note"
                 type="text"
                 placeholder="e.g. Upgraded mid-month"
                 value={form.note}
