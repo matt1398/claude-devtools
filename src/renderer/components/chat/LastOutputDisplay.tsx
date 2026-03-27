@@ -88,7 +88,7 @@ export const LastOutputDisplay = ({
           border: '1px solid var(--code-border)',
         }}
       >
-        <CopyButton text={textContent} />
+        {/* Copy buttons are on individual code blocks via markdownComponents */}
 
         {/* Content - scrollable */}
         <div className="max-h-96 overflow-y-auto px-4 py-3" data-search-content>
