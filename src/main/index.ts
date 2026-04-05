@@ -18,8 +18,30 @@ import {
 } from '@shared/constants';
 import { createLogger } from '@shared/utils/logger';
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { existsSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
 import { join } from 'path';
+
+/**
+ * Append a timestamped entry to ~/.claude/claude-devtools-crash.log.
+ * Uses sync I/O because crashes may happen in unstable states.
+ */
+function writeCrashLog(label: string, details: Record<string, unknown>): void {
+  try {
+    const dir = join(homedir(), '.claude');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    const logPath = join(dir, 'claude-devtools-crash.log');
+    const entry =
+      `[${new Date().toISOString()}] ${label}\n` +
+      Object.entries(details)
+        .map(([k, v]) => `  ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
+        .join('\n') +
+      '\n\n';
+    appendFileSync(logPath, entry, 'utf-8');
+  } catch {
+    // Best-effort — don't throw during crash handling
+  }
+}
 
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
 import { getProjectsBasePath, getTodosBasePath } from './utils/pathDecoder';
@@ -52,10 +74,17 @@ const HTTP_SERVER_GET_STATUS = 'httpServer:getStatus';
 
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled promise rejection in main process:', reason);
+  writeCrashLog('UNHANDLED_REJECTION (main)', {
+    reason: reason instanceof Error ? reason.stack ?? reason.message : String(reason),
+  });
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', (error: Error) => {
   logger.error('Uncaught exception in main process:', error);
+  writeCrashLog('UNCAUGHT_EXCEPTION (main)', {
+    message: error.message,
+    stack: error.stack ?? '',
+  });
 });
 
 import { HttpServer } from './services/infrastructure/HttpServer';
@@ -74,6 +103,7 @@ import {
 // =============================================================================
 
 let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
 
 // Service registry and global services
 let contextRegistry: ServiceContextRegistry;
@@ -536,10 +566,137 @@ function createWindow(): void {
     }
   });
 
-  // Handle renderer process crashes (render-process-gone replaces deprecated 'crashed' event)
+  // Handle renderer process crashes with retry cap to prevent crash loops.
+  // Only auto-reload for recoverable reasons (crashed, oom, memory-eviction).
+  // After 3 failures within 60s, stop reloading to avoid infinite loops.
+  let crashCount = 0;
+  let crashWindowStart = Date.now();
+  const MAX_CRASHES = 3;
+  const CRASH_WINDOW_MS = 60_000;
+  const RECOVERABLE_REASONS = new Set(['crashed', 'oom', 'memory-eviction']);
+
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    const memUsage = process.memoryUsage();
     logger.error('Renderer process gone:', details.reason, details.exitCode);
-    // Could show an error dialog or attempt to reload the window
+    writeCrashLog('RENDERER_PROCESS_GONE', {
+      reason: details.reason,
+      exitCode: details.exitCode,
+      mainProcessRssMB: Math.round(memUsage.rss / 1024 / 1024),
+      mainProcessHeapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+      mainProcessHeapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+      uptime: `${Math.round(process.uptime())}s`,
+    });
+
+    if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return;
+    if (!RECOVERABLE_REASONS.has(details.reason)) return;
+
+    // Reset crash counter if outside window
+    const now = Date.now();
+    if (now - crashWindowStart > CRASH_WINDOW_MS) {
+      crashCount = 0;
+      crashWindowStart = now;
+    }
+    crashCount++;
+
+    if (crashCount > MAX_CRASHES) {
+      logger.error(
+        `Renderer crashed ${crashCount} times in ${CRASH_WINDOW_MS / 1000}s — not reloading`
+      );
+      return;
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      void mainWindow.loadURL(`http://localhost:${DEV_SERVER_PORT}`);
+    } else {
+      void mainWindow.loadFile(getRendererIndexPath());
+    }
+  });
+
+  // Log renderer console errors (captures uncaught errors from the renderer process).
+  // ResizeObserver loop errors are benign Chromium noise — skip them to keep the log clean.
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    // level 3 = error
+    if (level >= 3) {
+      if (message.includes('ResizeObserver loop')) return;
+      writeCrashLog('RENDERER_CONSOLE_ERROR', {
+        message,
+        source: `${sourceId}:${line}`,
+      });
+    }
+  });
+
+  // Proactive unresponsive recovery.
+  // When the renderer freezes, the Linux desktop environment (GNOME/KDE) may show its
+  // own "Force Quit" dialog and kill the entire process tree. We race that by
+  // force-reloading the renderer after UNRESPONSIVE_RELOAD_MS. If the renderer
+  // becomes responsive again before the timer fires, we cancel the reload.
+  // Capped at MAX_UNRESPONSIVE_RELOADS within UNRESPONSIVE_WINDOW_MS to prevent
+  // infinite reload loops when a large session freezes the renderer on every load.
+  const UNRESPONSIVE_RELOAD_MS = 10_000;
+  const MAX_UNRESPONSIVE_RELOADS = 3;
+  const UNRESPONSIVE_WINDOW_MS = 120_000; // 2 minutes
+  let unresponsiveTimer: ReturnType<typeof setTimeout> | null = null;
+  let unresponsiveReloadCount = 0;
+  let unresponsiveWindowStart = Date.now();
+
+  mainWindow.on('unresponsive', () => {
+    const memUsage = process.memoryUsage();
+    logger.error('Renderer became unresponsive');
+    writeCrashLog('RENDERER_UNRESPONSIVE', {
+      note: 'Window stopped responding — will force-reload in 10s unless it recovers',
+      mainProcessRssMB: Math.round(memUsage.rss / 1024 / 1024),
+      mainProcessHeapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+      mainProcessHeapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+      uptime: `${Math.round(process.uptime())}s`,
+    });
+
+    // Don't stack multiple timers
+    if (unresponsiveTimer) return;
+
+    unresponsiveTimer = setTimeout(() => {
+      unresponsiveTimer = null;
+      if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return;
+
+      // Reset counter if outside the window
+      const now = Date.now();
+      if (now - unresponsiveWindowStart > UNRESPONSIVE_WINDOW_MS) {
+        unresponsiveReloadCount = 0;
+        unresponsiveWindowStart = now;
+      }
+      unresponsiveReloadCount++;
+
+      if (unresponsiveReloadCount > MAX_UNRESPONSIVE_RELOADS) {
+        logger.error(
+          `Renderer unresponsive ${unresponsiveReloadCount} times in ${UNRESPONSIVE_WINDOW_MS / 1000}s — not reloading`
+        );
+        writeCrashLog('RENDERER_RELOAD_CAP_REACHED', {
+          reason: `${unresponsiveReloadCount} unresponsive reloads in ${UNRESPONSIVE_WINDOW_MS / 1000}s`,
+          uptime: `${Math.round(process.uptime())}s`,
+        });
+        return;
+      }
+
+      logger.error('Renderer still unresponsive after 10s — force-reloading');
+      writeCrashLog('RENDERER_FORCE_RELOAD', {
+        reason: 'Unresponsive timeout expired',
+        attempt: unresponsiveReloadCount,
+        uptime: `${Math.round(process.uptime())}s`,
+      });
+
+      if (process.env.NODE_ENV === 'development') {
+        void mainWindow.loadURL(`http://localhost:${DEV_SERVER_PORT}`);
+      } else {
+        void mainWindow.loadFile(getRendererIndexPath());
+      }
+    }, UNRESPONSIVE_RELOAD_MS);
+  });
+
+  mainWindow.on('responsive', () => {
+    if (unresponsiveTimer) {
+      clearTimeout(unresponsiveTimer);
+      unresponsiveTimer = null;
+      logger.info('Renderer became responsive again — cancelled force-reload');
+    }
   });
 
   // Set main window reference for notification manager and updater
@@ -549,6 +706,43 @@ function createWindow(): void {
   if (updaterService) {
     updaterService.setMainWindow(mainWindow);
   }
+
+  // Periodic memory monitoring via app.getAppMetrics().
+  // Logs all-process memory every 5 minutes so we have data leading up to crashes.
+  // Warns when the renderer exceeds 2 GB.
+  const MEMORY_CHECK_INTERVAL_MS = 5 * 60_000;
+  const RENDERER_MEMORY_WARNING_KB = 2048 * 1024; // 2 GB in KB
+  const memoryMonitorInterval = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try {
+      const metrics = app.getAppMetrics();
+      const mainMem = process.memoryUsage();
+      const mainRssMB = Math.round(mainMem.rss / 1024 / 1024);
+      const mainHeapMB = Math.round(mainMem.heapUsed / 1024 / 1024);
+
+      // Find the renderer process (type 'Tab' or matching the window's pid)
+      const rendererPid = mainWindow.webContents.getOSProcessId();
+      const rendererMetric = metrics.find((m) => m.pid === rendererPid);
+      const rendererMemKB = rendererMetric?.memory?.workingSetSize ?? 0;
+      const rendererMB = Math.round(rendererMemKB / 1024);
+
+      logger.info(
+        `Memory: renderer=${rendererMB}MB, main RSS=${mainRssMB}MB heap=${mainHeapMB}MB, uptime=${Math.round(process.uptime())}s`
+      );
+
+      if (rendererMemKB > RENDERER_MEMORY_WARNING_KB) {
+        writeCrashLog('RENDERER_MEMORY_WARNING', {
+          rendererMB,
+          mainRssMB,
+          mainHeapMB,
+          uptime: `${Math.round(process.uptime())}s`,
+        });
+      }
+    } catch {
+      // Renderer might be crashed/reloading — skip this check
+    }
+  }, MEMORY_CHECK_INTERVAL_MS);
+  memoryMonitorInterval.unref(); // Don't prevent app exit
 
   logger.info('Main window created');
 }
@@ -613,8 +807,9 @@ app.on('window-all-closed', () => {
 });
 
 /**
- * Before quit handler - cleanup.
+ * Before quit handler - set flag and cleanup services.
  */
 app.on('before-quit', () => {
+  isQuitting = true;
   shutdownServices();
 });

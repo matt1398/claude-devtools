@@ -115,6 +115,9 @@ export class ServiceContext {
       config.fsProvider
     );
 
+    // Wire ProjectScanner into FileWatcher for session-scoped cache invalidation
+    this.fileWatcher.setProjectScanner(this.projectScanner);
+
     logger.info(`ServiceContext created: ${config.id}`);
   }
 

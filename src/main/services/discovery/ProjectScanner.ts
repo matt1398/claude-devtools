@@ -59,6 +59,9 @@ import type { FileSystemProvider, FsDirent } from '../infrastructure/FileSystemP
 const logger = createLogger('Discovery:ProjectScanner');
 
 export class ProjectScanner {
+  /** Maximum number of entries per cache before LRU eviction kicks in. */
+  private static readonly MAX_CACHE_ENTRIES = 500;
+
   private readonly projectsDir: string;
   private readonly todosDir: string;
   private readonly contentPresenceCache = new Map<
@@ -97,6 +100,36 @@ export class ProjectScanner {
     this.subagentLocator = new SubagentLocator(this.projectsDir, this.fsProvider);
     this.sessionSearcher = new SessionSearcher(this.projectsDir, this.fsProvider);
     this.projectPathResolver = new ProjectPathResolver(this.projectsDir, this.fsProvider);
+  }
+
+  // ===========================================================================
+  // Cache Management
+  // ===========================================================================
+
+  /**
+   * Evicts the oldest entries from a Map when it exceeds MAX_CACHE_ENTRIES.
+   * Relies on Map insertion order (oldest entries are iterated first).
+   */
+  private pruneCache<V>(cache: Map<string, V>): void {
+    if (cache.size <= ProjectScanner.MAX_CACHE_ENTRIES) return;
+    const excess = cache.size - ProjectScanner.MAX_CACHE_ENTRIES;
+    let removed = 0;
+    for (const key of cache.keys()) {
+      if (removed >= excess) break;
+      cache.delete(key);
+      removed++;
+    }
+  }
+
+  /**
+   * Invalidates all scanner caches for a single session file path.
+   * Called by FileWatcher when a session file changes, so only the changed
+   * session is evicted instead of the entire project.
+   */
+  invalidateCachesForSession(sessionFilePath: string): void {
+    this.contentPresenceCache.delete(sessionFilePath);
+    this.sessionMetadataCache.delete(sessionFilePath);
+    this.sessionPreviewCache.delete(sessionFilePath);
   }
 
   // ===========================================================================
@@ -734,6 +767,7 @@ export class ProjectScanner {
         size: effectiveSize,
         metadata,
       });
+      this.pruneCache(this.sessionMetadataCache);
     }
 
     // Check for subagents and load task list data in parallel
@@ -799,6 +833,7 @@ export class ProjectScanner {
         size: effectiveSize,
         preview,
       });
+      this.pruneCache(this.sessionPreviewCache);
     }
     const metadataLevel: SessionMetadataLevel = 'light';
     const previewTimestampMs = this.parseTimestampMs(preview?.timestamp);
@@ -1304,6 +1339,7 @@ export class ProjectScanner {
         size: effectiveSize,
         hasContent,
       });
+      this.pruneCache(this.contentPresenceCache);
       return hasContent;
     } catch {
       return false;

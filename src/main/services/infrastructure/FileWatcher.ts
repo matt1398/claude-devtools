@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { projectPathResolver } from '../discovery/ProjectPathResolver';
+import { type ProjectScanner } from '../discovery/ProjectScanner';
 import { errorDetector } from '../error/ErrorDetector';
 
 import { ConfigManager } from './ConfigManager';
@@ -60,6 +61,7 @@ export class FileWatcher extends EventEmitter {
   private dataCache: DataCache;
   private fsProvider: FileSystemProvider;
   private notificationManager: NotificationManager | null = null;
+  private projectScanner: ProjectScanner | null = null;
   private isWatching: boolean = false;
   private debounceTimers = new Map<string, NodeJS.Timeout>();
   /** Track last processed line count per file for incremental error detection */
@@ -106,6 +108,15 @@ export class FileWatcher extends EventEmitter {
    */
   setNotificationManager(manager: NotificationManager): void {
     this.notificationManager = manager;
+  }
+
+  /**
+   * Sets the ProjectScanner for session-scoped cache invalidation.
+   * When set, file change events invalidate only the changed session file's
+   * cached metadata/presence/preview instead of nothing at all.
+   */
+  setProjectScanner(scanner: ProjectScanner): void {
+    this.projectScanner = scanner;
   }
 
   /**
@@ -533,8 +544,9 @@ export class FileWatcher extends EventEmitter {
     }
 
     if (sessionId) {
-      // Invalidate cache
+      // Invalidate caches — session-scoped for ProjectScanner, keyed for DataCache
       this.dataCache.invalidateSession(projectId, sessionId);
+      this.projectScanner?.invalidateCachesForSession(fullPath);
       projectPathResolver.invalidateProject(projectId);
       if (changeType === 'unlink') {
         this.clearErrorTracking(fullPath);
