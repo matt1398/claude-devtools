@@ -22,6 +22,7 @@ import {
   type SessionsByIdsOptions,
   type SessionsPaginationOptions,
 } from '../types';
+import { sessionParserPool } from '../workers/SessionParserPool';
 
 import { coercePageLimit, validateProjectId, validateSessionId } from './guards';
 
@@ -32,6 +33,9 @@ const logger = createLogger('IPC:sessions');
 
 // Service registry - set via initialize
 let registry: ServiceContextRegistry;
+
+// Sessions where native pipeline produced invalid chunks — permanently use JS fallback
+const nativeDisabledSessions = new Set<string>();
 
 /**
  * Initializes session handlers with service registry.
@@ -66,6 +70,9 @@ export function removeSessionHandlers(ipcMain: IpcMain): void {
   ipcMain.removeHandler('get-session-groups');
   ipcMain.removeHandler('get-session-metrics');
   ipcMain.removeHandler('get-waterfall-data');
+
+  // Release accumulated per-session state
+  nativeDisabledSessions.clear();
 
   logger.info('Session handlers removed');
 }
@@ -219,40 +226,120 @@ async function handleGetSessionDetail(
 
     // Check cache first
     let sessionDetail = dataCache.get(cacheKey);
+    let usedNative = false;
 
-    if (sessionDetail) {
-      return sessionDetail;
+    if (!sessionDetail) {
+      const fsType = projectScanner.getFileSystemProvider().type;
+      // In SSH mode, avoid an extra deep metadata scan before full parse.
+      const session = await projectScanner.getSessionWithOptions(safeProjectId, safeSessionId, {
+        metadataLevel: fsType === 'ssh' ? 'light' : 'deep',
+      });
+      if (!session) {
+        logger.error(`Session not found: ${sessionId}`);
+        return null;
+      }
+
+      // Try native Rust pipeline (local filesystem only).
+      // Rust handles: JSONL read -> classify -> chunk -> tool executions -> semantic steps.
+      // Returns serde_json::Value with exact TS field names. JS only converts timestamps.
+      // JS still handles: subagent resolution (requires filesystem provider).
+      // Use native Rust pipeline for local sessions WITHOUT subagents.
+      // Sessions with subagents need ProcessLinker + sidechain context which
+      // only the JS pipeline provides (Review finding #1).
+      const hasSubagentFiles = await projectScanner.hasSubagents(
+        safeProjectId,
+        safeSessionId
+      );
+      if (fsType === 'local' && !hasSubagentFiles && !nativeDisabledSessions.has(cacheKey)) {
+        try {
+          const { buildSessionChunksNative } = await import('../utils/nativeJsonl');
+          const sessionPath = projectScanner.getSessionPath(safeProjectId, safeSessionId);
+          const nativeResult = buildSessionChunksNative(sessionPath);
+          // Validate ALL chunks — not just the first. If any chunk has wrong
+          // shape, fall back to JS pipeline instead of sending bad data to renderer.
+          const isValidNative =
+            nativeResult &&
+            nativeResult.chunks.length > 0 &&
+            (nativeResult.chunks as Record<string, unknown>[]).every(
+              (c) =>
+                c != null &&
+                typeof c.chunkType === 'string' &&
+                'rawMessages' in c &&
+                'startTime' in c &&
+                'metrics' in c
+            );
+
+          if (isValidNative) {
+            sessionDetail = {
+              session,
+              messages: [],
+              chunks: nativeResult.chunks as SessionDetail['chunks'],
+              processes: [],
+              metrics: nativeResult.metrics as SessionDetail['metrics'],
+            };
+            usedNative = true;
+          } else if (nativeResult) {
+            // Native produced chunks but they failed validation — permanently
+            // disable native for this session to avoid repeated failures.
+            logger.warn(`Native validation failed for ${cacheKey}, disabling native for this session`);
+            nativeDisabledSessions.add(cacheKey);
+          }
+        } catch {
+          // Native not available — fall through to JS
+        }
+      }
+
+      // JS fallback pipeline — dispatch to Worker Thread to avoid blocking main process
+      if (!usedNative) {
+        try {
+          sessionDetail = await sessionParserPool.parse({
+            projectsDir: projectScanner.getProjectsDir(),
+            sessionPath: projectScanner.getSessionPath(safeProjectId, safeSessionId),
+            projectId: safeProjectId,
+            sessionId: safeSessionId,
+            fsType,
+            session,
+          });
+        } catch (workerError) {
+          // Worker failed (timeout, crash, etc.) — fall back to inline blocking parse
+          logger.warn('Worker parse failed, falling back to inline:', workerError);
+          const parsedSession = await sessionParser.parseSession(safeProjectId, safeSessionId);
+          const subagents = await subagentResolver.resolveSubagents(
+            safeProjectId,
+            safeSessionId,
+            parsedSession.taskCalls,
+            parsedSession.messages
+          );
+          session.hasSubagents = subagents.length > 0;
+          sessionDetail = chunkBuilder.buildSessionDetail(
+            session,
+            parsedSession.messages,
+            subagents
+          );
+        }
+      }
+
+      // Cache JS pipeline results only — native results skip cache so any
+      // rendering failures on the next request will fall back to JS pipeline.
+      if (sessionDetail && !usedNative) {
+        dataCache.set(cacheKey, sessionDetail);
+      }
     }
 
-    const fsType = projectScanner.getFileSystemProvider().type;
-    // In SSH mode, avoid an extra deep metadata scan before full parse.
-    const session = await projectScanner.getSessionWithOptions(safeProjectId, safeSessionId, {
-      metadataLevel: fsType === 'ssh' ? 'light' : 'deep',
-    });
-    if (!session) {
-      logger.error(`Session not found: ${sessionId}`);
+    if (!sessionDetail) {
       return null;
     }
 
-    // Parse session messages
-    const parsedSession = await sessionParser.parseSession(safeProjectId, safeSessionId);
-
-    // Resolve subagents
-    const subagents = await subagentResolver.resolveSubagents(
-      safeProjectId,
-      safeSessionId,
-      parsedSession.taskCalls,
-      parsedSession.messages
-    );
-    session.hasSubagents = subagents.length > 0;
-
-    // Build session detail with chunks
-    sessionDetail = chunkBuilder.buildSessionDetail(session, parsedSession.messages, subagents);
-
-    // Cache the result
-    dataCache.set(cacheKey, sessionDetail);
-
-    return sessionDetail;
+    // Strip raw messages before IPC transfer — the renderer never uses them.
+    // Only chunks (with semantic steps) and process summaries cross the boundary.
+    // This cuts IPC serialization + renderer heap by ~50-60%.
+    return {
+      ...sessionDetail,
+      messages: [],
+      processes: sessionDetail.processes.map((p) => ({ ...p, messages: [] })),
+      // Only report native pipeline when Rust actually handled full chunking.
+      _nativePipeline: usedNative ? Date.now() : false,
+    };
   } catch (error) {
     logger.error(`Error in get-session-detail for ${projectId}/${sessionId}:`, error);
     return null;

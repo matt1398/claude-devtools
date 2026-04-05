@@ -17,7 +17,10 @@ function nativeModuleStub(): Plugin {
   const STUB_ID = '\0native-stub'
   return {
     name: 'native-module-stub',
+    enforce: 'pre',
     resolveId(source) {
+      // Don't stub our native JSONL parser — it's loaded dynamically at runtime
+      if (source.includes('claude-devtools-native')) return null
       if (source.endsWith('.node')) return STUB_ID
       return null
     },
@@ -47,7 +50,8 @@ export default defineConfig({
       outDir: 'dist-electron/main',
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/main/index.ts')
+          index: resolve(__dirname, 'src/main/index.ts'),
+          sessionParseWorker: resolve(__dirname, 'src/main/workers/sessionParseWorker.ts')
         },
         output: {
           // CJS format so bundled deps can use __dirname/require.

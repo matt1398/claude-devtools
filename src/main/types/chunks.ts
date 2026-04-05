@@ -401,6 +401,8 @@ export interface SessionDetail {
   processes: Process[];
   /** Aggregated metrics for the entire session */
   metrics: SessionMetrics;
+  /** Timestamp (ms) when Rust native pipeline was used, or false if JS fallback */
+  _nativePipeline?: number | false;
 }
 
 /**

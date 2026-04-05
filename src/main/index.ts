@@ -23,6 +23,7 @@ import { join } from 'path';
 
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
 import { getProjectsBasePath, getTodosBasePath } from './utils/pathDecoder';
+import { sessionParserPool } from './workers/SessionParserPool';
 
 // Window icon path for non-mac platforms.
 const getWindowIconPath = (): string | undefined => {
@@ -399,6 +400,9 @@ function shutdownServices(): void {
   if (sshConnectionManager) {
     sshConnectionManager.dispose();
   }
+
+  // Terminate worker pool
+  sessionParserPool.terminate();
 
   // Remove IPC handlers
   removeIpcHandlers();
