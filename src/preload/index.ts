@@ -162,6 +162,10 @@ const electronAPI: ElectronAPI = {
   getWorktreeSessions: (worktreeId: string) =>
     ipcRenderer.invoke('get-worktree-sessions', worktreeId),
 
+  // Usage analytics
+  getUsageStats: (year: number, month: number) =>
+    ipcRenderer.invoke('get-usage-stats', year, month),
+
   // Validation methods
   validatePath: (relativePath: string, projectPath: string) =>
     ipcRenderer.invoke('validate-path', relativePath, projectPath),
