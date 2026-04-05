@@ -13,9 +13,9 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import { api } from '@renderer/api';
-import { generateUUID } from '@renderer/utils/uuid';
 import { confirm } from '@renderer/components/common/ConfirmDialog';
 import { useStore } from '@renderer/store';
+import { generateUUID } from '@renderer/utils/uuid';
 import { Edit2, Loader2, Plus, Save, Server, Trash2, X } from 'lucide-react';
 
 import { SettingsSectionHeader } from '../components/SettingsSectionHeader';

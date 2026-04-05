@@ -2,8 +2,9 @@
  * Utility functions for notification triggers.
  */
 
-import type { NotificationTrigger, TriggerContentType, TriggerMode } from '@renderer/types/data';
 import { generateUUID } from '@renderer/utils/uuid';
+
+import type { NotificationTrigger, TriggerContentType, TriggerMode } from '@renderer/types/data';
 
 /**
  * Generates a UUID v4 for new triggers.

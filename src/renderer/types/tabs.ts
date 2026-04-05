@@ -3,9 +3,10 @@
  * Based on specs/001-tabbed-layout-dashboard/contracts/tab-state.ts
  */
 
-import type { TriggerColor } from '@shared/constants/triggerColors';
 import { generateUUID } from '@renderer/utils/uuid';
+
 import type { Session } from './data';
+import type { TriggerColor } from '@shared/constants/triggerColors';
 
 // =============================================================================
 // Navigation Request Types
