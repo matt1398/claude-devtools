@@ -299,6 +299,10 @@ export function useSettingsHandlers({
           pinnedSessions: {},
           hiddenSessions: {},
           filterActiveOnly: false,
+          logicalProjects: {},
+          sessionProjectMap: {},
+          cwdProjectMap: {},
+          sidebarGroupBy: 'date',
         },
       };
 

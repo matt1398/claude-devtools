@@ -9,6 +9,7 @@ import { createConfigSlice } from './slices/configSlice';
 import { createConnectionSlice } from './slices/connectionSlice';
 import { createContextSlice } from './slices/contextSlice';
 import { createConversationSlice } from './slices/conversationSlice';
+import { createLogicalProjectSlice } from './slices/logicalProjectSlice';
 import { createNotificationSlice } from './slices/notificationSlice';
 import { createPaneSlice } from './slices/paneSlice';
 import { createProjectSlice } from './slices/projectSlice';
@@ -45,6 +46,7 @@ export const useStore = create<AppState>()((...args) => ({
   ...createConnectionSlice(...args),
   ...createContextSlice(...args),
   ...createUpdateSlice(...args),
+  ...createLogicalProjectSlice(...args),
 }));
 
 // =============================================================================

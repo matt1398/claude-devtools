@@ -167,6 +167,7 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
       void get().loadPinnedSessions();
       void get().loadHiddenSessions();
       void get().loadFilterActiveOnly();
+      void get().loadLogicalProjects();
     } catch (error) {
       set({
         sessionsError: error instanceof Error ? error.message : 'Failed to fetch sessions',
