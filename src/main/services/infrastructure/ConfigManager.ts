@@ -194,6 +194,8 @@ export interface DisplayConfig {
 export interface SessionsConfig {
   pinnedSessions: Record<string, { sessionId: string; pinnedAt: number }[]>;
   hiddenSessions: Record<string, { sessionId: string; hiddenAt: number }[]>;
+  /** When true, sidebar shows only sessions that are currently ongoing/alive */
+  filterActiveOnly: boolean;
 }
 
 export interface SshPersistConfig {
@@ -261,6 +263,7 @@ const DEFAULT_CONFIG: AppConfig = {
   sessions: {
     pinnedSessions: {},
     hiddenSessions: {},
+    filterActiveOnly: false,
   },
   ssh: {
     lastConnection: null,

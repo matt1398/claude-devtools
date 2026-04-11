@@ -42,6 +42,8 @@ export interface SessionSlice {
   sidebarMultiSelectActive: boolean;
   // Sort mode
   sessionSortMode: SessionSortMode;
+  // Filter: show only ongoing/alive sessions
+  filterActiveOnly: boolean;
 
   // Actions
   fetchSessions: (projectId: string) => Promise<void>;
@@ -58,6 +60,10 @@ export interface SessionSlice {
   loadPinnedSessions: () => Promise<void>;
   /** Set session sort mode */
   setSessionSortMode: (mode: SessionSortMode) => void;
+  /** Toggle or set the "active only" sidebar filter (persisted to config) */
+  setFilterActiveOnly: (value: boolean) => Promise<void>;
+  /** Load the "active only" filter state from persisted config */
+  loadFilterActiveOnly: () => Promise<void>;
   /** Toggle hide/unhide for a session */
   toggleHideSession: (sessionId: string) => Promise<void>;
   /** Bulk hide sessions */
@@ -103,6 +109,8 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
   sidebarMultiSelectActive: false,
   // Sort mode
   sessionSortMode: 'recent' as SessionSortMode,
+  // Filter: show only ongoing/alive sessions
+  filterActiveOnly: false,
 
   // Fetch sessions for a specific project (legacy - not paginated)
   fetchSessions: async (projectId: string) => {
@@ -158,6 +166,7 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
       // Load pinned and hidden sessions after fetching session list
       void get().loadPinnedSessions();
       void get().loadHiddenSessions();
+      void get().loadFilterActiveOnly();
     } catch (error) {
       set({
         sessionsError: error instanceof Error ? error.message : 'Failed to fetch sessions',
@@ -371,6 +380,28 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
   // Set session sort mode
   setSessionSortMode: (mode: SessionSortMode) => {
     set({ sessionSortMode: mode });
+  },
+
+  // Set "active only" filter (optimistic + persist to config)
+  setFilterActiveOnly: async (value: boolean) => {
+    const previous = get().filterActiveOnly;
+    set({ filterActiveOnly: value });
+    try {
+      await api.config.update('sessions', { filterActiveOnly: value });
+    } catch (error) {
+      set({ filterActiveOnly: previous });
+      logger.error('setFilterActiveOnly error:', error);
+    }
+  },
+
+  // Load "active only" filter from persisted config
+  loadFilterActiveOnly: async () => {
+    try {
+      const config = await api.config.get();
+      set({ filterActiveOnly: config.sessions?.filterActiveOnly ?? false });
+    } catch (error) {
+      logger.error('loadFilterActiveOnly error:', error);
+    }
   },
 
   // Toggle hide/unhide for a session (optimistic update)

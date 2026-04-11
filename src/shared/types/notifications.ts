@@ -282,6 +282,8 @@ export interface AppConfig {
     pinnedSessions: Record<string, { sessionId: string; pinnedAt: number }[]>;
     /** Hidden sessions per project. Key is projectId, value is array of hidden sessions */
     hiddenSessions: Record<string, { sessionId: string; hiddenAt: number }[]>;
+    /** When true, sidebar shows only sessions that are currently ongoing/alive */
+    filterActiveOnly: boolean;
   };
   /** SSH connection settings */
   ssh?: {

@@ -15,6 +15,7 @@ import {
 } from '@renderer/utils/dateGrouping';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
+  Activity,
   ArrowDownWideNarrow,
   Calendar,
   CheckSquare,
@@ -63,6 +64,8 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     pinnedSessionIds,
     sessionSortMode,
     setSessionSortMode,
+    filterActiveOnly,
+    setFilterActiveOnly,
     hiddenSessionIds,
     showHiddenSessions,
     toggleShowHiddenSessions,
@@ -87,6 +90,8 @@ export const DateGroupedSessions = (): React.JSX.Element => {
       pinnedSessionIds: s.pinnedSessionIds,
       sessionSortMode: s.sessionSortMode,
       setSessionSortMode: s.setSessionSortMode,
+      filterActiveOnly: s.filterActiveOnly,
+      setFilterActiveOnly: s.setFilterActiveOnly,
       hiddenSessionIds: s.hiddenSessionIds,
       showHiddenSessions: s.showHiddenSessions,
       toggleShowHiddenSessions: s.toggleShowHiddenSessions,
@@ -108,11 +113,14 @@ export const DateGroupedSessions = (): React.JSX.Element => {
   const hiddenSet = useMemo(() => new Set(hiddenSessionIds), [hiddenSessionIds]);
   const hasHiddenSessions = hiddenSessionIds.length > 0;
 
-  // Filter out hidden sessions unless showHiddenSessions is on
+  // Filter out hidden sessions (unless showHiddenSessions) and apply active-only filter
   const visibleSessions = useMemo(() => {
-    if (showHiddenSessions) return sessions;
-    return sessions.filter((s) => !hiddenSet.has(s.id));
-  }, [sessions, hiddenSet, showHiddenSessions]);
+    let result = showHiddenSessions ? sessions : sessions.filter((s) => !hiddenSet.has(s.id));
+    if (filterActiveOnly) {
+      result = result.filter((s) => s.isOngoing === true);
+    }
+    return result;
+  }, [sessions, hiddenSet, showHiddenSessions, filterActiveOnly]);
 
   // Separate pinned sessions from unpinned
   const { pinned: pinnedSessions, unpinned: unpinnedSessions } = useMemo(
@@ -436,6 +444,17 @@ export const DateGroupedSessions = (): React.JSX.Element => {
               {showHiddenSessions ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
             </button>
           )}
+          {/* Active-only filter toggle */}
+          <button
+            onClick={() => void setFilterActiveOnly(!filterActiveOnly)}
+            className="rounded p-1 transition-colors hover:bg-white/5"
+            title={filterActiveOnly ? 'Show all sessions' : 'Show only active (ongoing) sessions'}
+            style={{
+              color: filterActiveOnly ? '#22c55e' : 'var(--color-text-muted)',
+            }}
+          >
+            <Activity className="size-3.5" />
+          </button>
           {/* Sort mode toggle */}
           <button
             onClick={() =>

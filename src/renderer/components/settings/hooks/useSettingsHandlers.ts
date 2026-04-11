@@ -298,6 +298,7 @@ export function useSettingsHandlers({
         sessions: {
           pinnedSessions: {},
           hiddenSessions: {},
+          filterActiveOnly: false,
         },
       };
 
