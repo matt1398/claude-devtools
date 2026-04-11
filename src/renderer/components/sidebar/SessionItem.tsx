@@ -270,6 +270,7 @@ export const SessionItem = React.memo(function SessionItem({
         draggable
         onDragStart={(e) => {
           e.dataTransfer.setData(SESSION_DRAG_MIME, session.id);
+          // eslint-disable-next-line no-param-reassign -- DataTransfer API requires mutating the event.
           e.dataTransfer.effectAllowed = 'move';
         }}
         className={`h-[48px] w-full overflow-hidden border-b px-3 py-2 text-left transition-all duration-150 ${isActive ? '' : 'bg-transparent hover:opacity-80'} `}

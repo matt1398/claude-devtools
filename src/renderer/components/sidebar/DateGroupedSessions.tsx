@@ -160,6 +160,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
   const handleLpDragOver = useCallback((e: React.DragEvent<HTMLButtonElement>, key: string) => {
     if (!e.dataTransfer.types.includes(SESSION_DRAG_MIME)) return;
     e.preventDefault();
+    // eslint-disable-next-line no-param-reassign -- DataTransfer API requires mutating the event.
     e.dataTransfer.dropEffect = 'move';
     setDragHoverLpKey(key);
   }, []);
