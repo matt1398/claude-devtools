@@ -54,8 +54,23 @@ type VirtualItem =
       collapsed: boolean;
       id: string;
     }
+  | { type: 'activity-divider'; id: string }
   | { type: 'session'; session: Session; isPinned: boolean; isHidden: boolean; id: string }
   | { type: 'loader'; id: string };
+
+/**
+ * Splits a group of sessions into ongoing ("active") and finished ("inactive")
+ * buckets, preserving the original order within each bucket.
+ */
+function partitionByActive(group: Session[]): { active: Session[]; inactive: Session[] } {
+  const active: Session[] = [];
+  const inactive: Session[] = [];
+  for (const session of group) {
+    if (session.isOngoing === true) active.push(session);
+    else inactive.push(session);
+  }
+  return { active, inactive };
+}
 
 /**
  * Item height constants for virtual scroll positioning.
@@ -66,6 +81,7 @@ type VirtualItem =
 const HEADER_HEIGHT = 28;
 const SESSION_HEIGHT = 48; // Must match h-[48px] in SessionItem.tsx
 const LOADER_HEIGHT = 36;
+const ACTIVITY_DIVIDER_HEIGHT = 22;
 const OVERSCAN = 5;
 
 export const DateGroupedSessions = (): React.JSX.Element => {
@@ -236,6 +252,37 @@ export const DateGroupedSessions = (): React.JSX.Element => {
   const virtualItems = useMemo((): VirtualItem[] => {
     const items: VirtualItem[] = [];
 
+    // Emits a group of sessions split into Active (ongoing) first, then a
+    // divider, then Inactive. Divider is only emitted when both buckets are
+    // non-empty, so single-state groups render identically to before.
+    const emitWithActivitySplit = (group: Session[], dividerKeyPrefix: string): void => {
+      const { active, inactive } = partitionByActive(group);
+      for (const session of active) {
+        items.push({
+          type: 'session',
+          session,
+          isPinned: false,
+          isHidden: hiddenSet.has(session.id),
+          id: `session-${session.id}`,
+        });
+      }
+      if (active.length > 0 && inactive.length > 0) {
+        items.push({
+          type: 'activity-divider',
+          id: `activity-divider-${dividerKeyPrefix}`,
+        });
+      }
+      for (const session of inactive) {
+        items.push({
+          type: 'session',
+          session,
+          isPinned: false,
+          isHidden: hiddenSet.has(session.id),
+          id: `session-${session.id}`,
+        });
+      }
+    };
+
     if (sidebarGroupBy === 'logical-project' && lpGrouping) {
       // Pinned section remains at top in logical-project mode
       if (pinnedSessions.length > 0) {
@@ -264,15 +311,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
           id: `lp-${lp.id}`,
         });
         if (!collapsed) {
-          for (const session of sessionsForLp) {
-            items.push({
-              type: 'session',
-              session,
-              isPinned: false,
-              isHidden: hiddenSet.has(session.id),
-              id: `session-${session.id}`,
-            });
-          }
+          emitWithActivitySplit(sessionsForLp, `lp-${lp.id}`);
         }
       }
 
@@ -289,15 +328,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
           id: 'lp-ungrouped',
         });
         if (!collapsed) {
-          for (const session of lpGrouping.ungrouped) {
-            items.push({
-              type: 'session',
-              session,
-              isPinned: false,
-              isHidden: hiddenSet.has(session.id),
-              id: `session-${session.id}`,
-            });
-          }
+          emitWithActivitySplit(lpGrouping.ungrouped, 'lp-ungrouped');
         }
       }
     } else if (sessionSortMode === 'most-context') {
@@ -336,16 +367,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
           category,
           id: `header-${category}`,
         });
-
-        for (const session of groupedSessions[category]) {
-          items.push({
-            type: 'session',
-            session,
-            isPinned: false,
-            isHidden: hiddenSet.has(session.id),
-            id: `session-${session.id}`,
-          });
-        }
+        emitWithActivitySplit(groupedSessions[category], `cat-${category}`);
       }
     }
 
@@ -383,6 +405,8 @@ export const DateGroupedSessions = (): React.JSX.Element => {
         case 'pinned-header':
         case 'lp-header':
           return HEADER_HEIGHT;
+        case 'activity-divider':
+          return ACTIVITY_DIVIDER_HEIGHT;
         case 'loader':
           return LOADER_HEIGHT;
         case 'session':
@@ -780,6 +804,23 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                     }}
                   >
                     {item.category}
+                  </div>
+                ) : item.type === 'activity-divider' ? (
+                  <div
+                    className="flex h-full items-center gap-2 px-4"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
+                    <span
+                      className="h-px flex-1"
+                      style={{ backgroundColor: 'var(--color-border-emphasis)' }}
+                    />
+                    <span className="text-[10px] font-medium uppercase tracking-wider opacity-70">
+                      Inactive
+                    </span>
+                    <span
+                      className="h-px flex-1"
+                      style={{ backgroundColor: 'var(--color-border-emphasis)' }}
+                    />
                   </div>
                 ) : item.type === 'loader' ? (
                   <div
