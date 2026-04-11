@@ -37,11 +37,19 @@ const DEFAULT_COLORS = [
 ];
 
 function pickDefaultColor(existingCount: number): string {
-  return DEFAULT_COLORS[existingCount % DEFAULT_COLORS.length]!;
+  return DEFAULT_COLORS[existingCount % DEFAULT_COLORS.length] ?? '#22c55e';
 }
 
 function generateId(): string {
-  return `lp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `lp_${crypto.randomUUID()}`;
+  }
+  const bytes = new Uint8Array(8);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes);
+  }
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `lp_${Date.now().toString(36)}_${hex}`;
 }
 
 // =============================================================================
@@ -54,8 +62,12 @@ export interface LogicalProjectSlice {
   sessionProjectMap: Record<string, string>;
   cwdProjectMap: Record<string, string>;
   sidebarGroupBy: SidebarGroupBy;
+  /** Whether the Logical Project Manager modal is currently open (non-persisted) */
+  logicalProjectManagerOpen: boolean;
 
   // Actions
+  openLogicalProjectManager: () => void;
+  closeLogicalProjectManager: () => void;
   loadLogicalProjects: () => Promise<void>;
   createLogicalProject: (name: string, color?: string) => Promise<LogicalProject | null>;
   updateLogicalProject: (
@@ -100,6 +112,10 @@ export const createLogicalProjectSlice: StateCreator<AppState, [], [], LogicalPr
   sessionProjectMap: {},
   cwdProjectMap: {},
   sidebarGroupBy: 'date',
+  logicalProjectManagerOpen: false,
+
+  openLogicalProjectManager: () => set({ logicalProjectManagerOpen: true }),
+  closeLogicalProjectManager: () => set({ logicalProjectManagerOpen: false }),
 
   // Load from persisted config
   loadLogicalProjects: async () => {
@@ -164,7 +180,10 @@ export const createLogicalProjectSlice: StateCreator<AppState, [], [], LogicalPr
   // Delete a logical project and clear any assignments that reference it
   deleteLogicalProject: async (id) => {
     const state = get();
-    const { [id]: _removed, ...remaining } = state.logicalProjects;
+    const remaining: Record<string, LogicalProject> = {};
+    for (const [lpId, lp] of Object.entries(state.logicalProjects)) {
+      if (lpId !== id) remaining[lpId] = lp;
+    }
     const nextSessionMap: Record<string, string> = {};
     for (const [sid, lpid] of Object.entries(state.sessionProjectMap)) {
       if (lpid !== id) nextSessionMap[sid] = lpid;

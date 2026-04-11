@@ -147,6 +147,9 @@ export const SessionItem = React.memo(function SessionItem({
     splitPane,
     togglePinSession,
     toggleHideSession,
+    logicalProjects,
+    sessionProjectMap,
+    cwdProjectMap,
   } = useStore(
     useShallow((s) => ({
       openTab: s.openTab,
@@ -156,8 +159,20 @@ export const SessionItem = React.memo(function SessionItem({
       splitPane: s.splitPane,
       togglePinSession: s.togglePinSession,
       toggleHideSession: s.toggleHideSession,
+      logicalProjects: s.logicalProjects,
+      sessionProjectMap: s.sessionProjectMap,
+      cwdProjectMap: s.cwdProjectMap,
     }))
   );
+
+  // Resolve assigned logical project (session override → cwd default → none)
+  const assignedLp = (() => {
+    const explicit = sessionProjectMap[session.id];
+    if (explicit && logicalProjects[explicit]) return logicalProjects[explicit];
+    const inherited = cwdProjectMap[session.projectId];
+    if (inherited && logicalProjects[inherited]) return logicalProjects[inherited];
+    return null;
+  })();
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
@@ -267,6 +282,13 @@ export const SessionItem = React.memo(function SessionItem({
           {session.isOngoing && <OngoingIndicator />}
           {isPinned && <Pin className="size-2.5 shrink-0 text-blue-400" />}
           {isHidden && <EyeOff className="size-2.5 shrink-0 text-zinc-500" />}
+          {assignedLp && (
+            <span
+              className="inline-block size-2 shrink-0 rounded-full"
+              style={{ backgroundColor: assignedLp.color }}
+              title={`Logical project: ${assignedLp.name}`}
+            />
+          )}
           <span
             className="truncate text-[13px] font-medium leading-tight"
             style={{ color: isActive ? 'var(--color-text)' : 'var(--color-text-muted)' }}

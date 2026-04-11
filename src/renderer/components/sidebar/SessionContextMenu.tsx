@@ -4,11 +4,23 @@
  * Shows keyboard shortcut hints for actions that have them.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { useStore } from '@renderer/store';
 import { MAX_PANES } from '@renderer/types/panes';
 import { formatShortcut } from '@renderer/utils/stringUtils';
-import { Check, ClipboardCopy, Eye, EyeOff, Pin, PinOff, Terminal } from 'lucide-react';
+import {
+  Check,
+  ClipboardCopy,
+  Eye,
+  EyeOff,
+  FolderTree,
+  Pin,
+  PinOff,
+  Settings,
+  Terminal,
+} from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 
 interface SessionContextMenuProps {
   x: number;
@@ -31,6 +43,7 @@ export const SessionContextMenu = ({
   x,
   y,
   sessionId,
+  projectId,
   paneCount,
   isPinned,
   isHidden,
@@ -43,6 +56,35 @@ export const SessionContextMenu = ({
 }: SessionContextMenuProps): React.JSX.Element => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [copiedField, setCopiedField] = useState<'id' | 'command' | null>(null);
+
+  const {
+    logicalProjects,
+    sessionProjectMap,
+    cwdProjectMap,
+    assignSessionToLogicalProject,
+    openLogicalProjectManager,
+  } = useStore(
+    useShallow((s) => ({
+      logicalProjects: s.logicalProjects,
+      sessionProjectMap: s.sessionProjectMap,
+      cwdProjectMap: s.cwdProjectMap,
+      assignSessionToLogicalProject: s.assignSessionToLogicalProject,
+      openLogicalProjectManager: s.openLogicalProjectManager,
+    }))
+  );
+
+  const sortedLogicalProjects = useMemo(
+    () => Object.values(logicalProjects).sort((a, b) => a.order - b.order),
+    [logicalProjects]
+  );
+
+  const currentLpId = useMemo(() => {
+    const explicit = sessionProjectMap[sessionId];
+    if (explicit && logicalProjects[explicit]) return explicit;
+    const inherited = cwdProjectMap[projectId];
+    if (inherited && logicalProjects[inherited]) return inherited;
+    return null;
+  }, [sessionId, projectId, sessionProjectMap, cwdProjectMap, logicalProjects]);
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent): void => {
@@ -62,7 +104,7 @@ export const SessionContextMenu = ({
   }, [onClose]);
 
   const menuWidth = 240;
-  const menuHeight = 290;
+  const menuHeight = 290 + sortedLogicalProjects.length * 26 + 60;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
@@ -140,6 +182,52 @@ export const SessionContextMenu = ({
         }
         onClick={handleCopy(`claude --resume ${sessionId}`, 'command')}
       />
+      <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
+      <div
+        className="px-3 pb-1 pt-0.5 text-[10px] uppercase tracking-wider"
+        style={{ color: 'var(--color-text-muted)' }}
+      >
+        Assign to Logical Project
+      </div>
+      <MenuItem
+        label="Ungrouped"
+        icon={
+          <span
+            className="inline-block size-2.5 rounded-full"
+            style={{ backgroundColor: '#6b7280' }}
+          />
+        }
+        rightIcon={currentLpId === null ? <Check className="size-3.5 text-green-400" /> : undefined}
+        onClick={handleClick(() => void assignSessionToLogicalProject(sessionId, null))}
+      />
+      {sortedLogicalProjects.map((lp) => (
+        <MenuItem
+          key={lp.id}
+          label={lp.name}
+          icon={
+            <span
+              className="inline-block size-2.5 rounded-full"
+              style={{ backgroundColor: lp.color }}
+            />
+          }
+          rightIcon={currentLpId === lp.id ? <Check className="size-3.5 text-green-400" /> : undefined}
+          onClick={handleClick(() => void assignSessionToLogicalProject(sessionId, lp.id))}
+        />
+      ))}
+      <MenuItem
+        label="Manage Projects…"
+        icon={<Settings className="size-4" />}
+        onClick={handleClick(openLogicalProjectManager)}
+      />
+      {sortedLogicalProjects.length === 0 && (
+        <div
+          className="px-3 py-1 text-[10px] italic"
+          style={{ color: 'var(--color-text-muted)' }}
+        >
+          <FolderTree className="mr-1 inline size-3" />
+          Create a project from Manage Projects
+        </div>
+      )}
     </div>
   );
 };
@@ -148,12 +236,14 @@ const MenuItem = ({
   label,
   shortcut,
   icon,
+  rightIcon,
   onClick,
   disabled,
 }: {
   label: string;
   shortcut?: string;
   icon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
 }): React.JSX.Element => {
@@ -168,11 +258,13 @@ const MenuItem = ({
         {icon}
         {label}
       </span>
-      {shortcut && (
+      {rightIcon ? (
+        <span className="ml-4">{rightIcon}</span>
+      ) : shortcut ? (
         <span className="ml-4 text-xs" style={{ color: 'var(--color-text-muted)' }}>
           {shortcut}
         </span>
-      )}
+      ) : null}
     </button>
   );
 };

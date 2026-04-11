@@ -16,6 +16,7 @@ import { useStore } from '@renderer/store';
 import { useShallow } from 'zustand/react/shallow';
 
 import { DateGroupedSessions } from '../sidebar/DateGroupedSessions';
+import { LogicalProjectManager } from '../sidebar/LogicalProjectManager';
 
 import { SidebarHeader } from './SidebarHeader';
 
@@ -105,6 +106,9 @@ export const Sidebar = (): React.JSX.Element | null => {
       <div className="flex-1 overflow-hidden">
         <DateGroupedSessions />
       </div>
+
+      {/* Logical project manager modal (portal-mounted when open) */}
+      <LogicalProjectManager />
 
       {/* Resize handle */}
       <button

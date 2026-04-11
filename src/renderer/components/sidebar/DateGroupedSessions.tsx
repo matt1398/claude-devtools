@@ -27,6 +27,7 @@ import {
   Loader2,
   MessageSquareOff,
   Pin,
+  Settings,
   X,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
@@ -98,6 +99,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     cwdProjectMap,
     sidebarGroupBy,
     setSidebarGroupBy,
+    openLogicalProjectManager,
   } = useStore(
     useShallow((s) => ({
       sessions: s.sessions,
@@ -129,6 +131,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
       cwdProjectMap: s.cwdProjectMap,
       sidebarGroupBy: s.sidebarGroupBy,
       setSidebarGroupBy: s.setSidebarGroupBy,
+      openLogicalProjectManager: s.openLogicalProjectManager,
     }))
   );
 
@@ -205,7 +208,9 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     for (const session of unpinnedSessions) {
       const lpId = resolveLpId(session);
       if (lpId) {
-        (byLp[lpId] ??= []).push(session);
+        const existing = byLp[lpId] ?? [];
+        existing.push(session);
+        byLp[lpId] = existing;
       } else {
         ungrouped.push(session);
       }
@@ -622,6 +627,15 @@ export const DateGroupedSessions = (): React.JSX.Element => {
           >
             <FolderTree className="size-3.5" />
           </button>
+          {/* Manage logical projects */}
+          <button
+            onClick={openLogicalProjectManager}
+            className="rounded p-1 transition-colors hover:bg-white/5"
+            title="Manage logical projects"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            <Settings className="size-3.5" />
+          </button>
           {/* Sort mode toggle */}
           <button
             onClick={() =>
@@ -733,7 +747,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                   <button
                     type="button"
                     onClick={() => toggleLpCollapsed(item.key)}
-                    className="sticky top-0 flex h-full w-full items-center gap-1.5 border-t px-4 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider transition-colors hover:bg-white/5"
+                    className="sticky top-0 flex size-full items-center gap-1.5 border-t px-4 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider transition-colors hover:bg-white/5"
                     style={{
                       backgroundColor: 'var(--color-surface-sidebar)',
                       color: 'var(--color-text-muted)',
