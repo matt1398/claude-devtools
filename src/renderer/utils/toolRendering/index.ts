@@ -5,6 +5,7 @@
  */
 
 export {
+  hasBashContent,
   hasEditContent,
   hasReadContent,
   hasSkillInstructions,
