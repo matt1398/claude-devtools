@@ -19,6 +19,12 @@ import { SessionContextMenu } from './SessionContextMenu';
 
 import type { PhaseTokenBreakdown, Session } from '@renderer/types/data';
 
+/**
+ * Mime type used on DataTransfer when dragging a session within the sidebar.
+ * Kept specific so we don't capture cross-app drags.
+ */
+export const SESSION_DRAG_MIME = 'application/x-claude-devtools-session';
+
 interface SessionItemProps {
   session: Session;
   isActive?: boolean;
@@ -261,6 +267,11 @@ export const SessionItem = React.memo(function SessionItem({
       <button
         onClick={handleClick}
         onContextMenu={handleContextMenu}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(SESSION_DRAG_MIME, session.id);
+          e.dataTransfer.effectAllowed = 'move';
+        }}
         className={`h-[48px] w-full overflow-hidden border-b px-3 py-2 text-left transition-all duration-150 ${isActive ? '' : 'bg-transparent hover:opacity-80'} `}
         style={{
           borderColor: 'var(--color-border)',

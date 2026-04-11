@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { SessionItem } from './SessionItem';
+import { SESSION_DRAG_MIME, SessionItem } from './SessionItem';
 
 import type { Session } from '@renderer/types/data';
 import type { DateCategory } from '@renderer/types/tabs';
@@ -116,6 +116,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     sidebarGroupBy,
     setSidebarGroupBy,
     openLogicalProjectManager,
+    assignSessionToLogicalProject,
   } = useStore(
     useShallow((s) => ({
       sessions: s.sessions,
@@ -148,7 +149,36 @@ export const DateGroupedSessions = (): React.JSX.Element => {
       sidebarGroupBy: s.sidebarGroupBy,
       setSidebarGroupBy: s.setSidebarGroupBy,
       openLogicalProjectManager: s.openLogicalProjectManager,
+      assignSessionToLogicalProject: s.assignSessionToLogicalProject,
     }))
+  );
+
+  // Currently-hovered drop target key (logicalProjectId or UNGROUPED_KEY).
+  // null when no drag in progress or dragging over a non-target.
+  const [dragHoverLpKey, setDragHoverLpKey] = useState<string | null>(null);
+
+  const handleLpDragOver = useCallback((e: React.DragEvent<HTMLButtonElement>, key: string) => {
+    if (!e.dataTransfer.types.includes(SESSION_DRAG_MIME)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragHoverLpKey(key);
+  }, []);
+
+  const handleLpDragLeave = useCallback(() => {
+    setDragHoverLpKey(null);
+  }, []);
+
+  const handleLpDrop = useCallback(
+    (e: React.DragEvent<HTMLButtonElement>, key: string) => {
+      const sessionId = e.dataTransfer.getData(SESSION_DRAG_MIME);
+      setDragHoverLpKey(null);
+      if (!sessionId) return;
+      e.preventDefault();
+      // Dropping on Ungrouped clears the session-level override.
+      const targetId = key === UNGROUPED_KEY ? null : key;
+      void assignSessionToLogicalProject(sessionId, targetId);
+    },
+    [assignSessionToLogicalProject]
   );
 
   // Local (non-persisted) collapsed state for logical-project sections.
@@ -773,13 +803,33 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                   <button
                     type="button"
                     onClick={() => toggleLpCollapsed(item.key)}
+                    onDragOver={(e) => handleLpDragOver(e, item.key)}
+                    onDragLeave={handleLpDragLeave}
+                    onDrop={(e) => handleLpDrop(e, item.key)}
                     className="sticky top-0 flex size-full items-center gap-1.5 border-t px-4 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider transition-colors hover:bg-white/5"
                     style={{
-                      backgroundColor: 'var(--color-surface-sidebar)',
+                      backgroundColor:
+                        dragHoverLpKey === item.key
+                          ? 'var(--color-surface-raised)'
+                          : 'var(--color-surface-sidebar)',
                       color: 'var(--color-text-muted)',
-                      borderColor: 'var(--color-border-emphasis)',
+                      borderColor:
+                        dragHoverLpKey === item.key
+                          ? 'var(--sidebar-filter-active)'
+                          : 'var(--color-border-emphasis)',
+                      outline:
+                        dragHoverLpKey === item.key
+                          ? '1px dashed var(--sidebar-filter-active)'
+                          : 'none',
+                      outlineOffset: '-2px',
                     }}
-                    title={item.collapsed ? 'Expand section' : 'Collapse section'}
+                    title={
+                      dragHoverLpKey === item.key
+                        ? `Drop session into "${item.name}"`
+                        : item.collapsed
+                          ? 'Expand section'
+                          : 'Collapse section'
+                    }
                   >
                     {item.collapsed ? (
                       <ChevronRight className="size-3" />
