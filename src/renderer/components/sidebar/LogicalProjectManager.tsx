@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useStore } from '@renderer/store';
-import { FolderTree, Plus, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, FolderTree, Plus, Trash2, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 const COLOR_PALETTE = [
@@ -100,6 +100,19 @@ const LogicalProjectManagerDialog = ({ onClose }: DialogProps): React.JSX.Elemen
     }
     setRenamingId(null);
     setRenameValue('');
+  };
+
+  // Swap the order field of the project at `index` with its neighbour at
+  // `index + direction`. Sequentially-awaited so the two persist calls don't
+  // race each other to the config file.
+  const handleMove = async (index: number, direction: -1 | 1): Promise<void> => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= sortedProjects.length) return;
+    const a = sortedProjects[index];
+    const b = sortedProjects[targetIndex];
+    if (!a || !b) return;
+    await updateLogicalProject(a.id, { order: b.order });
+    await updateLogicalProject(b.id, { order: a.order });
   };
 
   return (
@@ -211,11 +224,33 @@ const LogicalProjectManagerDialog = ({ onClose }: DialogProps): React.JSX.Elemen
               </div>
             ) : (
               <ul className="space-y-1">
-                {sortedProjects.map((lp) => (
+                {sortedProjects.map((lp, index) => (
                   <li
                     key={lp.id}
                     className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-white/5"
                   >
+                    <div className="flex flex-col">
+                      <button
+                        type="button"
+                        onClick={() => void handleMove(index, -1)}
+                        disabled={index === 0}
+                        className="rounded p-0.5 transition-colors hover:bg-white/10 disabled:opacity-30"
+                        title="Move up"
+                        aria-label="Move up"
+                      >
+                        <ChevronUp className="size-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleMove(index, 1)}
+                        disabled={index === sortedProjects.length - 1}
+                        className="rounded p-0.5 transition-colors hover:bg-white/10 disabled:opacity-30"
+                        title="Move down"
+                        aria-label="Move down"
+                      >
+                        <ChevronDown className="size-3" />
+                      </button>
+                    </div>
                     <input
                       type="color"
                       value={lp.color}
