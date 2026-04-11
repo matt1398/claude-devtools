@@ -605,7 +605,9 @@ export const DateGroupedSessions = (): React.JSX.Element => {
             className="rounded p-1 transition-colors hover:bg-white/5"
             title={filterActiveOnly ? 'Show all sessions' : 'Show only active (ongoing) sessions'}
             style={{
-              color: filterActiveOnly ? '#22c55e' : 'var(--color-text-muted)',
+              color: filterActiveOnly
+                ? 'var(--sidebar-filter-active)'
+                : 'var(--color-text-muted)',
             }}
           >
             <Activity className="size-3.5" />

@@ -81,6 +81,9 @@
   --diff-removed-text: #f87171;
   --diff-removed-border: #ef4444;
 
+  /* Sidebar filter toggle — active (ongoing) session indicator */
+  --sidebar-filter-active: #22c55e;
+
   /* Markdown prose - Brighter body text for AI responses (visual hierarchy) */
   --prose-heading: #ffffff;
   --prose-body: #f4f4f5;
@@ -270,6 +273,9 @@
   --diff-removed-bg: rgba(239, 68, 68, 0.1);
   --diff-removed-text: #991b1b;
   --diff-removed-border: #ef4444;
+
+  /* Sidebar filter toggle — active (ongoing) session indicator */
+  --sidebar-filter-active: #16a34a;
 
   /* Markdown prose - Warm tones */
   --prose-heading: #1c1b19;
