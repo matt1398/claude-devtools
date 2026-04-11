@@ -12,8 +12,10 @@ import type {
   HttpServerConfig,
   NotificationConfig,
   NotificationTrigger,
+  SessionsConfig,
   SshPersistConfig,
 } from '../services';
+import type { LogicalProject } from '@shared/types/notifications';
 
 type ConfigSection = keyof AppConfig;
 
@@ -34,6 +36,7 @@ export type ConfigUpdateValidationResult =
   | ValidationSuccess<'display'>
   | ValidationSuccess<'httpServer'>
   | ValidationSuccess<'ssh'>
+  | ValidationSuccess<'sessions'>
   | ValidationFailure;
 
 const VALID_SECTIONS = new Set<ConfigSection>([
@@ -42,6 +45,7 @@ const VALID_SECTIONS = new Set<ConfigSection>([
   'display',
   'httpServer',
   'ssh',
+  'sessions',
 ]);
 const MAX_SNOOZE_MINUTES = 24 * 60;
 
@@ -432,6 +436,133 @@ function validateSshSection(data: unknown): ValidationSuccess<'ssh'> | Validatio
   return { valid: true, section: 'ssh', data: result };
 }
 
+function isValidLogicalProject(value: unknown): value is LogicalProject {
+  if (!isPlainObject(value)) return false;
+  if (typeof value.id !== 'string' || !value.id) return false;
+  if (typeof value.name !== 'string' || !value.name) return false;
+  if (typeof value.color !== 'string' || !value.color) return false;
+  if (!isFiniteNumber(value.order)) return false;
+  if (!isFiniteNumber(value.createdAt)) return false;
+  if (value.icon !== undefined && typeof value.icon !== 'string') return false;
+  return true;
+}
+
+function isStringToStringRecord(value: unknown): value is Record<string, string> {
+  if (!isPlainObject(value)) return false;
+  return Object.values(value).every((v) => typeof v === 'string');
+}
+
+function isLogicalProjectRecord(value: unknown): value is Record<string, LogicalProject> {
+  if (!isPlainObject(value)) return false;
+  return Object.values(value).every(isValidLogicalProject);
+}
+
+function isPinnedEntryArrayRecord(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  return Object.values(value).every(
+    (arr) =>
+      Array.isArray(arr) &&
+      arr.every(
+        (entry) =>
+          isPlainObject(entry) &&
+          typeof entry.sessionId === 'string' &&
+          isFiniteNumber(entry.pinnedAt)
+      )
+  );
+}
+
+function isHiddenEntryArrayRecord(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  return Object.values(value).every(
+    (arr) =>
+      Array.isArray(arr) &&
+      arr.every(
+        (entry) =>
+          isPlainObject(entry) &&
+          typeof entry.sessionId === 'string' &&
+          isFiniteNumber(entry.hiddenAt)
+      )
+  );
+}
+
+function validateSessionsSection(
+  data: unknown
+): ValidationSuccess<'sessions'> | ValidationFailure {
+  if (!isPlainObject(data)) {
+    return { valid: false, error: 'sessions update must be an object' };
+  }
+
+  const allowedKeys: (keyof SessionsConfig)[] = [
+    'pinnedSessions',
+    'hiddenSessions',
+    'filterActiveOnly',
+    'logicalProjects',
+    'sessionProjectMap',
+    'cwdProjectMap',
+    'sidebarGroupBy',
+  ];
+
+  const result: Partial<SessionsConfig> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (!allowedKeys.includes(key as keyof SessionsConfig)) {
+      return { valid: false, error: `sessions.${key} is not a valid setting` };
+    }
+
+    switch (key as keyof SessionsConfig) {
+      case 'pinnedSessions':
+        if (!isPinnedEntryArrayRecord(value)) {
+          return { valid: false, error: 'sessions.pinnedSessions has invalid shape' };
+        }
+        result.pinnedSessions = value as SessionsConfig['pinnedSessions'];
+        break;
+      case 'hiddenSessions':
+        if (!isHiddenEntryArrayRecord(value)) {
+          return { valid: false, error: 'sessions.hiddenSessions has invalid shape' };
+        }
+        result.hiddenSessions = value as SessionsConfig['hiddenSessions'];
+        break;
+      case 'filterActiveOnly':
+        if (typeof value !== 'boolean') {
+          return { valid: false, error: 'sessions.filterActiveOnly must be a boolean' };
+        }
+        result.filterActiveOnly = value;
+        break;
+      case 'logicalProjects':
+        if (!isLogicalProjectRecord(value)) {
+          return { valid: false, error: 'sessions.logicalProjects has invalid shape' };
+        }
+        result.logicalProjects = value;
+        break;
+      case 'sessionProjectMap':
+        if (!isStringToStringRecord(value)) {
+          return { valid: false, error: 'sessions.sessionProjectMap must be Record<string,string>' };
+        }
+        result.sessionProjectMap = value;
+        break;
+      case 'cwdProjectMap':
+        if (!isStringToStringRecord(value)) {
+          return { valid: false, error: 'sessions.cwdProjectMap must be Record<string,string>' };
+        }
+        result.cwdProjectMap = value;
+        break;
+      case 'sidebarGroupBy':
+        if (value !== 'date' && value !== 'logical-project') {
+          return {
+            valid: false,
+            error: "sessions.sidebarGroupBy must be 'date' or 'logical-project'",
+          };
+        }
+        result.sidebarGroupBy = value;
+        break;
+      default:
+        return { valid: false, error: `Unsupported sessions key: ${key}` };
+    }
+  }
+
+  return { valid: true, section: 'sessions', data: result };
+}
+
 export function validateConfigUpdatePayload(
   section: unknown,
   data: unknown
@@ -439,7 +570,7 @@ export function validateConfigUpdatePayload(
   if (typeof section !== 'string' || !VALID_SECTIONS.has(section as ConfigSection)) {
     return {
       valid: false,
-      error: 'Section must be one of: notifications, general, display, httpServer, ssh',
+      error: 'Section must be one of: notifications, general, display, httpServer, ssh, sessions',
     };
   }
 
@@ -454,6 +585,8 @@ export function validateConfigUpdatePayload(
       return validateHttpServerSection(data);
     case 'ssh':
       return validateSshSection(data);
+    case 'sessions':
+      return validateSessionsSection(data);
     default:
       return { valid: false, error: 'Invalid section' };
   }
