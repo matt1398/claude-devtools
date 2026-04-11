@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useStore } from '@renderer/store';
+import { resolveLogicalProjectFor } from '@renderer/store/slices/logicalProjectSlice';
 import {
   getNonEmptyCategories,
   groupSessionsByDate,
@@ -162,7 +163,8 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     e.preventDefault();
     // eslint-disable-next-line no-param-reassign -- DataTransfer API requires mutating the event.
     e.dataTransfer.dropEffect = 'move';
-    setDragHoverLpKey(key);
+    // onDragOver fires every few ms; only set state when the target actually changes.
+    setDragHoverLpKey((prev) => (prev === key ? prev : key));
   }, []);
 
   const handleLpDragLeave = useCallback(() => {
@@ -233,15 +235,14 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     );
   }, [visibleSessions, sessionSortMode]);
 
-  // Resolve which logical project a session belongs to (pure lookup — no store reads).
+  // Resolve which logical project a session belongs to via the shared helper.
   const resolveLpId = useCallback(
-    (session: Session): string | null => {
-      const explicit = sessionProjectMap[session.id];
-      if (explicit && logicalProjects[explicit]) return explicit;
-      const inherited = cwdProjectMap[session.projectId];
-      if (inherited && logicalProjects[inherited]) return inherited;
-      return null;
-    },
+    (session: Session): string | null =>
+      resolveLogicalProjectFor(
+        { logicalProjects, sessionProjectMap, cwdProjectMap },
+        session.id,
+        session.projectId
+      )?.id ?? null,
     [sessionProjectMap, cwdProjectMap, logicalProjects]
   );
 

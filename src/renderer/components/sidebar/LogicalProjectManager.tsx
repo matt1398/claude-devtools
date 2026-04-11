@@ -53,6 +53,7 @@ const LogicalProjectManagerDialog = ({ onClose }: DialogProps): React.JSX.Elemen
     createLogicalProject,
     updateLogicalProject,
     deleteLogicalProject,
+    reorderLogicalProjects,
     assignCwdToLogicalProject,
   } = useStore(
     useShallow((s) => ({
@@ -62,6 +63,7 @@ const LogicalProjectManagerDialog = ({ onClose }: DialogProps): React.JSX.Elemen
       createLogicalProject: s.createLogicalProject,
       updateLogicalProject: s.updateLogicalProject,
       deleteLogicalProject: s.deleteLogicalProject,
+      reorderLogicalProjects: s.reorderLogicalProjects,
       assignCwdToLogicalProject: s.assignCwdToLogicalProject,
     }))
   );
@@ -103,16 +105,14 @@ const LogicalProjectManagerDialog = ({ onClose }: DialogProps): React.JSX.Elemen
   };
 
   // Swap the order field of the project at `index` with its neighbour at
-  // `index + direction`. Sequentially-awaited so the two persist calls don't
-  // race each other to the config file.
+  // `index + direction` via a single atomic store action.
   const handleMove = async (index: number, direction: -1 | 1): Promise<void> => {
     const targetIndex = index + direction;
     if (targetIndex < 0 || targetIndex >= sortedProjects.length) return;
     const a = sortedProjects[index];
     const b = sortedProjects[targetIndex];
     if (!a || !b) return;
-    await updateLogicalProject(a.id, { order: b.order });
-    await updateLogicalProject(b.id, { order: a.order });
+    await reorderLogicalProjects(a.id, b.id);
   };
 
   return (

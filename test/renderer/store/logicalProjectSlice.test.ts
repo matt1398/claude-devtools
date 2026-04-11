@@ -255,6 +255,27 @@ describe('logicalProjectSlice', () => {
     });
   });
 
+  describe('reorderLogicalProjects', () => {
+    it('swaps the order field of two projects in a single persist call', async () => {
+      const a = await store.getState().createLogicalProject('A');
+      const b = await store.getState().createLogicalProject('B');
+      mockAPI.config.update.mockClear();
+
+      await store.getState().reorderLogicalProjects(a!.id, b!.id);
+
+      expect(store.getState().logicalProjects[a!.id]?.order).toBe(b!.order);
+      expect(store.getState().logicalProjects[b!.id]?.order).toBe(a!.order);
+      expect(mockAPI.config.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a no-op for unknown ids', async () => {
+      const a = await store.getState().createLogicalProject('A');
+      mockAPI.config.update.mockClear();
+      await store.getState().reorderLogicalProjects(a!.id, 'lp_ghost');
+      expect(mockAPI.config.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('setSidebarGroupBy', () => {
     it('updates mode and persists', async () => {
       await store.getState().setSidebarGroupBy('logical-project');

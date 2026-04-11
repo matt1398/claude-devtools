@@ -47,6 +47,31 @@ function generateId(): string {
   return `lp_${hex}`;
 }
 
+/**
+ * Pure resolution helper shared by the slice, sidebar, context menu, and
+ * session row. Returns the full LogicalProject object (not just the id) so
+ * callers that need colour or name don't have to re-index the map.
+ *
+ * Resolution order: explicit session override → cwd-folder default → null.
+ */
+export function resolveLogicalProjectFor(
+  state: Pick<LogicalProjectSlice, 'logicalProjects' | 'sessionProjectMap' | 'cwdProjectMap'>,
+  sessionId: string,
+  cwdProjectId: string
+): LogicalProject | null {
+  const explicit = state.sessionProjectMap[sessionId];
+  if (explicit) {
+    const project = state.logicalProjects[explicit];
+    if (project) return project;
+  }
+  const inherited = state.cwdProjectMap[cwdProjectId];
+  if (inherited) {
+    const project = state.logicalProjects[inherited];
+    if (project) return project;
+  }
+  return null;
+}
+
 // =============================================================================
 // Slice Interface
 // =============================================================================
@@ -70,6 +95,11 @@ export interface LogicalProjectSlice {
     updates: Partial<Pick<LogicalProject, 'name' | 'color' | 'icon' | 'order'>>
   ) => Promise<void>;
   deleteLogicalProject: (id: string) => Promise<void>;
+  /**
+   * Swap the display order of two logical projects in a single persist call.
+   * No-op if either id is unknown or they resolve to the same project.
+   */
+  reorderLogicalProjects: (firstId: string, secondId: string) => Promise<void>;
   assignSessionToLogicalProject: (
     sessionId: string,
     logicalProjectId: string | null
@@ -210,6 +240,27 @@ export const createLogicalProjectSlice: StateCreator<AppState, [], [], LogicalPr
     }
   },
 
+  // Swap the `order` field of two projects and persist once.
+  reorderLogicalProjects: async (firstId, secondId) => {
+    if (firstId === secondId) return;
+    const existing = get().logicalProjects;
+    const a = existing[firstId];
+    const b = existing[secondId];
+    if (!a || !b) return;
+    const next = {
+      ...existing,
+      [firstId]: { ...a, order: b.order },
+      [secondId]: { ...b, order: a.order },
+    };
+    set({ logicalProjects: next });
+    try {
+      await persistSessionsPatch({ logicalProjects: next });
+    } catch (error) {
+      set({ logicalProjects: existing });
+      logger.error('reorderLogicalProjects error:', error);
+    }
+  },
+
   // Assign (or clear with null) a single session to a logical project
   assignSessionToLogicalProject: async (sessionId, logicalProjectId) => {
     const state = get();
@@ -269,13 +320,6 @@ export const createLogicalProjectSlice: StateCreator<AppState, [], [], LogicalPr
   },
 
   // Resolve which logical project (if any) a session belongs to.
-  // Order: explicit session assignment → cwd-folder default → null.
-  resolveLogicalProjectId: (sessionId, cwdProjectId) => {
-    const state = get();
-    const explicit = state.sessionProjectMap[sessionId];
-    if (explicit && state.logicalProjects[explicit]) return explicit;
-    const inherited = state.cwdProjectMap[cwdProjectId];
-    if (inherited && state.logicalProjects[inherited]) return inherited;
-    return null;
-  },
+  resolveLogicalProjectId: (sessionId, cwdProjectId) =>
+    resolveLogicalProjectFor(get(), sessionId, cwdProjectId)?.id ?? null,
 });

@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useStore } from '@renderer/store';
+import { resolveLogicalProjectFor } from '@renderer/store/slices/logicalProjectSlice';
 import { MAX_PANES } from '@renderer/types/panes';
 import { formatShortcut } from '@renderer/utils/stringUtils';
 import {
@@ -78,13 +79,15 @@ export const SessionContextMenu = ({
     [logicalProjects]
   );
 
-  const currentLpId = useMemo(() => {
-    const explicit = sessionProjectMap[sessionId];
-    if (explicit && logicalProjects[explicit]) return explicit;
-    const inherited = cwdProjectMap[projectId];
-    if (inherited && logicalProjects[inherited]) return inherited;
-    return null;
-  }, [sessionId, projectId, sessionProjectMap, cwdProjectMap, logicalProjects]);
+  const currentLpId = useMemo(
+    () =>
+      resolveLogicalProjectFor(
+        { logicalProjects, sessionProjectMap, cwdProjectMap },
+        sessionId,
+        projectId
+      )?.id ?? null,
+    [sessionId, projectId, sessionProjectMap, cwdProjectMap, logicalProjects]
+  );
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent): void => {
@@ -103,10 +106,14 @@ export const SessionContextMenu = ({
     };
   }, [onClose]);
 
-  const menuWidth = 240;
-  const menuHeight = 290 + sortedLogicalProjects.length * 26 + 60;
-  const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
-  const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
+  // Horizontal clamp uses a known min width; vertical sizing is handled via
+  // max-height + overflow-y on the container below, so we only need to make
+  // sure the menu starts inside the viewport and leaves room to scroll.
+  const MENU_WIDTH = 240;
+  const MIN_VERTICAL_SPACE = 120;
+  const clampedX = Math.min(x, window.innerWidth - MENU_WIDTH - 8);
+  const clampedY = Math.max(8, Math.min(y, window.innerHeight - MIN_VERTICAL_SPACE));
+  const availableHeight = window.innerHeight - clampedY - 8;
 
   const handleClick = (action: () => void) => () => {
     action();
@@ -131,10 +138,11 @@ export const SessionContextMenu = ({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 min-w-[220px] overflow-hidden rounded-md border py-1 shadow-lg"
+      className="fixed z-50 min-w-[220px] overflow-y-auto rounded-md border py-1 shadow-lg"
       style={{
         left: clampedX,
         top: clampedY,
+        maxHeight: `${availableHeight}px`,
         backgroundColor: 'var(--color-surface-overlay)',
         borderColor: 'var(--color-border-emphasis)',
         color: 'var(--color-text)',

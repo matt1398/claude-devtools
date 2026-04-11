@@ -8,6 +8,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useStore } from '@renderer/store';
+import { resolveLogicalProjectFor } from '@renderer/store/slices/logicalProjectSlice';
 import { formatTokensCompact } from '@shared/utils/tokenFormatting';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { EyeOff, MessageSquare, Pin } from 'lucide-react';
@@ -171,14 +172,11 @@ export const SessionItem = React.memo(function SessionItem({
     }))
   );
 
-  // Resolve assigned logical project (session override → cwd default → none)
-  const assignedLp = (() => {
-    const explicit = sessionProjectMap[session.id];
-    if (explicit && logicalProjects[explicit]) return logicalProjects[explicit];
-    const inherited = cwdProjectMap[session.projectId];
-    if (inherited && logicalProjects[inherited]) return logicalProjects[inherited];
-    return null;
-  })();
+  const assignedLp = resolveLogicalProjectFor(
+    { logicalProjects, sessionProjectMap, cwdProjectMap },
+    session.id,
+    session.projectId
+  );
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
