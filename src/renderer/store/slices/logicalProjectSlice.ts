@@ -41,15 +41,10 @@ function pickDefaultColor(existingCount: number): string {
 }
 
 function generateId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `lp_${crypto.randomUUID()}`;
-  }
-  const bytes = new Uint8Array(8);
-  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-    crypto.getRandomValues(bytes);
-  }
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  return `lp_${Date.now().toString(36)}_${hex}`;
+  return `lp_${hex}`;
 }
 
 // =============================================================================
@@ -217,7 +212,12 @@ export const createLogicalProjectSlice: StateCreator<AppState, [], [], LogicalPr
 
   // Assign (or clear with null) a single session to a logical project
   assignSessionToLogicalProject: async (sessionId, logicalProjectId) => {
-    const existing = get().sessionProjectMap;
+    const state = get();
+    if (logicalProjectId !== null && !state.logicalProjects[logicalProjectId]) {
+      logger.warn(`assignSessionToLogicalProject: unknown id ${logicalProjectId}`);
+      return;
+    }
+    const existing = state.sessionProjectMap;
     const next = { ...existing };
     if (logicalProjectId === null) {
       delete next[sessionId];
@@ -235,7 +235,12 @@ export const createLogicalProjectSlice: StateCreator<AppState, [], [], LogicalPr
 
   // Assign (or clear) an entire cwd project folder — applies to all its sessions
   assignCwdToLogicalProject: async (cwdProjectId, logicalProjectId) => {
-    const existing = get().cwdProjectMap;
+    const state = get();
+    if (logicalProjectId !== null && !state.logicalProjects[logicalProjectId]) {
+      logger.warn(`assignCwdToLogicalProject: unknown id ${logicalProjectId}`);
+      return;
+    }
+    const existing = state.cwdProjectMap;
     const next = { ...existing };
     if (logicalProjectId === null) {
       delete next[cwdProjectId];

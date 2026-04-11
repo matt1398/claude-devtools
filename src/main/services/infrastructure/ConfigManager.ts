@@ -20,6 +20,7 @@ import { DEFAULT_TRIGGERS, TriggerManager } from './TriggerManager';
 
 import type { TriggerColor } from '@shared/constants/triggerColors';
 import type { SshConnectionProfile } from '@shared/types/api';
+import type { LogicalProject, SidebarGroupBy } from '@shared/types/notifications';
 
 const logger = createLogger('Service:ConfigManager');
 
@@ -205,29 +206,6 @@ export interface SessionsConfig {
   /** Sidebar grouping mode for the sessions list */
   sidebarGroupBy: SidebarGroupBy;
 }
-
-/**
- * A user-defined logical project for cross-cwd session grouping.
- * Independent of Claude Code's cwd-derived project folders.
- */
-export interface LogicalProject {
-  id: string;
-  name: string;
-  /** Hex color string (e.g. '#22c55e') */
-  color: string;
-  /** Optional icon name (lucide-react) */
-  icon?: string;
-  /** Display order in the sidebar (lower = higher) */
-  order: number;
-  createdAt: number;
-}
-
-/**
- * Sidebar grouping mode.
- * - 'date': default, group by date categories
- * - 'logical-project': group by user-defined logical project
- */
-export type SidebarGroupBy = 'date' | 'logical-project';
 
 export interface SshPersistConfig {
   lastConnection: {
