@@ -28,6 +28,7 @@ interface GeneralSectionProps {
   readonly safeConfig: SafeConfig;
   readonly saving: boolean;
   readonly onGeneralToggle: (key: keyof AppConfig['general'], value: boolean) => void;
+  readonly onDisplayToggle: (key: keyof AppConfig['display'], value: boolean) => void;
   readonly onThemeChange: (value: 'dark' | 'light' | 'system') => void;
 }
 
@@ -35,6 +36,7 @@ export const GeneralSection = ({
   safeConfig,
   saving,
   onGeneralToggle,
+  onDisplayToggle,
   onThemeChange,
 }: GeneralSectionProps): React.JSX.Element => {
   const [serverStatus, setServerStatus] = useState<HttpServerStatus>({
@@ -294,6 +296,16 @@ export const GeneralSection = ({
         <SettingsToggle
           enabled={safeConfig.general.autoExpandAIGroups ?? false}
           onChange={(v) => onGeneralToggle('autoExpandAIGroups', v)}
+          disabled={saving}
+        />
+      </SettingRow>
+      <SettingRow
+        label="Keep expanded after context navigation"
+        description="Keep AI response groups expanded after navigating to them from the Visible Context panel"
+      >
+        <SettingsToggle
+          enabled={safeConfig.display.keepContextNavExpanded}
+          onChange={(v) => onDisplayToggle('keepContextNavExpanded', v)}
           disabled={saving}
         />
       </SettingRow>
