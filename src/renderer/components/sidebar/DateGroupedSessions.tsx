@@ -19,8 +19,11 @@ import {
   ArrowDownWideNarrow,
   Calendar,
   CheckSquare,
+  ChevronDown,
+  ChevronRight,
   Eye,
   EyeOff,
+  FolderTree,
   Loader2,
   MessageSquareOff,
   Pin,
@@ -33,10 +36,23 @@ import { SessionItem } from './SessionItem';
 import type { Session } from '@renderer/types/data';
 import type { DateCategory } from '@renderer/types/tabs';
 
+// Sentinel key for the Ungrouped logical-project section
+const UNGROUPED_KEY = '__ungrouped__';
+
 // Virtual list item types
 type VirtualItem =
   | { type: 'header'; category: DateCategory; id: string }
   | { type: 'pinned-header'; id: string }
+  | {
+      type: 'lp-header';
+      /** logicalProjectId or UNGROUPED_KEY */
+      key: string;
+      name: string;
+      color: string;
+      count: number;
+      collapsed: boolean;
+      id: string;
+    }
   | { type: 'session'; session: Session; isPinned: boolean; isHidden: boolean; id: string }
   | { type: 'loader'; id: string };
 
@@ -77,6 +93,11 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     hideMultipleSessions,
     unhideMultipleSessions,
     pinMultipleSessions,
+    logicalProjects,
+    sessionProjectMap,
+    cwdProjectMap,
+    sidebarGroupBy,
+    setSidebarGroupBy,
   } = useStore(
     useShallow((s) => ({
       sessions: s.sessions,
@@ -103,8 +124,25 @@ export const DateGroupedSessions = (): React.JSX.Element => {
       hideMultipleSessions: s.hideMultipleSessions,
       unhideMultipleSessions: s.unhideMultipleSessions,
       pinMultipleSessions: s.pinMultipleSessions,
+      logicalProjects: s.logicalProjects,
+      sessionProjectMap: s.sessionProjectMap,
+      cwdProjectMap: s.cwdProjectMap,
+      sidebarGroupBy: s.sidebarGroupBy,
+      setSidebarGroupBy: s.setSidebarGroupBy,
     }))
   );
+
+  // Local (non-persisted) collapsed state for logical-project sections.
+  // Keyed by logicalProjectId or UNGROUPED_KEY.
+  const [collapsedLpKeys, setCollapsedLpKeys] = useState<Set<string>>(new Set());
+  const toggleLpCollapsed = useCallback((key: string) => {
+    setCollapsedLpKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const parentRef = useRef<HTMLDivElement>(null);
   const countRef = useRef<HTMLSpanElement>(null);
@@ -145,11 +183,119 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     );
   }, [visibleSessions, sessionSortMode]);
 
-  // Flatten sessions with date headers into virtual list items
+  // Resolve which logical project a session belongs to (pure lookup — no store reads).
+  const resolveLpId = useCallback(
+    (session: Session): string | null => {
+      const explicit = sessionProjectMap[session.id];
+      if (explicit && logicalProjects[explicit]) return explicit;
+      const inherited = cwdProjectMap[session.projectId];
+      if (inherited && logicalProjects[inherited]) return inherited;
+      return null;
+    },
+    [sessionProjectMap, cwdProjectMap, logicalProjects]
+  );
+
+  // Logical-project grouping of unpinned sessions (only computed in lp mode).
+  const lpGrouping = useMemo(() => {
+    if (sidebarGroupBy !== 'logical-project') {
+      return null;
+    }
+    const byLp: Record<string, Session[]> = {};
+    const ungrouped: Session[] = [];
+    for (const session of unpinnedSessions) {
+      const lpId = resolveLpId(session);
+      if (lpId) {
+        (byLp[lpId] ??= []).push(session);
+      } else {
+        ungrouped.push(session);
+      }
+    }
+    // Sort within each group by the active sort mode
+    const sortFn = (a: Session, b: Session): number =>
+      sessionSortMode === 'most-context'
+        ? (b.contextConsumption ?? 0) - (a.contextConsumption ?? 0)
+        : b.createdAt - a.createdAt;
+    for (const arr of Object.values(byLp)) arr.sort(sortFn);
+    // Ungrouped always time-sorted per user spec
+    ungrouped.sort((a, b) => b.createdAt - a.createdAt);
+
+    // Ordered list of logical projects with sessions (skip empty ones)
+    const orderedLps = Object.values(logicalProjects)
+      .filter((lp) => (byLp[lp.id]?.length ?? 0) > 0)
+      .sort((a, b) => a.order - b.order);
+
+    return { byLp, ungrouped, orderedLps };
+  }, [sidebarGroupBy, unpinnedSessions, sessionSortMode, resolveLpId, logicalProjects]);
+
+  // Flatten sessions with headers into virtual list items
   const virtualItems = useMemo((): VirtualItem[] => {
     const items: VirtualItem[] = [];
 
-    if (sessionSortMode === 'most-context') {
+    if (sidebarGroupBy === 'logical-project' && lpGrouping) {
+      // Pinned section remains at top in logical-project mode
+      if (pinnedSessions.length > 0) {
+        items.push({ type: 'pinned-header', id: 'header-pinned' });
+        for (const session of pinnedSessions) {
+          items.push({
+            type: 'session',
+            session,
+            isPinned: true,
+            isHidden: hiddenSet.has(session.id),
+            id: `session-${session.id}`,
+          });
+        }
+      }
+
+      for (const lp of lpGrouping.orderedLps) {
+        const sessionsForLp = lpGrouping.byLp[lp.id] ?? [];
+        const collapsed = collapsedLpKeys.has(lp.id);
+        items.push({
+          type: 'lp-header',
+          key: lp.id,
+          name: lp.name,
+          color: lp.color,
+          count: sessionsForLp.length,
+          collapsed,
+          id: `lp-${lp.id}`,
+        });
+        if (!collapsed) {
+          for (const session of sessionsForLp) {
+            items.push({
+              type: 'session',
+              session,
+              isPinned: false,
+              isHidden: hiddenSet.has(session.id),
+              id: `session-${session.id}`,
+            });
+          }
+        }
+      }
+
+      // Ungrouped section at the bottom
+      if (lpGrouping.ungrouped.length > 0) {
+        const collapsed = collapsedLpKeys.has(UNGROUPED_KEY);
+        items.push({
+          type: 'lp-header',
+          key: UNGROUPED_KEY,
+          name: 'Ungrouped',
+          color: '#6b7280',
+          count: lpGrouping.ungrouped.length,
+          collapsed,
+          id: 'lp-ungrouped',
+        });
+        if (!collapsed) {
+          for (const session of lpGrouping.ungrouped) {
+            items.push({
+              type: 'session',
+              session,
+              isPinned: false,
+              isHidden: hiddenSet.has(session.id),
+              id: `session-${session.id}`,
+            });
+          }
+        }
+      }
+    } else if (sessionSortMode === 'most-context') {
       // Flat list sorted by consumption - no date headers, no pinned section
       for (const session of contextSortedSessions) {
         items.push({
@@ -208,6 +354,9 @@ export const DateGroupedSessions = (): React.JSX.Element => {
 
     return items;
   }, [
+    sidebarGroupBy,
+    lpGrouping,
+    collapsedLpKeys,
     sessionSortMode,
     contextSortedSessions,
     pinnedSessionIds,
@@ -227,6 +376,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
       switch (item.type) {
         case 'header':
         case 'pinned-header':
+        case 'lp-header':
           return HEADER_HEIGHT;
         case 'loader':
           return LOADER_HEIGHT;
@@ -455,6 +605,23 @@ export const DateGroupedSessions = (): React.JSX.Element => {
           >
             <Activity className="size-3.5" />
           </button>
+          {/* Group-by toggle: date <-> logical project */}
+          <button
+            onClick={() =>
+              void setSidebarGroupBy(sidebarGroupBy === 'date' ? 'logical-project' : 'date')
+            }
+            className="rounded p-1 transition-colors hover:bg-white/5"
+            title={
+              sidebarGroupBy === 'date'
+                ? 'Group by logical project'
+                : 'Group by date'
+            }
+            style={{
+              color: sidebarGroupBy === 'logical-project' ? '#818cf8' : 'var(--color-text-muted)',
+            }}
+          >
+            <FolderTree className="size-3.5" />
+          </button>
           {/* Sort mode toggle */}
           <button
             onClick={() =>
@@ -562,6 +729,30 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                     <Pin className="size-3" />
                     Pinned
                   </div>
+                ) : item.type === 'lp-header' ? (
+                  <button
+                    type="button"
+                    onClick={() => toggleLpCollapsed(item.key)}
+                    className="sticky top-0 flex h-full w-full items-center gap-1.5 border-t px-4 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wider transition-colors hover:bg-white/5"
+                    style={{
+                      backgroundColor: 'var(--color-surface-sidebar)',
+                      color: 'var(--color-text-muted)',
+                      borderColor: 'var(--color-border-emphasis)',
+                    }}
+                    title={item.collapsed ? 'Expand section' : 'Collapse section'}
+                  >
+                    {item.collapsed ? (
+                      <ChevronRight className="size-3" />
+                    ) : (
+                      <ChevronDown className="size-3" />
+                    )}
+                    <span
+                      className="inline-block size-2 rounded-full"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="truncate">{item.name}</span>
+                    <span className="ml-auto opacity-60">({item.count})</span>
+                  </button>
                 ) : item.type === 'header' ? (
                   <div
                     className="sticky top-0 flex h-full items-center border-t px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
