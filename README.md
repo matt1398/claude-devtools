@@ -8,6 +8,10 @@
   <strong>Your Claude is coding blind. See everything it did.</strong>
 </p>
 
+<p align="center">
+  <sub>The debugging tool for Claude Code. Read session transcripts, inspect tool calls, track token usage — directly from the Claude Code logs on your machine.</sub>
+</p>
+
 
 <p align="center">
   <a href="https://claude-dev.tools"><img src="https://img.shields.io/badge/Website-claude--dev.tools-blue?style=flat-square" alt="Website" /></a>&nbsp;
@@ -65,7 +69,7 @@ The only workaround is `--verbose`, which dumps raw JSON, internal system prompt
 
 ## The Solution
 
-claude-devtools reads `~/.claude/` — the session logs already on your machine — and reconstructs *everything*.
+**claude-devtools is the debugging tool for Claude Code.** It reads the Claude Code logs and session transcripts already saved to `~/.claude/` on your machine, and reconstructs *everything*.
 
 | What the terminal hides | What claude-devtools shows |
 |------------------------|---------------------------|
