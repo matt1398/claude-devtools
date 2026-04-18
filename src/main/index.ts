@@ -24,6 +24,7 @@ import { join } from 'path';
 
 import { initializeIpcHandlers, removeIpcHandlers } from './ipc/handlers';
 import { getProjectsBasePath, getTodosBasePath } from './utils/pathDecoder';
+import { sessionParserPool } from './workers/SessionParserPool';
 
 // Dynamic renderer heap limit — proportional to system RAM so low-end devices
 // are not starved.  50% of total RAM, clamped to [2 GB, 4 GB].
@@ -408,6 +409,9 @@ function shutdownServices(): void {
   if (sshConnectionManager) {
     sshConnectionManager.dispose();
   }
+
+  // Terminate worker pool
+  sessionParserPool.terminate();
 
   // Remove IPC handlers
   removeIpcHandlers();

@@ -14,6 +14,8 @@ import { calculateMetrics, checkMessagesOngoing, parseJsonlFile } from '@main/ut
 import { createLogger } from '@shared/utils/logger';
 import * as path from 'path';
 
+import { computeSubagentDisplayMeta } from '../analysis/SubagentDisplayMetaBuilder';
+
 import { type ProjectScanner } from './ProjectScanner';
 
 const logger = createLogger('Discovery:SubagentResolver');
@@ -118,10 +120,16 @@ export class SubagentResolver {
       // Check if subagent is still in progress
       const isOngoing = checkMessagesOngoing(messages);
 
+      // Pre-compute display metadata so callers downstream of this resolver
+      // (drill-down builder, etc.) can use the same fast renderer path even
+      // when the messages array is later stripped on the worker output.
+      const displayMeta = computeSubagentDisplayMeta(messages);
+
       return {
         id: agentId,
         filePath,
         messages,
+        displayMeta,
         startTime,
         endTime,
         durationMs,
