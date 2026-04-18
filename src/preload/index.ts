@@ -22,6 +22,7 @@ import {
   SSH_SAVE_LAST_CONNECTION,
   SSH_STATUS,
   SSH_TEST,
+  SUBAGENT_GET_MESSAGES,
   UPDATER_CHECK,
   UPDATER_DOWNLOAD,
   UPDATER_INSTALL,
@@ -96,6 +97,7 @@ interface IpcFileChangePayload {
   projectId?: string;
   sessionId?: string;
   isSubagent: boolean;
+  fileSize?: number;
 }
 
 /**
@@ -152,11 +154,12 @@ const electronAPI: ElectronAPI = {
     ipcRenderer.invoke('get-waterfall-data', projectId, sessionId),
   getSubagentDetail: (projectId: string, sessionId: string, subagentId: string) =>
     ipcRenderer.invoke('get-subagent-detail', projectId, sessionId, subagentId),
+  getSubagentMessages: (projectId: string, sessionId: string, subagentId: string) =>
+    ipcRenderer.invoke(SUBAGENT_GET_MESSAGES, projectId, sessionId, subagentId),
   getSessionGroups: (projectId: string, sessionId: string) =>
     ipcRenderer.invoke('get-session-groups', projectId, sessionId),
   getSessionsByIds: (projectId: string, sessionIds: string[], options?: SessionsByIdsOptions) =>
     ipcRenderer.invoke('get-sessions-by-ids', projectId, sessionIds, options),
-
   // Repository grouping (worktree support)
   getRepositoryGroups: () => ipcRenderer.invoke('get-repository-groups'),
   getWorktreeSessions: (worktreeId: string) =>

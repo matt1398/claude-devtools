@@ -14,6 +14,7 @@ import {
   type SemanticStepGroup,
   type SubagentDetail,
 } from '@main/types';
+import { buildSubagentsPath } from '@main/utils/pathDecoder';
 import { countTokens } from '@main/utils/tokenizer';
 import { createLogger } from '@shared/utils/logger';
 import * as path from 'path';
@@ -42,7 +43,7 @@ import type { SessionParser } from '../parsing/SessionParser';
  */
 export async function buildSubagentDetail(
   projectId: string,
-  _sessionId: string, // Unused but kept for API consistency
+  sessionId: string,
   subagentId: string,
   sessionParser: SessionParser,
   subagentResolver: SubagentResolver,
@@ -51,13 +52,9 @@ export async function buildSubagentDetail(
   projectsDir: string
 ): Promise<SubagentDetail | null> {
   try {
-    // Construct path to subagent JSONL file
-    const subagentPath = path.join(
-      projectsDir,
-      projectId,
-      'subagents',
-      `agent-${subagentId}.jsonl`
-    );
+    // Layout: {projectsDir}/{baseProjectId}/{sessionId}/subagents/agent-X.jsonl
+    const subagentsDir = buildSubagentsPath(projectsDir, projectId, sessionId);
+    const subagentPath = path.join(subagentsDir, `agent-${subagentId}.jsonl`);
 
     // Check if file exists
     if (!(await fsProvider.exists(subagentPath))) {

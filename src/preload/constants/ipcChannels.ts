@@ -187,3 +187,10 @@ export const FIND_SESSION_BY_ID = 'find-session-by-id';
 
 /** Find sessions whose IDs contain a given hex fragment */
 export const FIND_SESSIONS_BY_PARTIAL_ID = 'find-sessions-by-partial-id';
+
+// =============================================================================
+// Subagent API Channels
+// =============================================================================
+
+/** Lazy-load a single subagent's parsed messages (renderer expansion path) */
+export const SUBAGENT_GET_MESSAGES = 'subagent:get-messages';

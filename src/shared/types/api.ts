@@ -20,6 +20,7 @@ import type {
   FindSessionByIdResult,
   FindSessionsByPartialIdResult,
   PaginatedSessionsResult,
+  ParsedMessage,
   Project,
   RepositoryGroup,
   SearchSessionsResult,
@@ -349,13 +350,22 @@ export interface ElectronAPI {
     sessionId: string,
     subagentId: string
   ) => Promise<SubagentDetail | null>;
+  /**
+   * Lazy-load a subagent's full parsed message body. Worker output now strips
+   * `Process.messages` to bound memory; renderer calls this when a subagent
+   * is expanded inline. Backed by an LRU cache in the main process.
+   */
+  getSubagentMessages: (
+    projectId: string,
+    sessionId: string,
+    subagentId: string
+  ) => Promise<ParsedMessage[]>;
   getSessionGroups: (projectId: string, sessionId: string) => Promise<ConversationGroup[]>;
   getSessionsByIds: (
     projectId: string,
     sessionIds: string[],
     options?: SessionsByIdsOptions
   ) => Promise<Session[]>;
-
   // Repository grouping (worktree support)
   getRepositoryGroups: () => Promise<RepositoryGroup[]>;
   getWorktreeSessions: (worktreeId: string) => Promise<Session[]>;

@@ -28,6 +28,7 @@ import type {
   UpdaterService,
 } from '../services';
 import type { SshConnectionManager } from '../services/infrastructure/SshConnectionManager';
+import type { SubagentMessageCache } from '../services/infrastructure/SubagentMessageCache';
 import type { FastifyInstance } from 'fastify';
 
 const logger = createLogger('HTTP:routes');
@@ -38,6 +39,7 @@ export interface HttpServices {
   subagentResolver: SubagentResolver;
   chunkBuilder: ChunkBuilder;
   dataCache: DataCache;
+  subagentMessageCache: SubagentMessageCache;
   updaterService: UpdaterService;
   sshConnectionManager: SshConnectionManager;
 }
