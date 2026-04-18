@@ -34,6 +34,7 @@ export type ConfigUpdateValidationResult =
   | ValidationSuccess<'display'>
   | ValidationSuccess<'httpServer'>
   | ValidationSuccess<'ssh'>
+  | ValidationSuccess<'subscriptions'>
   | ValidationFailure;
 
 const VALID_SECTIONS = new Set<ConfigSection>([
@@ -42,6 +43,7 @@ const VALID_SECTIONS = new Set<ConfigSection>([
   'display',
   'httpServer',
   'ssh',
+  'subscriptions',
 ]);
 const MAX_SNOOZE_MINUTES = 24 * 60;
 
@@ -432,6 +434,41 @@ function validateSshSection(data: unknown): ValidationSuccess<'ssh'> | Validatio
   return { valid: true, section: 'ssh', data: result };
 }
 
+function isValidSubscriptionEntry(entry: unknown): boolean {
+  if (!isPlainObject(entry)) return false;
+  if (typeof entry.id !== 'string' || entry.id.trim().length === 0) return false;
+  if (typeof entry.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) return false;
+  if (typeof entry.plan !== 'string' || entry.plan.trim().length === 0) return false;
+  if (!isFiniteNumber(entry.amountUsd) || entry.amountUsd <= 0) return false;
+  if (entry.note !== undefined && typeof entry.note !== 'string') return false;
+  return true;
+}
+
+function validateSubscriptionsSection(
+  data: unknown
+): ValidationSuccess<'subscriptions'> | ValidationFailure {
+  if (!isPlainObject(data)) {
+    return { valid: false, error: 'subscriptions update must be an object' };
+  }
+
+  if (!('entries' in data)) {
+    return { valid: false, error: 'subscriptions.entries is required' };
+  }
+
+  if (!Array.isArray(data.entries) || !data.entries.every(isValidSubscriptionEntry)) {
+    return {
+      valid: false,
+      error: 'subscriptions.entries must be a valid subscription entry array',
+    };
+  }
+
+  return {
+    valid: true,
+    section: 'subscriptions',
+    data: { entries: data.entries as AppConfig['subscriptions']['entries'] },
+  };
+}
+
 export function validateConfigUpdatePayload(
   section: unknown,
   data: unknown
@@ -439,7 +476,7 @@ export function validateConfigUpdatePayload(
   if (typeof section !== 'string' || !VALID_SECTIONS.has(section as ConfigSection)) {
     return {
       valid: false,
-      error: 'Section must be one of: notifications, general, display, httpServer, ssh',
+      error: 'Section must be one of: notifications, general, display, httpServer, ssh, subscriptions',
     };
   }
 
@@ -454,6 +491,8 @@ export function validateConfigUpdatePayload(
       return validateHttpServerSection(data);
     case 'ssh':
       return validateSshSection(data);
+    case 'subscriptions':
+      return validateSubscriptionsSection(data);
     default:
       return { valid: false, error: 'Invalid section' };
   }
