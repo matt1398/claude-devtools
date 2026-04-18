@@ -13,6 +13,7 @@ import type { ProjectSlice } from './slices/projectSlice';
 import type { RepositorySlice } from './slices/repositorySlice';
 import type { SessionDetailSlice } from './slices/sessionDetailSlice';
 import type { SessionSlice } from './slices/sessionSlice';
+import type { SubagentMessageCacheSlice } from './slices/subagentMessageCacheSlice';
 import type { SubagentSlice } from './slices/subagentSlice';
 import type { TabSlice } from './slices/tabSlice';
 import type { TabUISlice } from './slices/tabUISlice';
@@ -81,6 +82,7 @@ export type AppState = ProjectSlice &
   SessionSlice &
   SessionDetailSlice &
   SubagentSlice &
+  SubagentMessageCacheSlice &
   ConversationSlice &
   TabSlice &
   TabUISlice &

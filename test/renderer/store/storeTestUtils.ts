@@ -12,6 +12,7 @@ import { createProjectSlice } from '../../../src/renderer/store/slices/projectSl
 import { createRepositorySlice } from '../../../src/renderer/store/slices/repositorySlice';
 import { createSessionDetailSlice } from '../../../src/renderer/store/slices/sessionDetailSlice';
 import { createSessionSlice } from '../../../src/renderer/store/slices/sessionSlice';
+import { createSubagentMessageCacheSlice } from '../../../src/renderer/store/slices/subagentMessageCacheSlice';
 import { createSubagentSlice } from '../../../src/renderer/store/slices/subagentSlice';
 import { createTabSlice } from '../../../src/renderer/store/slices/tabSlice';
 import { createTabUISlice } from '../../../src/renderer/store/slices/tabUISlice';
@@ -30,6 +31,7 @@ export function createTestStore() {
     ...createSessionSlice(...args),
     ...createSessionDetailSlice(...args),
     ...createSubagentSlice(...args),
+    ...createSubagentMessageCacheSlice(...args),
     ...createConversationSlice(...args),
     ...createTabSlice(...args),
     ...createTabUISlice(...args),

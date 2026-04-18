@@ -31,6 +31,7 @@ export interface MockElectronAPI {
   getRepositoryGroups: ReturnType<typeof vi.fn>;
   getWorktreeSessions: ReturnType<typeof vi.fn>;
   getSubagentDetail: ReturnType<typeof vi.fn>;
+  getSubagentMessages: ReturnType<typeof vi.fn>;
   searchSessions: ReturnType<typeof vi.fn>;
   readClaudeMdFiles: ReturnType<typeof vi.fn>;
   readDirectoryClaudeMd: ReturnType<typeof vi.fn>;
@@ -94,6 +95,7 @@ export function createMockElectronAPI(): MockElectronAPI {
     getRepositoryGroups: vi.fn().mockResolvedValue([]),
     getWorktreeSessions: vi.fn().mockResolvedValue([]),
     getSubagentDetail: vi.fn().mockResolvedValue(null),
+    getSubagentMessages: vi.fn().mockResolvedValue([]),
     searchSessions: vi.fn().mockResolvedValue({
       results: [],
       totalMatches: 0,

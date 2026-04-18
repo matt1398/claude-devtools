@@ -4,7 +4,6 @@ import { COLOR_TEXT_MUTED, COLOR_TEXT_SECONDARY } from '@renderer/constants/cssV
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useStore } from '@renderer/store';
 import { enhanceAIGroup, type PrecedingSlashInfo } from '@renderer/utils/aiGroupEnhancer';
-import { extractSlashInfo, isCommandContent } from '@shared/utils/contentSanitizer';
 import { getModelColorClass } from '@shared/utils/modelParser';
 import { estimateTokens } from '@shared/utils/tokenFormatting';
 import { format } from 'date-fns';
@@ -22,39 +21,11 @@ import type {
   AIGroup,
   AIGroupDisplayItem,
   EnhancedAIGroup,
-  UserGroup,
 } from '@renderer/types/groups';
 import type { TriggerColor } from '@shared/constants/triggerColors';
 
-/**
- * Extract slash info from a UserGroup's message content.
- * Returns PrecedingSlashInfo if the user message was a slash invocation,
- * null otherwise.
- */
-function extractPrecedingSlashInfo(
-  userGroup: UserGroup | undefined
-): PrecedingSlashInfo | undefined {
-  if (!userGroup) return undefined;
-
-  const msg = userGroup.message;
-  const content = msg.content;
-
-  // Check if this is a slash message (has <command-name> tags)
-  if (typeof content === 'string' && isCommandContent(content)) {
-    const slashInfo = extractSlashInfo(content);
-    if (slashInfo) {
-      return {
-        name: slashInfo.name,
-        message: slashInfo.message,
-        args: slashInfo.args,
-        commandMessageUuid: msg.uuid,
-        timestamp: new Date(msg.timestamp),
-      };
-    }
-  }
-
-  return undefined;
-}
+// extractPrecedingSlashInfo moved to ChatHistory — pre-computed as a map to
+// avoid O(n) scan per visible group per refresh cycle.
 
 /**
  * Format duration in milliseconds to human-readable string.
@@ -85,24 +56,31 @@ interface AIChatGroupProps {
   highlightColor?: TriggerColor;
   /** Register ref for individual tool items (for precise scroll targeting) */
   registerToolRef?: (toolId: string, el: HTMLElement | null) => void;
+  /** Pre-computed slash info from the preceding user message (avoids O(n) scan per group). */
+  precedingSlash?: PrecedingSlashInfo;
 }
 
 /**
  * Checks if a tool ID exists within the display items (including nested subagents).
+ *
+ * For subagents we read the precomputed `displayMeta.toolUseIds` slot rather
+ * than iterating `subagent.messages`, since the worker output strips the
+ * messages array. Falls back to message iteration only if displayMeta is
+ * absent (legacy/uncached path).
  */
 function containsToolUseId(items: AIGroupDisplayItem[], toolUseId: string): boolean {
   for (const item of items) {
     if (item.type === 'tool' && item.tool.id === toolUseId) {
       return true;
     }
-    // Check nested subagent messages for the tool ID
-    if (item.type === 'subagent' && item.subagent.messages) {
-      for (const msg of item.subagent.messages) {
-        if (msg.toolCalls?.some((tc) => tc.id === toolUseId)) {
-          return true;
-        }
-        if (msg.toolResults?.some((tr) => tr.toolUseId === toolUseId)) {
-          return true;
+    if (item.type === 'subagent') {
+      const ids = item.subagent.displayMeta?.toolUseIds;
+      if (ids?.includes(toolUseId)) return true;
+      // Legacy fallback for code paths that haven't populated displayMeta.
+      if (!ids && item.subagent.messages) {
+        for (const msg of item.subagent.messages) {
+          if (msg.toolCalls?.some((tc) => tc.id === toolUseId)) return true;
+          if (msg.toolResults?.some((tr) => tr.toolUseId === toolUseId)) return true;
         }
       }
     }
@@ -125,6 +103,7 @@ const AIChatGroupInner = ({
   highlightToolUseId,
   highlightColor,
   registerToolRef,
+  precedingSlash: precedingSlashProp,
 }: Readonly<AIChatGroupProps>): React.JSX.Element => {
   // Per-tab UI state for expansion (completely isolated per tab)
   const {
@@ -147,12 +126,15 @@ const AIChatGroupInner = ({
     return s.sessions.find((sess) => sess.id === id)?.isOngoing ?? false;
   });
 
-  // Per-tab session data subscriptions, falling back to global state
+  // Per-tab session data subscriptions, falling back to global state.
+  // NOTE: `conversation` is intentionally NOT subscribed here — it caused
+  // all ~16 visible AIChatGroups to fully re-render on every 3s refresh,
+  // re-running all memos (O(n) precedingSlash scan, enhanceAIGroup, etc).
+  // precedingSlash is now pre-computed and passed as a prop from ChatHistory.
   const {
     sessionClaudeMdStats,
     sessionContextStats,
     sessionPhaseInfo,
-    conversation,
     searchExpandedAIGroupIds,
     searchExpandedSubagentIds,
     searchCurrentDisplayItemId,
@@ -163,7 +145,6 @@ const AIChatGroupInner = ({
         sessionClaudeMdStats: td?.sessionClaudeMdStats ?? s.sessionClaudeMdStats,
         sessionContextStats: td?.sessionContextStats ?? s.sessionContextStats,
         sessionPhaseInfo: td?.sessionPhaseInfo ?? s.sessionPhaseInfo,
-        conversation: td?.conversation ?? s.conversation,
         searchExpandedAIGroupIds: s.searchExpandedAIGroupIds,
         searchExpandedSubagentIds: s.searchExpandedSubagentIds,
         searchCurrentDisplayItemId: s.searchCurrentDisplayItemId,
@@ -191,30 +172,10 @@ const AIChatGroupInner = ({
   const phaseNumber = sessionPhaseInfo?.aiGroupPhaseMap.get(aiGroup.id);
   const totalPhases = sessionPhaseInfo?.phases.length ?? 0;
 
-  // Find the preceding UserGroup for this AIGroup to extract slash info
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- React Compiler can't preserve this; manual memo needed for O(n) traversal
-  const precedingSlash = useMemo(() => {
-    if (!conversation?.items) return undefined;
-
-    // Find the index of this AIGroup in the conversation
-    const aiGroupIndex = conversation.items.findIndex(
-      (item) => item.type === 'ai' && item.group.id === aiGroup.id
-    );
-
-    if (aiGroupIndex <= 0) return undefined;
-
-    // Look backwards for the nearest UserGroup
-    for (let i = aiGroupIndex - 1; i >= 0; i--) {
-      const item = conversation.items[i];
-      if (item.type === 'user') {
-        return extractPrecedingSlashInfo(item.group);
-      }
-      // Stop if we hit another AI group (shouldn't happen in normal flow)
-      if (item.type === 'ai') break;
-    }
-
-    return undefined;
-  }, [conversation?.items, aiGroup.id]);
+  // precedingSlash is pre-computed in ChatHistory and passed as prop.
+  // Previously this was an O(n) findIndex scan PER visible group PER refresh cycle,
+  // causing 16 × O(n) work on every 3s refresh for no benefit.
+  const precedingSlash = precedingSlashProp;
 
   // Enhance the AI group to get display-ready data
   const enhanced: EnhancedAIGroup = useMemo(
@@ -271,7 +232,9 @@ const AIChatGroupInner = ({
   const isExpanded =
     isAIGroupExpandedForTab(aiGroup.id) || containsHighlightedError || shouldExpandForSearch;
 
-  // Helper function to find the item ID containing the highlighted tool
+  // Helper function to find the item ID containing the highlighted tool.
+  // Subagent lookups use the precomputed displayMeta.toolUseIds set when
+  // available so we don't need to load the message body just to find an id.
   const findHighlightedItemId = useCallback(
     (toolUseId: string): string | null => {
       for (let i = 0; i < enhanced.displayItems.length; i++) {
@@ -279,14 +242,19 @@ const AIChatGroupInner = ({
         if (item.type === 'tool' && item.tool.id === toolUseId) {
           return `tool-${item.tool.id}-${i}`;
         }
-        // For subagents, expand the subagent item
-        if (item.type === 'subagent' && item.subagent.messages) {
-          for (const msg of item.subagent.messages) {
-            if (
-              msg.toolCalls?.some((tc) => tc.id === toolUseId) ||
-              msg.toolResults?.some((tr) => tr.toolUseId === toolUseId)
-            ) {
-              return `subagent-${item.subagent.id}-${i}`;
+        if (item.type === 'subagent') {
+          const ids = item.subagent.displayMeta?.toolUseIds;
+          if (ids?.includes(toolUseId)) {
+            return `subagent-${item.subagent.id}-${i}`;
+          }
+          if (!ids && item.subagent.messages) {
+            for (const msg of item.subagent.messages) {
+              if (
+                msg.toolCalls?.some((tc) => tc.id === toolUseId) ||
+                msg.toolResults?.some((tr) => tr.toolUseId === toolUseId)
+              ) {
+                return `subagent-${item.subagent.id}-${i}`;
+              }
             }
           }
         }

@@ -12,13 +12,57 @@
  * - Constants
  */
 
-import { type Session, type SessionMetrics } from './domain';
+import {
+  type PhaseTokenBreakdown,
+  type Session,
+  type SessionMetrics,
+  type TokenUsage,
+} from './domain';
 import { type ToolUseResultData } from './jsonl';
 import { type ParsedMessage, type ToolCall, type ToolResult } from './messages';
 
 // =============================================================================
 // Process Types (Subagent Execution)
 // =============================================================================
+
+/**
+ * Pre-computed display data for a subagent.
+ *
+ * Extracted in main process during parsing so the renderer can render the
+ * collapsed SubagentItem header without holding the full transcript. Keeps
+ * `Process.messages` empty in the worker output path, reducing per-cached-
+ * SessionDetail memory by ~MB→KB per subagent.
+ *
+ * Full message bodies are loaded lazily via the get-subagent-messages IPC
+ * when the user expands a subagent or a highlighted-error needs the trace.
+ */
+export interface SubagentDisplayMeta {
+  /** Number of assistant messages containing at least one tool_use block. */
+  toolCount: number;
+  /** Model name from the first assistant message that has one (excluding `<synthetic>`). */
+  modelName: string | null;
+  /** Usage block from the LAST assistant message that has one. */
+  lastUsage: TokenUsage | null;
+  /** Count of assistant messages that have a usage block (used for "N turns"). */
+  turnCount: number;
+  /**
+   * True when this is a team member whose only assistant action is a
+   * SendMessage(shutdown_response). Used to render the slim shutdown row.
+   */
+  isShutdownOnly: boolean;
+  /** Multi-phase context breakdown when subagent has compaction events. */
+  phaseBreakdown?: {
+    phases: PhaseTokenBreakdown[];
+    totalConsumption: number;
+    compactionCount: number;
+  };
+  /**
+   * Every tool_use id and tool_result tool_use_id seen in this subagent's
+   * messages. Used by AIChatGroup.containsToolUseId and SubagentItem's
+   * highlighted-error check without iterating messages.
+   */
+  toolUseIds: string[];
+}
 
 /**
  * Resolved subagent information.
@@ -28,7 +72,14 @@ export interface Process {
   id: string;
   /** Path to the subagent JSONL file */
   filePath: string;
-  /** Parsed messages from the subagent session */
+  /**
+   * Parsed messages from the subagent session.
+   *
+   * In the worker output path this is intentionally empty; the renderer
+   * loads bodies on demand via get-subagent-messages. Direct callers of
+   * SubagentResolver (drill-down via SubagentDetailBuilder) still get the
+   * full array.
+   */
   messages: ParsedMessage[];
   /** When the subagent started */
   startTime: Date;
@@ -38,6 +89,12 @@ export interface Process {
   durationMs: number;
   /** Aggregated metrics for the subagent */
   metrics: SessionMetrics;
+  /**
+   * Pre-computed display data for inline rendering without loading messages.
+   * Optional for backwards compat with code paths that don't compute it,
+   * but the worker output and SubagentResolver always populate it.
+   */
+  displayMeta?: SubagentDisplayMeta;
   /** Task description from parent Task call */
   description?: string;
   /** Subagent type from Task call (e.g., "Explore", "Plan") */
@@ -401,6 +458,8 @@ export interface SessionDetail {
   processes: Process[];
   /** Aggregated metrics for the entire session */
   metrics: SessionMetrics;
+  /** Timestamp (ms) when Rust native pipeline was used, or false if JS fallback */
+  _nativePipeline?: number | false;
 }
 
 /**
@@ -444,6 +503,7 @@ export interface FileChangeEvent {
   projectId?: string;
   sessionId?: string;
   isSubagent: boolean;
+  fileSize?: number;
 }
 
 // =============================================================================

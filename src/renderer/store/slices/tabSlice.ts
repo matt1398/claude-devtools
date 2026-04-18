@@ -22,7 +22,10 @@ import {
   syncFocusedPaneState,
   updatePane,
 } from '../utils/paneHelpers';
-import { getFullResetState } from '../utils/stateResetHelpers';
+import {
+  getConversationExpansionResetState,
+  getFullResetState,
+} from '../utils/stateResetHelpers';
 
 import type { AppState, SearchNavigationContext } from '../types';
 import type { PaneLayout } from '@renderer/types/panes';
@@ -302,6 +305,7 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
           if (hasCachedData) {
             // Swap global state from per-tab cache (no re-fetch)
             set({
+              ...getConversationExpansionResetState(),
               sessionDetail: cachedTabData.sessionDetail,
               conversation: cachedTabData.conversation,
               conversationLoading: false,
@@ -338,6 +342,7 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
           if (hasCachedData) {
             // Swap global state from per-tab cache (no re-fetch)
             set({
+              ...getConversationExpansionResetState(),
               sessionDetail: cachedTabData.sessionDetail,
               conversation: cachedTabData.conversation,
               conversationLoading: false,

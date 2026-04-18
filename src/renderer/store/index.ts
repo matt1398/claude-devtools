@@ -15,6 +15,7 @@ import { createProjectSlice } from './slices/projectSlice';
 import { createRepositorySlice } from './slices/repositorySlice';
 import { createSessionDetailSlice } from './slices/sessionDetailSlice';
 import { createSessionSlice } from './slices/sessionSlice';
+import { createSubagentMessageCacheSlice } from './slices/subagentMessageCacheSlice';
 import { createSubagentSlice } from './slices/subagentSlice';
 import { createTabSlice } from './slices/tabSlice';
 import { createTabUISlice } from './slices/tabUISlice';
@@ -35,6 +36,7 @@ export const useStore = create<AppState>()((...args) => ({
   ...createSessionSlice(...args),
   ...createSessionDetailSlice(...args),
   ...createSubagentSlice(...args),
+  ...createSubagentMessageCacheSlice(...args),
   ...createConversationSlice(...args),
   ...createTabSlice(...args),
   ...createTabUISlice(...args),
@@ -63,47 +65,115 @@ export function initializeNotificationListeners(): () => void {
   const cleanupFns: (() => void)[] = [];
   const pendingSessionRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const pendingProjectRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const lastKnownSizes = new Map<string, number>();
+  /**
+   * Tracks when each session's refresh last *executed* (not scheduled).
+   * Used to enforce a minimum cooldown between actual refresh cycles.
+   * During streaming, the adaptive debounce (100ms for small deltas) would
+   * otherwise fire 10 refreshes/second, each creating a full IPC roundtrip +
+   * JSONL parse + conversation transformation → 3-6 GB/min allocations that
+   * outpace GC → unbounded renderer memory growth → crash at 3.4 GB.
+   *
+   * A 3 s cooldown floor reduces this to ~0.3/sec (20× fewer allocations)
+   * while keeping the UI visually responsive for humans.
+   */
+  const lastRefreshTimestamps = new Map<string, number>();
+  const REFRESH_COOLDOWN_MS = 3000;
+  /** When renderer heap exceeds this, double the cooldown to ease GC pressure. */
+  const MEMORY_PRESSURE_THRESHOLD_MB = 1500;
+  /** When renderer heap exceeds this, skip refreshes entirely (only manual Ctrl+R). */
+  const MEMORY_CRITICAL_THRESHOLD_MB = 2500;
   const SESSION_REFRESH_DEBOUNCE_MS = 150;
   const PROJECT_REFRESH_DEBOUNCE_MS = 300;
+
+  /** Check renderer memory pressure via Chrome-specific performance.memory API. */
+  function getRendererHeapMB(): number {
+    const mem = (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory;
+    return mem?.usedJSHeapSize ? Math.round(mem.usedJSHeapSize / (1024 * 1024)) : 0;
+  }
   const getBaseProjectId = (projectId: string | null | undefined): string | null => {
     if (!projectId) return null;
     const separatorIndex = projectId.indexOf('::');
     return separatorIndex >= 0 ? projectId.slice(0, separatorIndex) : projectId;
   };
 
-  const scheduleSessionRefresh = (projectId: string, sessionId: string): void => {
+  const scheduleSessionRefresh = (
+    projectId: string,
+    sessionId: string,
+    fileSize?: number
+  ): void => {
     const key = `${projectId}/${sessionId}`;
     // Throttle (not trailing debounce): keep at most one pending refresh per session.
-    // Debounce can delay updates indefinitely while the file is continuously appended.
     if (pendingSessionRefreshTimers.has(key)) {
       return;
     }
 
-    // Adaptive debounce: large sessions refresh less frequently to reduce memory churn.
-    // Uses the TARGET session's cached totalAIGroups so a long session in another pane
-    // doesn't force the active short session to the default interval.
-    const state = useStore.getState();
-    const tabData = Object.values(state.tabSessionData).find(
-      (td) => td?.sessionDetail?.session?.id === sessionId
-    );
-    const aiGroupCount =
-      tabData?.conversation?.totalAIGroups ??
-      (state.conversation?.items ?? []).filter((i) => i.type === 'ai').length;
-    const debounceMs =
-      aiGroupCount > 1000
-        ? 60000 // ~60s for very long sessions (24h+)
-        : aiGroupCount > 500
-          ? 30000 // ~30s for long sessions
-          : aiGroupCount > 200
-            ? 10000 // ~10s for medium sessions
-            : aiGroupCount > 100
-              ? 3000 // ~3s for moderate sessions
-              : SESSION_REFRESH_DEBOUNCE_MS; // 150ms default
+    // Memory pressure gate: skip auto-refresh entirely when renderer heap is
+    // critically high. The user can still force-refresh with Ctrl+R.
+    const heapMB = getRendererHeapMB();
+    if (heapMB > MEMORY_CRITICAL_THRESHOLD_MB) {
+      return; // Refuse to allocate more — GC needs breathing room
+    }
+
+    // Delta-based adaptive debounce: use file size change to estimate refresh urgency.
+    // Small changes (1-2 messages) refresh near-instantly; large changes (bulk writes)
+    // debounce longer to avoid GC pressure from re-transforming huge conversations.
+    let debounceMs = SESSION_REFRESH_DEBOUNCE_MS; // 150ms default
+    if (fileSize != null) {
+      const isFirstEvent = !lastKnownSizes.has(key);
+      const lastSize = lastKnownSizes.get(key) ?? 0;
+      const delta = fileSize - lastSize;
+      lastKnownSizes.set(key, fileSize);
+
+      // First event for a session: seed baseline and use default debounce
+      // instead of treating the full file size as a huge delta.
+      if (!isFirstEvent) {
+        if (delta < 0) {
+          // File shrunk (compaction, truncation, atomic rewrite) — refresh immediately
+          // and reset baseline so subsequent growth deltas are measured correctly.
+          debounceMs = 100;
+          lastKnownSizes.set(key, fileSize);
+        } else if (delta === 0) {
+          debounceMs = 0; // No change — skip
+        } else {
+          debounceMs =
+            delta < 5000
+              ? 100 // Small (~1-2 messages): near-instant
+              : delta < 50000
+                ? 500 // Medium: 500ms
+                : delta < 200000
+                  ? 2000 // Large: 2s
+                  : 5000; // Very large: 5s
+        }
+      }
+    }
+
+    if (debounceMs <= 0) return; // Skip if no change
+
+    // Enforce minimum cooldown between actual refresh executions.
+    // If the last refresh for this session fired recently, push the timer
+    // forward so it fires at the cooldown boundary instead of immediately.
+    // Under memory pressure (>1.5 GB heap), double the cooldown to ease GC.
+    const cooldown = heapMB > MEMORY_PRESSURE_THRESHOLD_MB
+      ? REFRESH_COOLDOWN_MS * 2
+      : REFRESH_COOLDOWN_MS;
+    const lastFired = lastRefreshTimestamps.get(key) ?? 0;
+    const elapsed = Date.now() - lastFired;
+    if (elapsed < cooldown) {
+      debounceMs = Math.max(debounceMs, cooldown - elapsed);
+    }
 
     const timer = setTimeout(() => {
       pendingSessionRefreshTimers.delete(key);
-      const latestState = useStore.getState();
-      void latestState.refreshSessionInPlace(projectId, sessionId);
+      lastRefreshTimestamps.set(key, Date.now());
+      // Prune timestamps map to prevent unbounded growth
+      if (lastRefreshTimestamps.size > 200) {
+        const entries = [...lastRefreshTimestamps.entries()];
+        lastRefreshTimestamps.clear();
+        for (const [k, v] of entries.slice(-100)) lastRefreshTimestamps.set(k, v);
+      }
+      const state = useStore.getState();
+      void state.refreshSessionInPlace(projectId, sessionId);
     }, debounceMs);
     pendingSessionRefreshTimers.set(key, timer);
   };
@@ -259,6 +329,19 @@ export function initializeNotificationListeners(): () => void {
         }
       }
 
+      // Refresh the project list when a file change arrives from a project
+      // not currently in our projects array — this handles brand-new projects.
+      if (event.projectId && isTopLevelSessionEvent) {
+        const knownProjectIds = new Set(state.projects.map((p) => p.id));
+        const eventBaseId = getBaseProjectId(event.projectId);
+        const isNewProject =
+          eventBaseId != null && !knownProjectIds.has(event.projectId) &&
+          ![...knownProjectIds].some((id) => getBaseProjectId(id) === eventBaseId);
+        if (isNewProject) {
+          void state.fetchProjects();
+        }
+      }
+
       // Keep opened session view in sync on content changes.
       // Some local writers emit rename/add for in-place updates, so include "add".
       if ((event.type === 'change' || event.type === 'add') && selectedProjectId) {
@@ -274,14 +357,17 @@ export function initializeNotificationListeners(): () => void {
           (shouldFallbackRefreshActiveSession ? activeSessionId : null);
 
         if (sessionIdToRefresh) {
-          const allTabs = state.getAllPaneTabs();
-          const visibleSessionTab = allTabs.find(
-            (tab) => tab.type === 'session' && tab.sessionId === sessionIdToRefresh
-          );
-          const refreshProjectId = visibleSessionTab?.projectId ?? selectedProjectId;
+          // Use event.projectId as authoritative source — it identifies the project
+          // that actually changed, not the one currently selected in the UI.
+          // Fixes: new sessions in non-selected projects never auto-loading.
+          const refreshProjectId =
+            event.projectId ??
+            state.getAllPaneTabs().find(
+              (tab) => tab.type === 'session' && tab.sessionId === sessionIdToRefresh
+            )?.projectId ??
+            selectedProjectId;
 
-          // Use refreshSessionInPlace to avoid flickering and preserve UI state
-          scheduleSessionRefresh(refreshProjectId, sessionIdToRefresh);
+          scheduleSessionRefresh(refreshProjectId, sessionIdToRefresh, event.fileSize);
         }
       }
     });
@@ -390,8 +476,23 @@ export function initializeNotificationListeners(): () => void {
     }
   }
 
+  // Periodically prune lastKnownSizes to prevent unbounded growth.
+  // Entries older than 30 minutes are unlikely to be needed for delta estimation.
+  const PRUNE_INTERVAL_MS = 10 * 60_000; // every 10 minutes
+  const MAX_LAST_KNOWN_SIZE_ENTRIES = 500;
+  const pruneInterval = setInterval(() => {
+    if (lastKnownSizes.size > MAX_LAST_KNOWN_SIZE_ENTRIES) {
+      // Keep only the most recent half — Map iteration order is insertion order
+      const entries = [...lastKnownSizes.entries()];
+      const keep = entries.slice(entries.length - Math.floor(MAX_LAST_KNOWN_SIZE_ENTRIES / 2));
+      lastKnownSizes.clear();
+      for (const [k, v] of keep) lastKnownSizes.set(k, v);
+    }
+  }, PRUNE_INTERVAL_MS);
+
   // Return cleanup function
   return () => {
+    clearInterval(pruneInterval);
     for (const timer of pendingSessionRefreshTimers.values()) {
       clearTimeout(timer);
     }
@@ -400,6 +501,7 @@ export function initializeNotificationListeners(): () => void {
       clearTimeout(timer);
     }
     pendingProjectRefreshTimers.clear();
+    lastKnownSizes.clear();
     cleanupFns.forEach((fn) => fn());
   };
 }

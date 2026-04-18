@@ -251,8 +251,14 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         currentState.updateTabLabel(existingTab.id, newLabel);
       }
 
+      // Clear expansion Maps/Sets from previous session to prevent unbounded growth over long uptime.
       // Phase 1 set: conversation renders immediately, stats are null (filled in Phase 2)
       set({
+        aiGroupExpansionLevels: new Map(),
+        expandedStepIds: new Set(),
+        expandedDisplayItemIds: new Map(),
+        expandedAIGroupIds: new Set(),
+        activeDetailItem: null,
         sessionDetail: slimDetail,
         sessionDetailLoading: false,
         conversation,
@@ -545,6 +551,17 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
     const generation = (sessionRefreshGeneration.get(refreshKey) ?? 0) + 1;
     sessionRefreshGeneration.set(refreshKey, generation);
     sessionRefreshInFlight.add(refreshKey);
+
+    // Prune to prevent unbounded growth: when exceeding 100 entries, keep only the 50 most recent
+    if (sessionRefreshGeneration.size > 100) {
+      const entries = Array.from(sessionRefreshGeneration.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 50);
+      sessionRefreshGeneration.clear();
+      for (const [key, value] of entries) {
+        sessionRefreshGeneration.set(key, value);
+      }
+    }
 
     try {
       const detail = await api.getSessionDetail(projectId, sessionId);

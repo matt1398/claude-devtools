@@ -13,10 +13,10 @@ import {
   COLOR_TEXT_SECONDARY,
 } from '@renderer/constants/cssVariables';
 import { getSubagentTypeColorSet, getTeamColorSet } from '@renderer/constants/teamColors';
+import { useSubagentMessages } from '@renderer/hooks/useSubagentMessages';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useStore } from '@renderer/store';
 import { buildDisplayItemsFromMessages, buildSummary } from '@renderer/utils/aiGroupEnhancer';
-import { computeSubagentPhaseBreakdown } from '@renderer/utils/aiGroupHelpers';
 import { formatDuration, formatTokensCompact } from '@renderer/utils/formatters';
 import { getHighlightProps, type TriggerColor } from '@shared/constants/triggerColors';
 import { getModelColorClass, parseModelString } from '@shared/utils/modelParser';
@@ -83,90 +83,95 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
   // Type-based colors for non-team subagents (from agent config or deterministic hash)
   const typeColors = !teamColors ? getSubagentTypeColorSet(subagentType, agentConfigs) : null;
 
-  // Detect shutdown-only team activations (trivial: just a shutdown_response)
-  const isShutdownOnly = useMemo(() => {
-    if (!subagent.team || !subagent.messages?.length) return false;
-    const assistantMsgs = subagent.messages.filter((m) => m.type === 'assistant');
-    if (assistantMsgs.length !== 1) return false;
-    const calls = assistantMsgs[0].toolCalls ?? [];
-    return (
-      calls.length === 1 &&
-      calls[0].name === 'SendMessage' &&
-      calls[0].input?.type === 'shutdown_response'
-    );
-  }, [subagent.team, subagent.messages]);
+  // Pre-computed display metadata from the worker — replaces all the
+  // per-render scans of `subagent.messages` we used to do here. Stripping
+  // `messages: []` in the worker output is what makes the cached
+  // SessionDetail memory-bounded; this slot is the contract.
+  const displayMeta = subagent.displayMeta;
 
-  // Per-tab trace expansion state (replaces local useState for true per-tab isolation)
-  const { isSubagentTraceExpanded, toggleSubagentTraceExpansion } = useTabUI();
+  // Per-tab trace expansion state (replaces local useState for true per-tab isolation).
+  // `tabId` is also used below to source the projectId/sessionId for the
+  // lazy-load IPC — we MUST read those from the rendered tab's session
+  // detail (not the global selectedSessionId), otherwise multi-tab and
+  // split-pane views fetch the wrong session and get back empty arrays.
+  const { tabId, isSubagentTraceExpanded, toggleSubagentTraceExpansion } = useTabUI();
   const isTraceManuallyExpanded = isSubagentTraceExpanded(subagent.id);
 
-  // Check if contains highlighted error
-  // Also matches when the highlight targets the parent Task tool_use that spawned this subagent
+  // Active project/session ids for the lazy-load IPC. Source from the
+  // per-tab session detail first, falling back to the global slice when no
+  // tab context exists (e.g., legacy / unscoped renders).
+  const projectId = useStore((s) => {
+    const td = tabId ? s.tabSessionData[tabId] : null;
+    return (td?.sessionDetail ?? s.sessionDetail)?.session?.projectId ?? null;
+  });
+  const sessionId = useStore((s) => {
+    const td = tabId ? s.tabSessionData[tabId] : null;
+    return (td?.sessionDetail ?? s.sessionDetail)?.session?.id ?? null;
+  });
+
+  // Detect shutdown-only team activations from pre-computed metadata.
+  const isShutdownOnly = subagent.team ? (displayMeta?.isShutdownOnly ?? false) : false;
+
+  // Check if this subagent contains the highlighted error.
+  // Fast path: precomputed `displayMeta.toolUseIds` contains every tool_use
+  // and tool_result id seen in the transcript, so we don't need to load
+  // the body just to answer a yes/no question.
+  const highlightedToolUseIdsSet = useMemo(
+    () => (displayMeta?.toolUseIds ? new Set(displayMeta.toolUseIds) : null),
+    [displayMeta?.toolUseIds]
+  );
   const containsHighlightedError = useMemo(() => {
     if (!highlightToolUseId) return false;
-    // Match parent Task tool_use ID (trigger matched the Task call itself)
     if (subagent.parentTaskId === highlightToolUseId) return true;
-    // Match inner tool calls/results within the subagent
-    if (!subagent.messages) return false;
-    for (const msg of subagent.messages) {
-      if (msg.toolCalls?.some((tc) => tc.id === highlightToolUseId)) return true;
-      if (msg.toolResults?.some((tr) => tr.toolUseId === highlightToolUseId)) return true;
-    }
+    if (highlightedToolUseIdsSet?.has(highlightToolUseId)) return true;
     return false;
-  }, [highlightToolUseId, subagent.parentTaskId, subagent.messages]);
+  }, [highlightToolUseId, subagent.parentTaskId, highlightedToolUseIdsSet]);
 
-  // Build display items
-  const displayItems = useMemo(() => {
-    if ((!isExpanded && !containsHighlightedError) || !subagent.messages?.length) {
-      return [];
-    }
-    return buildDisplayItemsFromMessages(subagent.messages, []);
-  }, [isExpanded, containsHighlightedError, subagent.messages]);
-
-  // Build summary
-  const itemsSummary = useMemo(() => {
-    if (!isExpanded && !containsHighlightedError) {
-      const toolCount =
-        subagent.messages?.filter(
-          (m) =>
-            m.type === 'assistant' &&
-            Array.isArray(m.content) &&
-            m.content.some((b) => b.type === 'tool_use')
-        ).length ?? 0;
-      return toolCount > 0 ? `${toolCount} tools` : '';
-    }
-    return buildSummary(displayItems);
-  }, [isExpanded, containsHighlightedError, displayItems, subagent.messages]);
-
-  // Model info
-  const modelInfo = useMemo(() => {
-    const msg = subagent.messages?.find(
-      (m) => m.type === 'assistant' && m.model && m.model !== '<synthetic>'
-    );
-    return msg?.model ? parseModelString(msg.model) : null;
-  }, [subagent.messages]);
-
-  // Last usage
-  const lastUsage = useMemo(() => {
-    const messages = subagent.messages ?? [];
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].type === 'assistant' && messages[i].usage) {
-        return messages[i].usage;
-      }
-    }
-    return null;
-  }, [subagent.messages]);
-
-  // Multi-phase context breakdown (for subagents with compaction)
-  const phaseData = useMemo(() => {
-    if (!subagent.messages?.length) return null;
-    return computeSubagentPhaseBreakdown(subagent.messages);
-  }, [subagent.messages]);
-
-  // Search expansion
+  // Search expansion (read here so we can include it in the lazy-load gate)
   const searchExpandedSubagentIds = useStore((s) => s.searchExpandedSubagentIds);
   const searchCurrentSubagentItemId = useStore((s) => s.searchCurrentSubagentItemId);
   const shouldExpandForSearch = searchExpandedSubagentIds.has(subagent.id);
+
+  // Lazy-load full message body only when actually needed for rendering:
+  // expanded view, highlighted error trace, or search auto-expand.
+  const needsBody = isExpanded || containsHighlightedError || shouldExpandForSearch;
+  const {
+    messages: lazyMessages,
+    isLoading: messagesLoading,
+    error: messagesError,
+  } = useSubagentMessages(needsBody, projectId, sessionId, subagent.id);
+
+  // Build display items from lazily-loaded messages (only when needed).
+  const displayItems = useMemo(() => {
+    if (!needsBody || !lazyMessages?.length) return [];
+    return buildDisplayItemsFromMessages(lazyMessages, []);
+  }, [needsBody, lazyMessages]);
+
+  // Build summary: tool count comes from displayMeta until we have full
+  // messages, then switches to the rich summary built from display items.
+  const itemsSummary = useMemo(() => {
+    if (!needsBody) {
+      const toolCount = displayMeta?.toolCount ?? 0;
+      return toolCount > 0 ? `${toolCount} tools` : '';
+    }
+    if (lazyMessages === null) {
+      // Body requested but still loading — fall back to the meta count.
+      const toolCount = displayMeta?.toolCount ?? 0;
+      return toolCount > 0 ? `${toolCount} tools` : '';
+    }
+    return buildSummary(displayItems);
+  }, [needsBody, displayItems, displayMeta?.toolCount, lazyMessages]);
+
+  // Model info — pre-extracted in the worker so we can render the badge
+  // without ever loading the message body.
+  const modelInfo = displayMeta?.modelName ? parseModelString(displayMeta.modelName) : null;
+
+  // Last usage from displayMeta (used by the metrics pill in the header).
+  const lastUsage = displayMeta?.lastUsage ?? null;
+
+  // Multi-phase context breakdown — also pre-computed, so the phase pills
+  // render in the collapsed view without any message access.
+  const phaseData = displayMeta?.phaseBreakdown ?? null;
 
   // Combine manual expansion with auto-expansion for errors/search
   const isTraceExpanded =
@@ -191,16 +196,14 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
     [subagent.parentTaskId, registerToolRef]
   );
 
-  // Cumulative metrics for team members — show total output generated
+  // Cumulative metrics for team members — turn count comes from displayMeta.
   const cumulativeMetrics = useMemo(() => {
     if (!subagent.team || !subagent.metrics) return undefined;
-    const turnCount =
-      subagent.messages?.filter((m) => m.type === 'assistant' && m.usage).length ?? 0;
     return {
       outputTokens: subagent.metrics.outputTokens,
-      turnCount,
+      turnCount: displayMeta?.turnCount ?? 0,
     };
-  }, [subagent.team, subagent.metrics, subagent.messages]);
+  }, [subagent.team, subagent.metrics, displayMeta?.turnCount]);
 
   // Computed values for metrics
   const hasMainImpact = subagent.mainSessionImpact && subagent.mainSessionImpact.totalTokens > 0;
@@ -506,8 +509,12 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
             </div>
           )}
 
-          {/* ========== Level 2: Execution Trace Toggle ========== */}
-          {displayItems.length > 0 && (
+          {/* ========== Level 2: Execution Trace Toggle ==========
+              Render the trace toggle whenever the subagent could have items
+              (toolCount > 0 or any items already loaded). While the body is
+              fetching we show a skeleton instead of the items, then swap in
+              once `lazyMessages` resolves. */}
+          {(displayItems.length > 0 || (displayMeta?.toolCount ?? 0) > 0) && (
             <div
               className="overflow-hidden rounded-md"
               style={{
@@ -549,22 +556,41 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                 <span className="text-[11px]" style={{ color: CARD_ICON_MUTED }}>
                   · {itemsSummary}
                 </span>
+                {needsBody && messagesLoading && lazyMessages === null && (
+                  <Loader2
+                    className="ml-1 size-3 animate-spin"
+                    style={{ color: CARD_ICON_MUTED }}
+                  />
+                )}
               </div>
 
               {/* Trace Content */}
               {isTraceExpanded && (
                 <div className="p-2">
-                  <ExecutionTrace
-                    items={displayItems}
-                    aiGroupId={aiGroupId}
-                    highlightToolUseId={highlightToolUseId}
-                    highlightColor={highlightColor}
-                    notificationColorMap={notificationColorMap}
-                    searchExpandedItemId={
-                      shouldExpandForSearch ? searchCurrentSubagentItemId : null
-                    }
-                    registerToolRef={registerToolRef}
-                  />
+                  {messagesError && lazyMessages === null ? (
+                    <div className="px-2 py-1 text-xs" style={{ color: '#f87171' }}>
+                      Failed to load subagent messages: {messagesError}
+                    </div>
+                  ) : displayItems.length === 0 && messagesLoading ? (
+                    <div
+                      className="px-2 py-1 text-xs"
+                      style={{ color: CARD_ICON_MUTED }}
+                    >
+                      Loading subagent messages…
+                    </div>
+                  ) : (
+                    <ExecutionTrace
+                      items={displayItems}
+                      aiGroupId={aiGroupId}
+                      highlightToolUseId={highlightToolUseId}
+                      highlightColor={highlightColor}
+                      notificationColorMap={notificationColorMap}
+                      searchExpandedItemId={
+                        shouldExpandForSearch ? searchCurrentSubagentItemId : null
+                      }
+                      registerToolRef={registerToolRef}
+                    />
+                  )}
                 </div>
               )}
             </div>

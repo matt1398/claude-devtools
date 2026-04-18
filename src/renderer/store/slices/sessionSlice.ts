@@ -266,6 +266,17 @@ export const createSessionSlice: StateCreator<AppState, [], [], SessionSlice> = 
     const generation = (projectRefreshGeneration.get(projectId) ?? 0) + 1;
     projectRefreshGeneration.set(projectId, generation);
 
+    // Prune to prevent unbounded growth: when exceeding 100 entries, keep only the 50 most recent
+    if (projectRefreshGeneration.size > 100) {
+      const entries = Array.from(projectRefreshGeneration.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 50);
+      projectRefreshGeneration.clear();
+      for (const [key, value] of entries) {
+        projectRefreshGeneration.set(key, value);
+      }
+    }
+
     try {
       const result = await api.getSessionsPaginated(projectId, null, 20, {
         includeTotalCount: false,

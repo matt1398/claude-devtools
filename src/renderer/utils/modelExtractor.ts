@@ -59,8 +59,11 @@ export function extractMainModel(steps: SemanticStep[]): ModelInfo | null {
  *
  * Strategy:
  * 1. Iterate through all processes (subagents)
- * 2. Find the first assistant message with a valid model in each process
- * 3. Parse and collect unique models that differ from mainModel
+ * 2. Read the model from `displayMeta.modelName` (precomputed in main process).
+ *    This works even when `process.messages` has been stripped by the worker
+ *    output for memory-bound caching.
+ * 3. Fall back to scanning messages only if displayMeta is absent.
+ * 4. Parse and collect unique models that differ from mainModel.
  *
  * @param processes - Subagent processes from the AI Group
  * @param mainModel - The main agent's model (to filter out)
@@ -73,13 +76,18 @@ export function extractSubagentModels(
   const uniqueModels = new Map<string, ModelInfo>();
 
   for (const process of processes) {
-    // Find first assistant message with a valid model
-    const assistantMsg = process.messages?.find(
-      (m) => m.type === 'assistant' && m.model && m.model !== '<synthetic>'
-    );
+    let modelString: string | undefined = process.displayMeta?.modelName ?? undefined;
 
-    if (assistantMsg?.model) {
-      const modelInfo = parseModelString(assistantMsg.model);
+    // Legacy fallback for code paths that haven't populated displayMeta.
+    if (!modelString) {
+      const assistantMsg = process.messages?.find(
+        (m) => m.type === 'assistant' && m.model && m.model !== '<synthetic>'
+      );
+      modelString = assistantMsg?.model;
+    }
+
+    if (modelString) {
+      const modelInfo = parseModelString(modelString);
       if (modelInfo && modelInfo.name !== mainModel?.name) {
         uniqueModels.set(modelInfo.name, modelInfo);
       }
