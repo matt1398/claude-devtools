@@ -415,6 +415,9 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
         if (!element) return;
 
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (useStore.getState().appConfig?.display?.keepContextNavExpanded) {
+          expandAIGroup(groupId);
+        }
         setHighlightedGroupId(groupId);
         setIsNavigationHighlight(true);
         if (navigationHighlightTimerRef.current) {
@@ -428,7 +431,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
       };
       void run();
     },
-    [conversation, ensureGroupVisible, setHighlightedGroupId]
+    [conversation, ensureGroupVisible, setHighlightedGroupId, expandAIGroup]
   );
 
   // Handler to navigate to a user message group (preceding the AI group at turnIndex)
@@ -481,6 +484,9 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
         await ensureGroupVisible(groupId);
 
         // Set group + tool highlight immediately
+        if (useStore.getState().appConfig?.display?.keepContextNavExpanded) {
+          expandAIGroup(groupId);
+        }
         setHighlightedGroupId(groupId);
         setIsNavigationHighlight(true);
         setContextNavToolUseId(toolUseId);
@@ -513,7 +519,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
       };
       void run();
     },
-    [conversation, ensureGroupVisible, setHighlightedGroupId]
+    [conversation, ensureGroupVisible, setHighlightedGroupId, expandAIGroup]
   );
 
   // Scroll to current search result when it changes

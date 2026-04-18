@@ -302,6 +302,7 @@ function validateDisplaySection(data: unknown): ValidationSuccess<'display'> | V
     'showTimestamps',
     'compactMode',
     'syntaxHighlighting',
+    'keepContextNavExpanded',
   ];
 
   const result: Partial<DisplayConfig> = {};
