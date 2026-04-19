@@ -19,6 +19,7 @@ services:
       - "3456:3456"
     volumes:
       - ${CLAUDE_DIR:-~/.claude}:/data/.claude:ro
+      - ${CLAUDE_DIR:-~/.claude}/claude-devtools-config.json:/data/.claude/claude-devtools-config.json:rw
     environment:
       - NODE_ENV=production
       - CLAUDE_ROOT=/data/.claude
