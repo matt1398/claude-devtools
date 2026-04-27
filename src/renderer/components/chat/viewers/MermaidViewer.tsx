@@ -62,10 +62,19 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
   // Render mermaid diagram
   useEffect(() => {
     let cancelled = false;
+    const id = `mermaid-${uniqueId}`;
+
+    // Mermaid 在 render 失败时会把错误 SVG 残留在 document.body 下的 `d{id}` 包装 div 中
+    // （源码路径 mermaid.core.mjs 中 errorRenderer.draw 后直接 throw，跳过 removeTempElements 清理）
+    // 所以这里手动清理孤立节点，避免页面底部累积巨大的错误图标
+    const cleanupOrphans = (): void => {
+      document.getElementById(`d${id}`)?.remove();
+      document.getElementById(id)?.remove();
+    };
+
     const render = async (): Promise<void> => {
       try {
         const m = await ensureMermaidInit(isDark);
-        const id = `mermaid-${uniqueId}`;
         const { svg: rendered } = await m.render(id, code);
         if (!cancelled) {
           setSvg(rendered);
@@ -77,11 +86,14 @@ export const MermaidViewer: React.FC<MermaidViewerProps> = ({ code }) => {
           setError(err instanceof Error ? err.message : 'Failed to render mermaid diagram');
           setSvg('');
         }
+      } finally {
+        cleanupOrphans();
       }
     };
     void render();
     return () => {
       cancelled = true;
+      cleanupOrphans();
     };
   }, [code, isDark, uniqueId]);
 
