@@ -18,6 +18,10 @@ interface CacheEntry<T> {
 
   timestamp: number;
   version: number; // Cache schema version
+  // Optional file-state fingerprint (e.g., `${mtimeMs}-${size}`).
+  // When present on both set() and get(), a mismatch invalidates the entry —
+  // a safety net for FileWatcher events dropped by macOS FSEvents.
+  fingerprint?: string;
 }
 
 // Union type for cached values
@@ -64,9 +68,11 @@ export class DataCache {
   /**
    * Gets a cached session detail.
    * @param key - Cache key in format "projectId/sessionId"
-   * @returns The cached SessionDetail, or undefined if not found or expired
+   * @param fingerprint - Optional file-state fingerprint. If the cached entry
+   *   has a fingerprint that differs from this one, it's treated as stale.
+   * @returns The cached SessionDetail, or undefined if not found, expired, or stale
    */
-  get(key: string): SessionDetail | undefined {
+  get(key: string, fingerprint?: string): SessionDetail | undefined {
     if (!this.enabled) {
       return undefined;
     }
@@ -87,6 +93,12 @@ export class DataCache {
     // Check if entry has expired
     const now = Date.now();
     if (now - entry.timestamp > this.ttl) {
+      this.cache.delete(key);
+      return undefined;
+    }
+
+    // Check fingerprint mismatch (file changed since cached)
+    if (fingerprint !== undefined && entry.fingerprint !== fingerprint) {
       this.cache.delete(key);
       return undefined;
     }
@@ -141,7 +153,7 @@ export class DataCache {
    * Internal method to set a value in the cache.
    * Handles LRU eviction and cache entry creation.
    */
-  private setInternal(key: string, value: CachedValue): void {
+  private setInternal(key: string, value: CachedValue, fingerprint?: string): void {
     if (!this.enabled) {
       return;
     }
@@ -158,6 +170,7 @@ export class DataCache {
       value,
       timestamp: Date.now(),
       version: DataCache.CURRENT_VERSION,
+      fingerprint,
     });
   }
 
@@ -165,9 +178,11 @@ export class DataCache {
    * Sets a value in the cache.
    * @param key - Cache key in format "projectId/sessionId"
    * @param value - The SessionDetail to cache
+   * @param fingerprint - Optional file-state fingerprint paired with this entry.
+   *   When provided here AND on a future get(), a mismatch will invalidate.
    */
-  set(key: string, value: SessionDetail): void {
-    this.setInternal(key, value);
+  set(key: string, value: SessionDetail, fingerprint?: string): void {
+    this.setInternal(key, value, fingerprint);
   }
 
   /**

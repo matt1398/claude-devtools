@@ -82,6 +82,7 @@ export function initializeNotificationListeners(): () => void {
     // Adaptive debounce: large sessions refresh less frequently to reduce memory churn.
     // Uses the TARGET session's cached totalAIGroups so a long session in another pane
     // doesn't force the active short session to the default interval.
+    // Capped at 5s so the UI never appears frozen for an actively-streaming session.
     const state = useStore.getState();
     const tabData = Object.values(state.tabSessionData).find(
       (td) => td?.sessionDetail?.session?.id === sessionId
@@ -90,15 +91,13 @@ export function initializeNotificationListeners(): () => void {
       tabData?.conversation?.totalAIGroups ??
       (state.conversation?.items ?? []).filter((i) => i.type === 'ai').length;
     const debounceMs =
-      aiGroupCount > 1000
-        ? 60000 // ~60s for very long sessions (24h+)
-        : aiGroupCount > 500
-          ? 30000 // ~30s for long sessions
-          : aiGroupCount > 200
-            ? 10000 // ~10s for medium sessions
-            : aiGroupCount > 100
-              ? 3000 // ~3s for moderate sessions
-              : SESSION_REFRESH_DEBOUNCE_MS; // 150ms default
+      aiGroupCount > 500
+        ? 5000 // 5s ceiling for very long sessions
+        : aiGroupCount > 200
+          ? 2500 // 2.5s for long sessions
+          : aiGroupCount > 100
+            ? 1000 // 1s for moderate sessions
+            : SESSION_REFRESH_DEBOUNCE_MS; // 150ms default
 
     const timer = setTimeout(() => {
       pendingSessionRefreshTimers.delete(key);

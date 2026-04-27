@@ -217,8 +217,20 @@ async function handleGetSessionDetail(
     const safeSessionId = validatedSession.value!;
     const cacheKey = DataCache.buildKey(safeProjectId, safeSessionId);
 
-    // Check cache first
-    let sessionDetail = dataCache.get(cacheKey);
+    // Stat the JSONL file so we can fingerprint the cache entry.
+    // Without this, a missed FileWatcher event leaves a stale cache entry
+    // that survives manual refresh for up to 10 minutes (the TTL).
+    let fingerprint: string | undefined;
+    try {
+      const filePath = projectScanner.getSessionPath(safeProjectId, safeSessionId);
+      const stats = await projectScanner.getFileSystemProvider().stat(filePath);
+      fingerprint = `${stats.mtimeMs}-${stats.size}`;
+    } catch {
+      // Stat failure is non-fatal — fall through to the existence check below.
+    }
+
+    // Check cache first (returns undefined if fingerprint mismatches)
+    let sessionDetail = dataCache.get(cacheKey, fingerprint);
 
     if (!sessionDetail) {
       const fsType = projectScanner.getFileSystemProvider().type;
@@ -246,8 +258,10 @@ async function handleGetSessionDetail(
       // Build session detail with chunks
       sessionDetail = chunkBuilder.buildSessionDetail(session, parsedSession.messages, subagents);
 
-      // Cache the result
-      dataCache.set(cacheKey, sessionDetail);
+      // Cache the result (paired with the fingerprint we observed pre-parse).
+      // If the file changed mid-parse, the next get() will see a newer mtime
+      // and re-fetch — at worst we serve one slightly-stale read.
+      dataCache.set(cacheKey, sessionDetail, fingerprint);
     }
 
     // Strip raw messages before IPC transfer — the renderer never uses them.
