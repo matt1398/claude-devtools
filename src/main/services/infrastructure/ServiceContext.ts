@@ -24,6 +24,7 @@ import { createLogger } from '@shared/utils/logger';
 
 import { DataCache } from './DataCache';
 import { FileWatcher } from './FileWatcher';
+import { SubagentMessageCache } from './SubagentMessageCache';
 
 import type { FileSystemProvider } from './FileSystemProvider';
 
@@ -73,6 +74,7 @@ export class ServiceContext {
   readonly subagentResolver: SubagentResolver;
   readonly chunkBuilder: ChunkBuilder;
   readonly dataCache: DataCache;
+  readonly subagentMessageCache: SubagentMessageCache;
   readonly fileWatcher: FileWatcher;
 
   private cleanupInterval: NodeJS.Timeout | null = null;
@@ -107,7 +109,12 @@ export class ServiceContext {
     // 5. DataCache - standalone service
     this.dataCache = new DataCache(MAX_CACHE_SESSIONS, CACHE_TTL_MINUTES, !disableCache);
 
-    // 6. FileWatcher - uses fsProvider and dataCache
+    // 6. SubagentMessageCache - separate LRU for lazy-loaded subagent bodies.
+    //    Sized small (10) because each entry holds a full transcript and only
+    //    actively-expanded subagents need to be retained.
+    this.subagentMessageCache = new SubagentMessageCache(10, CACHE_TTL_MINUTES, !disableCache);
+
+    // 7. FileWatcher - uses fsProvider and dataCache
     this.fileWatcher = new FileWatcher(
       this.dataCache,
       config.projectsDir,
@@ -177,6 +184,9 @@ export class ServiceContext {
 
     // Dispose DataCache
     this.dataCache.dispose();
+
+    // Dispose SubagentMessageCache
+    this.subagentMessageCache.dispose();
 
     // Clear cleanup interval
     if (this.cleanupInterval) {

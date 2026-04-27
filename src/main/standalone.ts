@@ -153,6 +153,7 @@ async function start(): Promise<void> {
     subagentResolver: localContext.subagentResolver,
     chunkBuilder: localContext.chunkBuilder,
     dataCache: localContext.dataCache,
+    subagentMessageCache: localContext.subagentMessageCache,
     updaterService: updaterServiceStub,
     sshConnectionManager: sshConnectionManagerStub,
   };

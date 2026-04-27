@@ -23,6 +23,7 @@ import type {
   NotificationsAPI,
   NotificationTrigger,
   PaginatedSessionsResult,
+  ParsedMessage,
   Project,
   RepositoryGroup,
   SearchSessionsResult,
@@ -253,6 +254,15 @@ export class HttpAPIClient implements ElectronAPI {
   ): Promise<SubagentDetail | null> =>
     this.get<SubagentDetail | null>(
       `/api/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/subagents/${encodeURIComponent(subagentId)}`
+    );
+
+  getSubagentMessages = (
+    projectId: string,
+    sessionId: string,
+    subagentId: string
+  ): Promise<ParsedMessage[]> =>
+    this.get<ParsedMessage[]>(
+      `/api/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/subagents/${encodeURIComponent(subagentId)}/messages`
     );
 
   getSessionGroups = (projectId: string, sessionId: string): Promise<ConversationGroup[]> =>

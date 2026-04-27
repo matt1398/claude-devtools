@@ -28,5 +28,6 @@ export * from './ServiceContextRegistry';
 export * from './SshConfigParser';
 export * from './SshConnectionManager';
 export * from './SshFileSystemProvider';
+export * from './SubagentMessageCache';
 export * from './TriggerManager';
 export * from './UpdaterService';

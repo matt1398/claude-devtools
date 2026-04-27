@@ -111,7 +111,9 @@ export class FileWatcher extends EventEmitter {
   }
 
   /**
-   * Sets the ProjectScanner for cache invalidation on file changes.
+   * Sets the ProjectScanner for session-scoped cache invalidation.
+   * When set, file change events invalidate only the changed session file's
+   * cached metadata/presence/preview instead of nothing at all.
    */
   setProjectScanner(scanner: ProjectScanner): void {
     this.projectScanner = scanner;
@@ -545,9 +547,9 @@ export class FileWatcher extends EventEmitter {
     }
 
     if (sessionId) {
-      // Invalidate cache
+      // Invalidate caches — session-scoped for ProjectScanner, keyed for DataCache
       this.dataCache.invalidateSession(projectId, sessionId);
-      this.projectScanner?.invalidateCachesForProject(projectId);
+      this.projectScanner?.invalidateCachesForSession(fullPath);
       projectPathResolver.invalidateProject(projectId);
       if (changeType === 'unlink') {
         this.clearErrorTracking(fullPath);
