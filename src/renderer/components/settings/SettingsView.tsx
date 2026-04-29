@@ -127,6 +127,7 @@ export const SettingsView = (): React.JSX.Element | null => {
               safeConfig={safeConfig}
               saving={saving}
               onGeneralToggle={handlers.handleGeneralToggle}
+              onDisplayToggle={handlers.handleDisplayToggle}
               onThemeChange={handlers.handleThemeChange}
             />
           )}

@@ -294,6 +294,7 @@ export function useSettingsHandlers({
           showTimestamps: true,
           compactMode: false,
           syntaxHighlighting: true,
+          keepContextNavExpanded: false,
         },
         sessions: {
           pinnedSessions: {},
