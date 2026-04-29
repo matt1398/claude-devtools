@@ -24,7 +24,7 @@ import type {
   RepositoryGroup,
   SearchSessionsResult,
   Session,
-  SessionDetail,
+  SessionDetailResponse,
   SessionMetrics,
   SessionsByIdsOptions,
   SessionsPaginationOptions,
@@ -341,7 +341,22 @@ export interface ElectronAPI {
   searchAllProjects: (query: string, maxResults?: number) => Promise<SearchSessionsResult>;
   findSessionById: (sessionId: string) => Promise<FindSessionByIdResult>;
   findSessionsByPartialId: (fragment: string) => Promise<FindSessionsByPartialIdResult>;
-  getSessionDetail: (projectId: string, sessionId: string) => Promise<SessionDetail | null>;
+  /**
+   * Fetch full session detail.
+   *
+   * When `knownFingerprint` is provided and matches the current file state,
+   * returns a lightweight `{ unchanged: true, fingerprint }` sentinel instead
+   * of the full payload. This lets `refreshSessionInPlace` short-circuit
+   * no-op refreshes without paying IPC serialization cost.
+   *
+   * Initial loads (no `knownFingerprint`) always receive a full SessionDetail
+   * (or null on error/not-found), preserving backwards-compatible behavior.
+   */
+  getSessionDetail: (
+    projectId: string,
+    sessionId: string,
+    knownFingerprint?: string
+  ) => Promise<SessionDetailResponse | null>;
   getSessionMetrics: (projectId: string, sessionId: string) => Promise<SessionMetrics | null>;
   getWaterfallData: (projectId: string, sessionId: string) => Promise<WaterfallData | null>;
   getSubagentDetail: (

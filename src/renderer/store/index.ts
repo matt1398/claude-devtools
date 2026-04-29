@@ -79,10 +79,15 @@ export function initializeNotificationListeners(): () => void {
       return;
     }
 
-    // Adaptive debounce: large sessions refresh less frequently to reduce memory churn.
-    // Uses the TARGET session's cached totalAIGroups so a long session in another pane
-    // doesn't force the active short session to the default interval.
-    // Capped at 5s so the UI never appears frozen for an actively-streaming session.
+    // Adaptive debounce: large sessions refresh less frequently to coalesce
+    // burst file-change events and amortize React re-render cost over a wider
+    // window. Uses the TARGET session's cached totalAIGroups so a long session
+    // in another pane doesn't force the active short session to the default.
+    //
+    // The IPC handler short-circuits no-op refreshes via fingerprint matching,
+    // so frequent refreshes are cheap when nothing changed. These values are
+    // tuned for the cost of a *real* update (incremental transform + zustand
+    // setState + re-render), not for raw call frequency.
     const state = useStore.getState();
     const tabData = Object.values(state.tabSessionData).find(
       (td) => td?.sessionDetail?.session?.id === sessionId
@@ -92,11 +97,11 @@ export function initializeNotificationListeners(): () => void {
       (state.conversation?.items ?? []).filter((i) => i.type === 'ai').length;
     const debounceMs =
       aiGroupCount > 500
-        ? 5000 // 5s ceiling for very long sessions
+        ? 1000 // 1s ceiling for very long sessions
         : aiGroupCount > 200
-          ? 2500 // 2.5s for long sessions
+          ? 500 // 500ms for long sessions
           : aiGroupCount > 100
-            ? 1000 // 1s for moderate sessions
+            ? 300 // 300ms for moderate sessions
             : SESSION_REFRESH_DEBOUNCE_MS; // 150ms default
 
     const timer = setTimeout(() => {

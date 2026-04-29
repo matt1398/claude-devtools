@@ -13,6 +13,7 @@ import {
   transformChunksToConversation,
 } from '@renderer/utils/groupTransformer';
 import { createLogger } from '@shared/utils/logger';
+import { isSessionDetailUnchanged } from '@shared/utils/sessionDetailResponse';
 
 import { batchAsync } from '../utils/batchAsync';
 import { resolveFilePath } from '../utils/pathResolution';
@@ -31,6 +32,14 @@ const sessionRefreshQueued = new Set<string>();
  * When unchanged, the refresh can skip the expensive transformation entirely.
  */
 const sessionChunkFingerprint = new Map<string, string>();
+/**
+ * Opaque file-state fingerprint (mtimeMs+size) reported by the IPC handler.
+ * Passed back on the next `getSessionDetail` call so main can short-circuit
+ * with an `unchanged` sentinel — saving full session-detail serialization
+ * on every no-op refresh. Distinct from `sessionChunkFingerprint`, which is
+ * a renderer-local content fingerprint used as a second-line guard.
+ */
+const sessionFileFingerprint = new Map<string, string>();
 let sessionDetailFetchGeneration = 0;
 let agentConfigsCachedForProject = '';
 
@@ -178,9 +187,19 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
       });
     }
     try {
-      const detail = await api.getSessionDetail(projectId, sessionId);
+      // Initial load — never pass knownFingerprint, so an `unchanged` sentinel
+      // cannot be returned at runtime. Narrow defensively for type safety.
+      const response = await api.getSessionDetail(projectId, sessionId);
       if (requestGeneration !== sessionDetailFetchGeneration) {
         return;
+      }
+      const detail = response && !isSessionDetailUnchanged(response) ? response : null;
+
+      // Capture file fingerprint so future refreshes can short-circuit when
+      // the file is unchanged.
+      const refreshKey = `${projectId}/${sessionId}`;
+      if (detail?.fingerprint) {
+        sessionFileFingerprint.set(refreshKey, detail.fingerprint);
       }
 
       // Transform chunks to conversation
@@ -547,15 +566,33 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
     sessionRefreshInFlight.add(refreshKey);
 
     try {
-      const detail = await api.getSessionDetail(projectId, sessionId);
+      // Pass the last-known file fingerprint so main can short-circuit when
+      // the file hasn't changed. This is the primary fix for the perf
+      // regression where rapid refreshes paid full IPC + transformation cost
+      // even when nothing on disk had changed.
+      const knownFingerprint = sessionFileFingerprint.get(refreshKey);
+      const response = await api.getSessionDetail(projectId, sessionId, knownFingerprint);
 
       // Drop stale responses if a newer refresh started while this one was in flight.
       if (sessionRefreshGeneration.get(refreshKey) !== generation) {
         return;
       }
 
-      if (!detail) {
+      if (!response) {
         return;
+      }
+
+      // Fast path: main confirmed the file is unchanged. No transformation,
+      // no setState, no re-render. Cost is bounded to one stat() + tiny IPC.
+      if (isSessionDetailUnchanged(response)) {
+        return;
+      }
+
+      const detail = response;
+
+      // Update the file fingerprint cache so the next refresh can short-circuit.
+      if (detail.fingerprint) {
+        sessionFileFingerprint.set(refreshKey, detail.fingerprint);
       }
 
       // Transform chunks to conversation - validate with type guard
