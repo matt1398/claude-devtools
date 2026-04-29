@@ -144,8 +144,8 @@ const electronAPI: ElectronAPI = {
   findSessionById: (sessionId: string) => ipcRenderer.invoke(FIND_SESSION_BY_ID, sessionId),
   findSessionsByPartialId: (fragment: string) =>
     ipcRenderer.invoke(FIND_SESSIONS_BY_PARTIAL_ID, fragment),
-  getSessionDetail: (projectId: string, sessionId: string) =>
-    ipcRenderer.invoke('get-session-detail', projectId, sessionId),
+  getSessionDetail: (projectId: string, sessionId: string, knownFingerprint?: string) =>
+    ipcRenderer.invoke('get-session-detail', projectId, sessionId, knownFingerprint),
   getSessionMetrics: (projectId: string, sessionId: string) =>
     ipcRenderer.invoke('get-session-metrics', projectId, sessionId),
   getWaterfallData: (projectId: string, sessionId: string) =>

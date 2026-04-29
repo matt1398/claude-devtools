@@ -78,10 +78,14 @@ export const MoreMenu = ({
       setIsOpen(false);
       setExportLoading(true);
       // Re-fetch full detail (with chunks) since we strip them from the store to save memory.
+      // No knownFingerprint passed, so the response is always SessionDetail | null
+      // at runtime. Narrow defensively for type safety.
       void api
         .getSessionDetail(projectId, sessionId)
-        .then((detail) => {
-          if (detail) triggerDownload(detail, format);
+        .then((response) => {
+          if (response && !('unchanged' in response)) {
+            triggerDownload(response, format);
+          }
         })
         .finally(() => {
           setExportLoading(false);

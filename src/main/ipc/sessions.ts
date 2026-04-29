@@ -17,7 +17,7 @@ import {
   type ConversationGroup,
   type PaginatedSessionsResult,
   type Session,
-  type SessionDetail,
+  type SessionDetailResponse,
   type SessionMetrics,
   type SessionsByIdsOptions,
   type SessionsPaginationOptions,
@@ -198,8 +198,9 @@ async function handleGetSessionsByIds(
 async function handleGetSessionDetail(
   _event: IpcMainInvokeEvent,
   projectId: string,
-  sessionId: string
-): Promise<SessionDetail | null> {
+  sessionId: string,
+  knownFingerprint?: string
+): Promise<SessionDetailResponse | null> {
   try {
     const validatedProject = validateProjectId(projectId);
     const validatedSession = validateSessionId(sessionId);
@@ -227,6 +228,20 @@ async function handleGetSessionDetail(
       fingerprint = `${stats.mtimeMs}-${stats.size}`;
     } catch {
       // Stat failure is non-fatal — fall through to the existence check below.
+    }
+
+    // Short-circuit: if the renderer's last-known fingerprint matches the
+    // current file state, skip cache lookup, parsing, and IPC payload entirely.
+    // This bounds the cost of frequent no-op refreshes (file-watcher noise,
+    // adaptive debounce on long sessions) to one stat() + a tiny sentinel.
+    // Only honored when the stat succeeded — a missing fingerprint means we
+    // can't prove the file is unchanged, so we fall through to the full path.
+    if (
+      knownFingerprint !== undefined &&
+      fingerprint !== undefined &&
+      knownFingerprint === fingerprint
+    ) {
+      return { unchanged: true, fingerprint };
     }
 
     // Check cache first (returns undefined if fingerprint mismatches)
@@ -267,10 +282,13 @@ async function handleGetSessionDetail(
     // Strip raw messages before IPC transfer — the renderer never uses them.
     // Only chunks (with semantic steps) and process summaries cross the boundary.
     // This cuts IPC serialization + renderer heap by ~50-60%.
+    // The fingerprint travels with the payload so the renderer can cache it
+    // and pass it back on the next refresh.
     return {
       ...sessionDetail,
       messages: [],
       processes: sessionDetail.processes.map((p) => ({ ...p, messages: [] })),
+      fingerprint,
     };
   } catch (error) {
     logger.error(`Error in get-session-detail for ${projectId}/${sessionId}:`, error);
@@ -368,8 +386,11 @@ async function handleGetWaterfallData(
   sessionId: string
 ): Promise<WaterfallData | null> {
   try {
+    // Waterfall always wants the full payload — no knownFingerprint passed,
+    // so an `unchanged` sentinel cannot be returned at runtime. The narrowing
+    // below is purely for type safety.
     const detail = await handleGetSessionDetail(_event, projectId, sessionId);
-    if (!detail) {
+    if (!detail || 'unchanged' in detail) {
       return null;
     }
 

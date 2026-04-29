@@ -401,7 +401,33 @@ export interface SessionDetail {
   processes: Process[];
   /** Aggregated metrics for the entire session */
   metrics: SessionMetrics;
+  /**
+   * Opaque file-state fingerprint (mtimeMs+size) attached by the IPC handler.
+   * The renderer treats this as opaque — it's compared by string equality only,
+   * never parsed. Used to short-circuit `getSessionDetail` calls when the
+   * underlying file hasn't changed since the last successful fetch.
+   */
+  fingerprint?: string;
 }
+
+/**
+ * Sentinel response from `getSessionDetail` indicating the file is unchanged
+ * since the renderer's last fetch. Returned only when the caller passes a
+ * `knownFingerprint` that matches the current file state. Lets the renderer
+ * skip transformation and re-render entirely on no-op refreshes.
+ */
+export interface SessionDetailUnchanged {
+  unchanged: true;
+  fingerprint: string;
+}
+
+/**
+ * Discriminated union for `getSessionDetail` IPC responses.
+ * - `SessionDetail`: full payload (initial load OR file changed since last fetch)
+ * - `SessionDetailUnchanged`: file unchanged, renderer should no-op
+ * - `null`: error or session not found
+ */
+export type SessionDetailResponse = SessionDetail | SessionDetailUnchanged;
 
 /**
  * Detailed subagent information for drill-down modal.
