@@ -21,7 +21,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "dist": "electron-builder --mac --win --linux",
-    "dist:mac": "electron-builder --mac --publish always",
+    "dist:mac": "electron-builder --mac --arm64 --x64 --publish always",
     "dist:mac:arm64": "electron-builder --mac --arm64 --publish always",
     "dist:mac:x64": "electron-builder --mac --x64 --publish always",
     "dist:win": "electron-builder --win --publish always",
@@ -138,6 +138,7 @@
         "dmg",
         "zip"
       ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "notarize": true,
@@ -152,6 +153,7 @@
       "target": [
         "nsis"
       ],
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
       "icon": "resources/icons/win/icon.ico"
     },
     "linux": {
@@ -161,6 +163,7 @@
         "rpm",
         "pacman"
       ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "icon": "resources/icons/png",
       "category": "Development"
     },
