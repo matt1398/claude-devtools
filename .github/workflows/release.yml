@@ -49,17 +49,13 @@ jobs:
 
   release-mac:
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runner: macos-14
-            dist_command: pnpm dist:mac:arm64
-          - arch: x64
-            runner: macos-15-intel
-            dist_command: pnpm dist:mac:x64
-    runs-on: ${{ matrix.runner }}
+    # Single job builds BOTH arm64 and x64 in one electron-builder invocation.
+    # Reason: when arches are split into separate jobs each running `--publish always`,
+    # each upload OVERWRITES latest-mac.yml — so the final yml only lists one arch
+    # and electron-updater silently routes the wrong-arch dmg to users (arm64 users
+    # get x64 → Rosetta penalty). Building both in one invocation produces a single
+    # latest-mac.yml that lists both arches, so auto-update routes correctly.
+    runs-on: macos-14   # arm64 runner; macOS supports x64 cross-build natively
 
     steps:
       - name: Checkout
@@ -93,16 +89,16 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           pnpm pkg set version="$VERSION"
 
-      - name: Build app (macOS ${{ matrix.arch }})
+      - name: Build app
         run: pnpm build
 
-      - name: Verify packaged inputs (macOS ${{ matrix.arch }})
+      - name: Verify packaged inputs
         run: |
           test -f dist-electron/main/index.cjs
           test -f dist-electron/preload/index.js
           test -f out/renderer/index.html
 
-      - name: Package & Release (macOS ${{ matrix.arch }})
+      - name: Package & Release (macOS arm64 + x64)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -110,7 +106,65 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: ${{ matrix.dist_command }}
+        run: pnpm dist:mac
+
+      - name: Assert arch suffix in artifact names
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          BAD=()
+          for f in release/*.dmg release/*.zip; do
+            base=$(basename "$f")
+            case "$base" in
+              *blockmap*|*-arm64.dmg|*-arm64.zip|*-arm64-mac.zip|*-x64.dmg|*-x64.zip|*-x64-mac.zip)
+                ;;
+              *)
+                BAD+=("$base")
+                ;;
+            esac
+          done
+          if [ ${#BAD[@]} -gt 0 ]; then
+            echo "::error::Found macOS artifacts without '-arm64' or '-x64' suffix. Apple Silicon users would download x64 by default and run under Rosetta. Fix package.json build.mac.artifactName."
+            printf '  bad: %s\n' "${BAD[@]}"
+            exit 1
+          fi
+          echo "OK: all macOS artifacts have arch suffix"
+          ls -la release/ | grep -E '\.(dmg|zip)$' || true
+
+      - name: Verify latest-mac.yml lists BOTH arm64 and x64
+        run: |
+          set -euo pipefail
+          YML=release/latest-mac.yml
+          test -f "$YML" || { echo "::error::missing $YML — electron-updater cannot route auto-updates"; exit 1; }
+          echo "--- latest-mac.yml ---"
+          cat "$YML"
+          echo "----------------------"
+          # Both arches must appear in the yml, otherwise electron-updater will route
+          # the wrong dmg to one arch's users (the regression that caused #186).
+          grep -q -- '-arm64\.dmg' "$YML" || { echo "::error::latest-mac.yml missing arm64 dmg entry — arm64 users will receive x64 build"; exit 1; }
+          grep -q -- '-x64\.dmg'   "$YML" || { echo "::error::latest-mac.yml missing x64 dmg entry — x64 users will receive arm64 build"; exit 1; }
+          echo "OK: latest-mac.yml lists both arm64 and x64"
+
+      - name: Verify each dmg's binary matches its arch suffix
+        run: |
+          set -euo pipefail
+          fail=0
+          for dmg in release/*-arm64.dmg release/*-x64.dmg; do
+            [ -e "$dmg" ] || continue
+            expected=$([[ "$dmg" == *"-arm64.dmg" ]] && echo arm64 || echo x86_64)
+            mount=$(hdiutil attach "$dmg" -nobrowse -readonly | tail -1 | awk '{print $NF}')
+            bin="$mount/claude-devtools.app/Contents/MacOS/claude-devtools"
+            if [ -f "$bin" ]; then
+              actual=$(file "$bin")
+              echo "$dmg -> $actual"
+              echo "$actual" | grep -q "$expected" || { echo "::error::$dmg has wrong binary arch (expected $expected)"; fail=1; }
+            else
+              echo "::warning::no binary at $bin"
+            fi
+            hdiutil detach "$mount" -quiet || true
+          done
+          [ "$fail" = 0 ] || exit 1
+          echo "OK: each dmg's binary matches its arch suffix"
 
   release-win:
     needs: build
