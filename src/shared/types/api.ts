@@ -321,6 +321,25 @@ export interface HttpServerAPI {
 // =============================================================================
 
 /**
+ * Aggregated usage statistics for a calendar month.
+ * Used for subscription ROI calculations.
+ */
+export interface UsageStats {
+  /** Total estimated cost in USD for the period */
+  totalCostUsd: number;
+  /** Total input tokens across all sessions in the period */
+  inputTokens: number;
+  /** Total output tokens across all sessions in the period */
+  outputTokens: number;
+  /** Total cache read tokens */
+  cacheReadTokens: number;
+  /** Total cache creation tokens */
+  cacheCreationTokens: number;
+  /** Number of sessions in the period */
+  sessionCount: number;
+}
+
+/**
  * Complete Electron API exposed to the renderer process via preload script.
  */
 export interface ElectronAPI {
@@ -374,6 +393,9 @@ export interface ElectronAPI {
   // Repository grouping (worktree support)
   getRepositoryGroups: () => Promise<RepositoryGroup[]>;
   getWorktreeSessions: (worktreeId: string) => Promise<Session[]>;
+
+  // Usage analytics
+  getUsageStats: (year: number, month: number) => Promise<UsageStats>;
 
   // Validation methods
   validatePath: (
