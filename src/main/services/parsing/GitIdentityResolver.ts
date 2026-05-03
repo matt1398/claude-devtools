@@ -79,28 +79,10 @@ class GitIdentityResolver {
    */
   async resolveIdentity(projectPath: string): Promise<RepositoryIdentity | null> {
     try {
-      // Search upwards for .git
-      let currentPath = projectPath;
-      let gitPathExists = false;
-      let gitPath = '';
+      const gitInfo = await this.findGitPath(projectPath);
 
-      while (currentPath) {
-        gitPath = path.join(currentPath, '.git');
-        try {
-          await fs.promises.access(gitPath);
-          gitPathExists = true;
-          break; // Found it
-        } catch {
-          const parentDir = path.dirname(currentPath);
-          if (parentDir === currentPath) {
-            break;
-          }
-          currentPath = parentDir;
-        }
-      }
-
-      if (gitPathExists) {
-        const stats = await fs.promises.stat(gitPath);
+      if (gitInfo) {
+        const { repoRoot: currentPath, gitPath, stats } = gitInfo;
 
         let mainGitDir: string;
 
@@ -462,28 +444,10 @@ class GitIdentityResolver {
    */
   async getBranch(projectPath: string): Promise<string | null> {
     try {
-      let currentPath = projectPath;
-      let gitPathExists = false;
-      let gitPath = '';
+      const gitInfo = await this.findGitPath(projectPath);
+      if (!gitInfo) return null;
 
-      while (currentPath) {
-        gitPath = path.join(currentPath, '.git');
-        try {
-          await fs.promises.access(gitPath);
-          gitPathExists = true;
-          break; // Found it
-        } catch {
-          const parentDir = path.dirname(currentPath);
-          if (parentDir === currentPath) {
-            break;
-          }
-          currentPath = parentDir;
-        }
-      }
-
-      if (!gitPathExists) return null;
-
-      const stats = await fs.promises.stat(gitPath);
+      const { gitPath, stats } = gitInfo;
       let headPath: string;
 
       if (stats.isFile()) {
@@ -584,19 +548,9 @@ class GitIdentityResolver {
     // Check if it's a standard git repo (only if filesystem exists)
     // For deleted repos, we'll return 'git' as fallback since we can't verify
     try {
-      let currentPath = projectPath;
-      while (currentPath) {
-        const gitPath = path.join(currentPath, '.git');
-        try {
-          await fs.promises.access(gitPath);
-          return 'git';
-        } catch {
-          const parentDir = path.dirname(currentPath);
-          if (parentDir === currentPath) {
-            break;
-          }
-          currentPath = parentDir;
-        }
+      const gitInfo = await this.findGitPath(projectPath);
+      if (gitInfo) {
+        return 'git';
       }
     } catch {
       // Ignore errors - filesystem might not be available
