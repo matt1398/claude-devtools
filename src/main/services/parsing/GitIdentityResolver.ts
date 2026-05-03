@@ -34,6 +34,36 @@ const logger = createLogger('Service:GitIdentityResolver');
 
 class GitIdentityResolver {
   /**
+   * Helper to find the nearest .git file or directory by searching upwards.
+   */
+  private async findGitPath(projectPath: string): Promise<{ repoRoot: string; gitPath: string; stats: fs.Stats } | null> {
+    try {
+      let currentPath = path.resolve(projectPath);
+
+      while (currentPath) {
+        const gitPath = path.join(currentPath, '.git');
+        try {
+          const stats = await fs.promises.stat(gitPath);
+          if (stats.isFile() || stats.isDirectory()) {
+            return { repoRoot: currentPath, gitPath, stats };
+          }
+        } catch {
+          // Ignore and continue upward
+        }
+        
+        const parentDir = path.dirname(currentPath);
+        if (parentDir === currentPath) {
+          break;
+        }
+        currentPath = parentDir;
+      }
+    } catch {
+      // Ignore resolving errors
+    }
+    return null;
+  }
+
+  /**
    * Resolve repository identity from a project path.
    *
    * Algorithm:
@@ -49,15 +79,24 @@ class GitIdentityResolver {
    */
   async resolveIdentity(projectPath: string): Promise<RepositoryIdentity | null> {
     try {
-      const gitPath = path.join(projectPath, '.git');
-
-      // First, try filesystem-based resolution
+      // Search upwards for .git
+      let currentPath = projectPath;
       let gitPathExists = false;
-      try {
-        await fs.promises.access(gitPath);
-        gitPathExists = true;
-      } catch {
-        // Path doesn't exist
+      let gitPath = '';
+
+      while (currentPath) {
+        gitPath = path.join(currentPath, '.git');
+        try {
+          await fs.promises.access(gitPath);
+          gitPathExists = true;
+          break; // Found it
+        } catch {
+          const parentDir = path.dirname(currentPath);
+          if (parentDir === currentPath) {
+            break;
+          }
+          currentPath = parentDir;
+        }
       }
 
       if (gitPathExists) {
@@ -79,7 +118,7 @@ class GitIdentityResolver {
 
           // Handle relative paths in gitdir (resolve relative to the .git file location)
           if (!path.isAbsolute(worktreeGitDir)) {
-            worktreeGitDir = path.resolve(projectPath, worktreeGitDir);
+            worktreeGitDir = path.resolve(currentPath, worktreeGitDir);
           }
 
           mainGitDir = this.extractMainGitDir(worktreeGitDir);
@@ -264,12 +303,9 @@ class GitIdentityResolver {
 
     // Fallback: check filesystem if available
     try {
-      const gitPath = path.join(projectPath, '.git');
-      try {
-        const stats = await fs.promises.stat(gitPath);
-        return stats.isFile();
-      } catch {
-        // Path doesn't exist
+      const gitInfo = await this.findGitPath(projectPath);
+      if (gitInfo) {
+        return gitInfo.stats.isFile();
       }
     } catch {
       // Ignore errors - filesystem might not be available
@@ -426,13 +462,26 @@ class GitIdentityResolver {
    */
   async getBranch(projectPath: string): Promise<string | null> {
     try {
-      const gitPath = path.join(projectPath, '.git');
+      let currentPath = projectPath;
+      let gitPathExists = false;
+      let gitPath = '';
 
-      try {
-        await fs.promises.access(gitPath);
-      } catch {
-        return null;
+      while (currentPath) {
+        gitPath = path.join(currentPath, '.git');
+        try {
+          await fs.promises.access(gitPath);
+          gitPathExists = true;
+          break; // Found it
+        } catch {
+          const parentDir = path.dirname(currentPath);
+          if (parentDir === currentPath) {
+            break;
+          }
+          currentPath = parentDir;
+        }
       }
+
+      if (!gitPathExists) return null;
 
       const stats = await fs.promises.stat(gitPath);
       let headPath: string;
@@ -535,12 +584,19 @@ class GitIdentityResolver {
     // Check if it's a standard git repo (only if filesystem exists)
     // For deleted repos, we'll return 'git' as fallback since we can't verify
     try {
-      const gitPath = path.join(projectPath, '.git');
-      try {
-        await fs.promises.access(gitPath);
-        return 'git';
-      } catch {
-        // Path doesn't exist
+      let currentPath = projectPath;
+      while (currentPath) {
+        const gitPath = path.join(currentPath, '.git');
+        try {
+          await fs.promises.access(gitPath);
+          return 'git';
+        } catch {
+          const parentDir = path.dirname(currentPath);
+          if (parentDir === currentPath) {
+            break;
+          }
+          currentPath = parentDir;
+        }
       }
     } catch {
       // Ignore errors - filesystem might not be available
@@ -666,21 +722,24 @@ class GitIdentityResolver {
    */
   private async getGitWorktreeName(projectPath: string): Promise<string | null> {
     try {
-      const gitPath = path.join(projectPath, '.git');
-      let stats: fs.Stats;
-      try {
-        stats = await fs.promises.stat(gitPath);
-      } catch {
-        return null;
-      }
-      if (!stats.isFile()) return null;
+      const gitInfo = await this.findGitPath(projectPath);
+      
+      if (!gitInfo) return null;
+      if (!gitInfo.stats.isFile()) return null;
+
+      const { repoRoot, gitPath } = gitInfo;
 
       const content = await fs.promises.readFile(gitPath, 'utf-8');
       const match = /gitdir:\s*(\S[^\r\n]*)/.exec(content);
       if (!match) return null;
 
+      let worktreeGitDir = match[1].trim();
+      if (!path.isAbsolute(worktreeGitDir)) {
+        worktreeGitDir = path.resolve(repoRoot, worktreeGitDir);
+      }
+
       // gitdir: /main/.git/worktrees/my-worktree-name
-      const gitdirParts = match[1].trim().split(path.sep);
+      const gitdirParts = worktreeGitDir.split(path.sep);
       const worktreesIdx = gitdirParts.lastIndexOf(WORKTREES_DIR);
       if (worktreesIdx >= 0 && gitdirParts[worktreesIdx + 1]) {
         return gitdirParts[worktreesIdx + 1];
