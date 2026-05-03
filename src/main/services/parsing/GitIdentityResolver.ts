@@ -447,7 +447,7 @@ class GitIdentityResolver {
       const gitInfo = await this.findGitPath(projectPath);
       if (!gitInfo) return null;
 
-      const { gitPath, stats } = gitInfo;
+      const { repoRoot, gitPath, stats } = gitInfo;
       let headPath: string;
 
       if (stats.isFile()) {
@@ -459,7 +459,12 @@ class GitIdentityResolver {
           return null;
         }
 
-        headPath = path.join(gitDirMatch[1], 'HEAD');
+        let worktreeGitDir = gitDirMatch[1].trim();
+        if (!path.isAbsolute(worktreeGitDir)) {
+          worktreeGitDir = path.resolve(repoRoot, worktreeGitDir);
+        }
+
+        headPath = path.join(worktreeGitDir, 'HEAD');
       } else {
         // Main repo
         headPath = path.join(gitPath, 'HEAD');
