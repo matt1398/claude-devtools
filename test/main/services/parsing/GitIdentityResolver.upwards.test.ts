@@ -43,6 +43,7 @@ describe('GitIdentityResolver - Upwards Search', () => {
     const identity = await gitIdentityResolver.resolveIdentity(path.join(mainRepoDir, 'src'));
     expect(identity).toBeDefined();
     expect(identity?.mainGitDir).toBe(fs.realpathSync(path.join(mainRepoDir, '.git')));
+    expect(identity?.remoteUrl).toBe('git@github.com:matt1398/claude-devtools.git');
     expect(await gitIdentityResolver.isWorktree(path.join(mainRepoDir, 'src'))).toBe(false);
   });
 
@@ -50,6 +51,7 @@ describe('GitIdentityResolver - Upwards Search', () => {
     const identity = await gitIdentityResolver.resolveIdentity(path.join(worktreeDir, 'src'));
     expect(identity).toBeDefined();
     expect(identity?.mainGitDir).toBe(fs.realpathSync(path.join(mainRepoDir, '.git')));
+    expect(identity?.remoteUrl).toBe('git@github.com:matt1398/claude-devtools.git');
     expect(await gitIdentityResolver.isWorktree(path.join(worktreeDir, 'src'))).toBe(true);
   });
 });
