@@ -9,8 +9,8 @@ describe('GitIdentityResolver - Upwards Search', () => {
   let mainRepoDir: string;
   let worktreeDir: string;
 
-  beforeEach(() => {
-    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'git-upwards-test-')));
+  beforeEach(async () => {
+    tmpDir = await fs.promises.realpath(fs.mkdtempSync(path.join(os.tmpdir(), 'git-upwards-test-')));
     mainRepoDir = path.join(tmpDir, 'main-repo');
     worktreeDir = path.join(tmpDir, 'my-worktree');
 
@@ -42,7 +42,7 @@ describe('GitIdentityResolver - Upwards Search', () => {
   it('resolves identity when path is a subdirectory of main repo', async () => {
     const identity = await gitIdentityResolver.resolveIdentity(path.join(mainRepoDir, 'src'));
     expect(identity).toBeDefined();
-    expect(identity?.mainGitDir).toBe(fs.realpathSync(path.join(mainRepoDir, '.git')));
+    expect(identity?.mainGitDir).toBe(await fs.promises.realpath(path.join(mainRepoDir, '.git')));
     expect(identity?.remoteUrl).toBe('git@github.com:matt1398/claude-devtools.git');
     expect(await gitIdentityResolver.isWorktree(path.join(mainRepoDir, 'src'))).toBe(false);
   });
@@ -50,7 +50,7 @@ describe('GitIdentityResolver - Upwards Search', () => {
   it('resolves identity when path is a subdirectory of a worktree (with relative gitdir)', async () => {
     const identity = await gitIdentityResolver.resolveIdentity(path.join(worktreeDir, 'src'));
     expect(identity).toBeDefined();
-    expect(identity?.mainGitDir).toBe(fs.realpathSync(path.join(mainRepoDir, '.git')));
+    expect(identity?.mainGitDir).toBe(await fs.promises.realpath(path.join(mainRepoDir, '.git')));
     expect(identity?.remoteUrl).toBe('git@github.com:matt1398/claude-devtools.git');
     expect(await gitIdentityResolver.isWorktree(path.join(worktreeDir, 'src'))).toBe(true);
   });

@@ -9,8 +9,8 @@ describe('GitIdentityResolver', () => {
   let mainRepoDir: string;
   let worktreeDir: string;
 
-  beforeEach(() => {
-    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'git-identity-test-')));
+  beforeEach(async () => {
+    tmpDir = await fs.promises.realpath(fs.mkdtempSync(path.join(os.tmpdir(), 'git-identity-test-')));
     mainRepoDir = path.join(tmpDir, 'main-repo');
     worktreeDir = path.join(tmpDir, 'my-worktree');
 
@@ -38,14 +38,14 @@ describe('GitIdentityResolver', () => {
   it('resolves identity for main repo', async () => {
     const identity = await gitIdentityResolver.resolveIdentity(mainRepoDir);
     expect(identity).toBeDefined();
-    expect(identity?.mainGitDir).toBe(fs.realpathSync(path.join(mainRepoDir, '.git')));
+    expect(identity?.mainGitDir).toBe(await fs.promises.realpath(path.join(mainRepoDir, '.git')));
     expect(identity?.name).toBe('main-repo');
   });
 
   it('resolves identity for worktree', async () => {
     const identity = await gitIdentityResolver.resolveIdentity(worktreeDir);
     expect(identity).toBeDefined();
-    expect(identity?.mainGitDir).toBe(fs.realpathSync(path.join(mainRepoDir, '.git')));
+    expect(identity?.mainGitDir).toBe(await fs.promises.realpath(path.join(mainRepoDir, '.git')));
     expect(identity?.name).toBe('main-repo');
   });
 });
