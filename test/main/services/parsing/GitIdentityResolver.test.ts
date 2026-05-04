@@ -10,7 +10,7 @@ describe('GitIdentityResolver', () => {
   let worktreeDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-identity-test-'));
+    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'git-identity-test-')));
     mainRepoDir = path.join(tmpDir, 'main-repo');
     worktreeDir = path.join(tmpDir, 'my-worktree');
 
