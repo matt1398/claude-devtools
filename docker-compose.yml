@@ -16,7 +16,7 @@ services:
   claude-devtools:
     build: .
     ports:
-      - "3456:3456"
+      - "${PORT:-3456}:3456"
     volumes:
       - ${CLAUDE_DIR:-~/.claude}:/data/.claude:ro
     environment:
