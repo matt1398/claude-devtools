@@ -20,6 +20,7 @@ import { DEFAULT_TRIGGERS, TriggerManager } from './TriggerManager';
 
 import type { TriggerColor } from '@shared/constants/triggerColors';
 import type { SshConnectionProfile } from '@shared/types/api';
+import type { SubscriptionEntry, SubscriptionsConfig } from '@shared/types/notifications';
 
 const logger = createLogger('Service:ConfigManager');
 
@@ -214,6 +215,9 @@ export interface HttpServerConfig {
   port: number;
 }
 
+// Re-export from shared types so consumers can import from either location
+export type { SubscriptionEntry, SubscriptionsConfig };
+
 export interface AppConfig {
   notifications: NotificationConfig;
   general: GeneralConfig;
@@ -221,6 +225,7 @@ export interface AppConfig {
   sessions: SessionsConfig;
   ssh: SshPersistConfig;
   httpServer: HttpServerConfig;
+  subscriptions: SubscriptionsConfig;
 }
 
 // Config section keys for type-safe updates
@@ -271,6 +276,9 @@ const DEFAULT_CONFIG: AppConfig = {
   httpServer: {
     enabled: false,
     port: 3456,
+  },
+  subscriptions: {
+    entries: [],
   },
 };
 
@@ -460,6 +468,11 @@ export class ConfigManager {
       httpServer: {
         ...DEFAULT_CONFIG.httpServer,
         ...(loaded.httpServer ?? {}),
+      },
+      subscriptions: {
+        ...DEFAULT_CONFIG.subscriptions,
+        ...(loaded.subscriptions ?? {}),
+        entries: loaded.subscriptions?.entries ?? DEFAULT_CONFIG.subscriptions.entries,
       },
     };
   }

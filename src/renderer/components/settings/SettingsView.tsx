@@ -14,9 +14,11 @@ import {
   ConnectionSection,
   GeneralSection,
   NotificationsSection,
+  SubscriptionsSection,
   WorkspaceSection,
 } from './sections';
 import { type SettingsSection, SettingsTabs } from './SettingsTabs';
+
 
 export const SettingsView = (): React.JSX.Element | null => {
   const [activeSection, setActiveSection] = useState<SettingsSection>('general');
@@ -150,6 +152,16 @@ export const SettingsView = (): React.JSX.Element | null => {
               onAddTrigger={handlers.handleAddTrigger}
               onUpdateTrigger={handlers.handleUpdateTrigger}
               onRemoveTrigger={handlers.handleRemoveTrigger}
+            />
+          )}
+
+          {activeSection === 'billing' && (
+            <SubscriptionsSection
+              config={config}
+              saving={saving}
+              onSave={async (entries) => {
+                await updateConfig('subscriptions', { entries });
+              }}
             />
           )}
 

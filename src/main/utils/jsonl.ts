@@ -28,6 +28,7 @@ import {
 } from '../types';
 
 // Import from extracted modules
+import { calculateTokenCost } from './pricingModel';
 import { extractToolCalls, extractToolResults } from './toolExtraction';
 
 import type { FileSystemProvider } from '../services/infrastructure/FileSystemProvider';
@@ -271,7 +272,7 @@ export function calculateMetrics(messages: ParsedMessage[]): SessionMetrics {
   let outputTokens = 0;
   let cacheReadTokens = 0;
   let cacheCreationTokens = 0;
-  const costUsd = 0;
+  let costUsd = 0;
 
   // Get timestamps for duration (loop instead of Math.min/max spread to avoid stack overflow on large sessions)
   const timestamps = messages.map((m) => m.timestamp.getTime()).filter((t) => !isNaN(t));
@@ -289,10 +290,18 @@ export function calculateMetrics(messages: ParsedMessage[]): SessionMetrics {
 
   for (const msg of dedupedMessages) {
     if (msg.usage) {
-      inputTokens += msg.usage.input_tokens ?? 0;
-      outputTokens += msg.usage.output_tokens ?? 0;
-      cacheReadTokens += msg.usage.cache_read_input_tokens ?? 0;
-      cacheCreationTokens += msg.usage.cache_creation_input_tokens ?? 0;
+      const msgInput = msg.usage.input_tokens ?? 0;
+      const msgOutput = msg.usage.output_tokens ?? 0;
+      const msgCacheRead = msg.usage.cache_read_input_tokens ?? 0;
+      const msgCacheCreate = msg.usage.cache_creation_input_tokens ?? 0;
+
+      inputTokens += msgInput;
+      outputTokens += msgOutput;
+      cacheReadTokens += msgCacheRead;
+      cacheCreationTokens += msgCacheCreate;
+
+      // Accumulate per-message cost using the model reported by that message
+      costUsd += calculateTokenCost(msg.model, msgInput, msgOutput, msgCacheRead, msgCacheCreate);
     }
   }
 
