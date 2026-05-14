@@ -305,6 +305,15 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     setSelectedExportIds(new Set());
   }, [exportItems, toolItemFields]);
 
+  // Hold the copy-confirmation timer in a ref so it can be cleared on unmount
+  // (and on subsequent clicks while the previous confirmation is still showing).
+  const copyConfirmedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (copyConfirmedTimerRef.current) clearTimeout(copyConfirmedTimerRef.current);
+    };
+  }, []);
+
   const handleCopySelected = useCallback(async () => {
     const text = exportItems
       .filter((i) => selectedExportIds.has(i.id))
@@ -320,7 +329,11 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     try {
       await navigator.clipboard.writeText(text);
       setCopyConfirmed(true);
-      setTimeout(() => setCopyConfirmed(false), 2000);
+      if (copyConfirmedTimerRef.current) clearTimeout(copyConfirmedTimerRef.current);
+      copyConfirmedTimerRef.current = setTimeout(() => {
+        setCopyConfirmed(false);
+        copyConfirmedTimerRef.current = null;
+      }, 2000);
     } catch {
       // clipboard unavailable
     }
