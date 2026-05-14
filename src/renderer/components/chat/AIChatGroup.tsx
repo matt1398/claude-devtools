@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 
+import { TriStateCheckbox } from '@renderer/components/common/TriStateCheckbox';
 import { COLOR_TEXT_MUTED, COLOR_TEXT_SECONDARY } from '@renderer/constants/cssVariables';
 import { useExportSelection } from '@renderer/contexts/ExportSelectionContext';
 import { useTabUI } from '@renderer/hooks/useTabUI';
@@ -122,36 +123,6 @@ function containsToolUseId(items: AIGroupDisplayItem[], toolUseId: string): bool
  * - DisplayItemList: Shows items when expanded with inline expansion support
  * - Manages local expansion state and inline item expansion
  */
-
-// Checkbox supporting indeterminate state for tool items.
-const TriStateCheckbox = ({
-  checked,
-  indeterminate,
-  onChange,
-  className,
-  title,
-}: {
-  checked: boolean;
-  indeterminate: boolean;
-  onChange: () => void;
-  className?: string;
-  title?: string;
-}): React.JSX.Element => {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = indeterminate;
-  }, [indeterminate]);
-  return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked}
-      onChange={onChange}
-      className={className}
-      title={title}
-    />
-  );
-};
 
 // Parent checkbox for the last-output block.
 // Tool results get a tristate checkbox (name/summary/input/output fields as children).

@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
+import { TriStateCheckbox } from '@renderer/components/common/TriStateCheckbox';
 import {
   CODE_BG,
   CODE_BORDER,
@@ -39,36 +40,6 @@ interface DisplayItemListProps {
   /** Optional callback to register tool element refs for scroll targeting */
   registerToolRef?: (toolId: string, el: HTMLDivElement | null) => void;
 }
-
-/** Checkbox that supports the indeterminate (partial) state. */
-const TriStateCheckbox = ({
-  checked,
-  indeterminate,
-  onChange,
-  className,
-  title,
-}: {
-  checked: boolean;
-  indeterminate: boolean;
-  onChange: () => void;
-  className?: string;
-  title?: string;
-}): React.JSX.Element => {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.indeterminate = indeterminate;
-  }, [indeterminate]);
-  return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked}
-      onChange={onChange}
-      className={className}
-      title={title}
-    />
-  );
-};
 
 /**
  * Truncates text to a maximum length and adds ellipsis if needed.
