@@ -285,6 +285,26 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     [exportItems, selectedExportIds, toolItemFields]
   );
 
+  // Select-all / deselect-all also mirror state into toolItemFields so the
+  // invariant (item selected ⟺ at least one field enabled) holds for tool items.
+  const selectAll = useCallback(() => {
+    const newItemFields = new Map(toolItemFields);
+    for (const item of exportItems) {
+      if (item.type === 'tool') newItemFields.set(item.id, new Set(ALL_TOOL_FIELDS));
+    }
+    setToolItemFields(newItemFields);
+    setSelectedExportIds(new Set(exportItems.map((i) => i.id)));
+  }, [exportItems, toolItemFields]);
+
+  const deselectAll = useCallback(() => {
+    const newItemFields = new Map(toolItemFields);
+    for (const item of exportItems) {
+      if (item.type === 'tool') newItemFields.set(item.id, new Set<ToolFieldKey>());
+    }
+    setToolItemFields(newItemFields);
+    setSelectedExportIds(new Set());
+  }, [exportItems, toolItemFields]);
+
   const handleCopySelected = useCallback(async () => {
     const text = exportItems
       .filter((i) => selectedExportIds.has(i.id))
@@ -1024,14 +1044,14 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
                 |
               </span>
               <button
-                onClick={() => setSelectedExportIds(new Set(exportItems.map((i) => i.id)))}
+                onClick={selectAll}
                 className="rounded px-1.5 py-0.5 text-xs transition-opacity hover:opacity-70"
                 style={{ color: 'var(--color-text-muted)' }}
               >
                 All
               </button>
               <button
-                onClick={() => setSelectedExportIds(new Set())}
+                onClick={deselectAll}
                 className="rounded px-1.5 py-0.5 text-xs transition-opacity hover:opacity-70"
                 style={{ color: 'var(--color-text-muted)' }}
               >
