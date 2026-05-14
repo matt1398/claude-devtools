@@ -44,6 +44,7 @@ export const DefaultToolViewer: React.FC<DefaultToolViewerProps> = ({
               checked={inputChecked}
               onChange={() => toggleToolItemField(exportId!, 'input')}
               title="Include input in copy"
+              aria-label="Include input in copy"
               className="cursor-pointer accent-indigo-500"
             />
           )}

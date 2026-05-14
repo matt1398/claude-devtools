@@ -84,6 +84,7 @@ const FieldCheckbox: React.FC<{ checked: boolean; onChange: () => void; title: s
       checked={checked}
       onChange={onChange}
       title={title}
+      aria-label={title}
       className="cursor-pointer accent-indigo-500"
     />
   </span>

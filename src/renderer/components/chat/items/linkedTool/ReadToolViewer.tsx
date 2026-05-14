@@ -73,6 +73,7 @@ export const ReadToolViewer: React.FC<ReadToolViewerProps> = ({ linkedTool, expo
             checked={outputChecked}
             onChange={() => toggleToolItemField(exportId!, 'output')}
             title="Include file content in copy"
+            aria-label="Include file content in copy"
             className="cursor-pointer accent-indigo-500"
           />
         </div>

@@ -58,6 +58,7 @@ export const CollapsibleOutputSection: React.FC<CollapsibleOutputSectionProps> =
             checked={outputChecked}
             onChange={() => toggleToolItemField(exportId!, 'output')}
             title="Include output in copy"
+            aria-label="Include output in copy"
             className="cursor-pointer accent-indigo-500"
           />
         )}

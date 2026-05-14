@@ -50,6 +50,7 @@ export const EditToolViewer: React.FC<EditToolViewerProps> = ({ linkedTool, stat
               checked={inputChecked}
               onChange={() => toggleToolItemField(exportId!, 'input')}
               title="Include diff in copy"
+              aria-label="Include diff in copy"
               className="cursor-pointer accent-indigo-500"
             />
           </div>
@@ -82,6 +83,7 @@ export const EditToolViewer: React.FC<EditToolViewerProps> = ({ linkedTool, stat
                 checked={outputChecked}
                 onChange={() => toggleToolItemField(exportId!, 'output')}
                 title="Include result in copy"
+                aria-label="Include result in copy"
                 className="cursor-pointer accent-indigo-500"
               />
             )}

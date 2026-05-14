@@ -451,6 +451,7 @@ const UserChatGroupInner = ({ userGroup }: Readonly<UserChatGroupProps>): React.
           onChange={() => toggle(exportId)}
           className="mt-8 shrink-0 cursor-pointer accent-indigo-500"
           title="Include in copy"
+          aria-label="Include in copy"
         />
       )}
       <div className="max-w-[85%] space-y-2">

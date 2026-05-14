@@ -49,6 +49,7 @@ export const SkillToolViewer: React.FC<SkillToolViewerProps> = ({ linkedTool, ex
                 checked={outputChecked}
                 onChange={() => toggleToolItemField(exportId!, 'output')}
                 title="Include result in copy"
+                aria-label="Include result in copy"
                 className="cursor-pointer accent-indigo-500"
               />
             )}

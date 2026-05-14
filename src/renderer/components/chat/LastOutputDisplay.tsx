@@ -142,6 +142,7 @@ export const LastOutputDisplay = ({
                   checked={getToolFields(exportId!).has('name')}
                   onChange={() => toggleToolItemField(exportId!, 'name')}
                   title="Include tool name in copy"
+                  aria-label="Include tool name in copy"
                   className="cursor-pointer accent-indigo-500"
                 />
               )}
@@ -179,6 +180,7 @@ export const LastOutputDisplay = ({
                 checked={getToolFields(exportId!).has('output')}
                 onChange={() => toggleToolItemField(exportId!, 'output')}
                 title="Include output in copy"
+                aria-label="Include output in copy"
                 className="cursor-pointer accent-indigo-500"
               />
             </div>

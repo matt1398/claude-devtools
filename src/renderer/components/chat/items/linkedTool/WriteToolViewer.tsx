@@ -42,6 +42,7 @@ export const WriteToolViewer: React.FC<WriteToolViewerProps> = ({ linkedTool, ex
             checked={inputChecked}
             onChange={() => toggleToolItemField(exportId!, 'input')}
             title="Include file content in copy"
+            aria-label="Include file content in copy"
             className="cursor-pointer accent-indigo-500"
           />
         )}

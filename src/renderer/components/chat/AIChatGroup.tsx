@@ -169,6 +169,7 @@ const LastOutputCheckbox = ({
       onChange={() => toggle(exportId)}
       className="mt-2 shrink-0 cursor-pointer accent-indigo-500"
       title="Include in copy"
+      aria-label="Include in copy"
     />
   );
 };
