@@ -41,6 +41,7 @@ interface UseTabUIReturn {
   getExpandedDisplayItemIds: (aiGroupId: string) => Set<string>;
   toggleDisplayItemExpansion: (aiGroupId: string, itemId: string) => void;
   expandDisplayItem: (aiGroupId: string, itemId: string) => void;
+  expandMany: (aiGroupId: string, itemIds: string[], subagentIds: string[]) => void;
   isSubagentTraceExpanded: (subagentId: string) => boolean;
   toggleSubagentTraceExpansion: (subagentId: string) => void;
   expandSubagentTrace: (subagentId: string) => void;
@@ -84,6 +85,7 @@ export function useTabUI(): UseTabUIReturn {
     triggerExpandAllForTab,
     toggleDisplayItemExpansionForTab,
     expandDisplayItemForTab,
+    expandManyForTab,
     toggleSubagentTraceExpansionForTab,
     expandSubagentTraceForTab,
     setContextPanelVisibleForTab,
@@ -98,6 +100,7 @@ export function useTabUI(): UseTabUIReturn {
       triggerExpandAllForTab: s.triggerExpandAllForTab,
       toggleDisplayItemExpansionForTab: s.toggleDisplayItemExpansionForTab,
       expandDisplayItemForTab: s.expandDisplayItemForTab,
+      expandManyForTab: s.expandManyForTab,
       toggleSubagentTraceExpansionForTab: s.toggleSubagentTraceExpansionForTab,
       expandSubagentTraceForTab: s.expandSubagentTraceForTab,
       setContextPanelVisibleForTab: s.setContextPanelVisibleForTab,
@@ -172,6 +175,14 @@ export function useTabUI(): UseTabUIReturn {
       expandDisplayItemForTab(tabId, aiGroupId, itemId);
     },
     [tabId, expandDisplayItemForTab]
+  );
+
+  const expandMany = useCallback(
+    (aiGroupId: string, itemIds: string[], subagentIds: string[]): void => {
+      if (!tabId) return;
+      expandManyForTab(tabId, aiGroupId, itemIds, subagentIds);
+    },
+    [tabId, expandManyForTab]
   );
 
   // Subagent trace expansion - derive from tabState
@@ -253,6 +264,7 @@ export function useTabUI(): UseTabUIReturn {
     getExpandedDisplayItemIds,
     toggleDisplayItemExpansion,
     expandDisplayItem,
+    expandMany,
 
     // Subagent trace expansion
     isSubagentTraceExpanded,

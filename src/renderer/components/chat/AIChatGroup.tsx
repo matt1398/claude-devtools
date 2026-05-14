@@ -187,7 +187,7 @@ const AIChatGroupInner = ({
     getExpandedDisplayItemIds,
     toggleDisplayItemExpansion,
     expandDisplayItem,
-    expandSubagentTrace,
+    expandMany,
     expandAllSignal,
   } = useTabUI();
 
@@ -434,43 +434,45 @@ const AIChatGroupInner = ({
     expandDisplayItem,
   ]);
 
-  // When "Expand All" is triggered, expand every display item in this group
+  // When "Expand All" is triggered, expand every display item + subagent trace
+  // in this group via a single batched store update.
   const prevExpandAllSignalRef = useRef(0);
   useEffect(() => {
     if (expandAllSignal === 0 || expandAllSignal === prevExpandAllSignalRef.current) return;
     prevExpandAllSignalRef.current = expandAllSignal;
+    const itemIds: string[] = [];
+    const subagentIds: string[] = [];
     enhanced.displayItems.forEach((item, i) => {
-      let itemId = '';
       switch (item.type) {
         case 'thinking':
-          itemId = `thinking-${i}`;
+          itemIds.push(`thinking-${i}`);
           break;
         case 'output':
-          itemId = `output-${i}`;
+          itemIds.push(`output-${i}`);
           break;
         case 'tool':
-          itemId = `tool-${item.tool.id}-${i}`;
+          itemIds.push(`tool-${item.tool.id}-${i}`);
           break;
         case 'subagent':
-          itemId = `subagent-${item.subagent.id}-${i}`;
-          expandSubagentTrace(item.subagent.id);
+          itemIds.push(`subagent-${item.subagent.id}-${i}`);
+          subagentIds.push(item.subagent.id);
           break;
         case 'slash':
-          itemId = `slash-${item.slash.name}-${i}`;
+          itemIds.push(`slash-${item.slash.name}-${i}`);
           break;
         case 'teammate_message':
-          itemId = `teammate-${item.teammateMessage.id}-${i}`;
+          itemIds.push(`teammate-${item.teammateMessage.id}-${i}`);
           break;
         case 'subagent_input':
-          itemId = `input-${i}`;
+          itemIds.push(`input-${i}`);
           break;
         case 'compact_boundary':
-          itemId = `compact-${i}`;
+          itemIds.push(`compact-${i}`);
           break;
       }
-      if (itemId) expandDisplayItem(aiGroup.id, itemId);
     });
-  }, [expandAllSignal, enhanced.displayItems, aiGroup.id, expandDisplayItem, expandSubagentTrace]);
+    expandMany(aiGroup.id, itemIds, subagentIds);
+  }, [expandAllSignal, enhanced.displayItems, aiGroup.id, expandMany]);
 
   // Determine if there's content to toggle
   const hasToggleContent = enhanced.displayItems.length > 0;
