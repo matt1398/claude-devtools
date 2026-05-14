@@ -7,6 +7,7 @@
 
 import React, { useState } from 'react';
 
+import { useExportSelection } from '@renderer/contexts/ExportSelectionContext';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { type ItemStatus, StatusDot } from '../BaseItem';
@@ -16,27 +17,51 @@ interface CollapsibleOutputSectionProps {
   children: React.ReactNode;
   /** Label shown in the header (default: "Output") */
   label?: string;
+  /** Export ID of the parent tool item — when set, shows an output field checkbox */
+  exportId?: string;
 }
 
 export const CollapsibleOutputSection: React.FC<CollapsibleOutputSectionProps> = ({
   status,
   children,
   label = 'Output',
+  exportId,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const { isActive, getToolFields, toggleToolItemField } = useExportSelection();
+
+  const showCheckbox = isActive && Boolean(exportId);
+  const outputChecked = exportId ? getToolFields(exportId).has('output') : true;
 
   return (
     <div>
-      <button
-        type="button"
-        className="mb-1 flex items-center gap-2 text-xs"
-        style={{ color: 'var(--tool-item-muted)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-        onClick={() => setIsExpanded((prev) => !prev)}
-      >
-        {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-        {label}
-        <StatusDot status={status} />
-      </button>
+      <div className="mb-1 flex items-center gap-1.5">
+        <button
+          type="button"
+          className="flex items-center gap-1.5 text-xs"
+          style={{
+            color: 'var(--tool-item-muted)',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+          }}
+          onClick={() => setIsExpanded((prev) => !prev)}
+        >
+          {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+          {label}
+          <StatusDot status={status} />
+        </button>
+        {showCheckbox && (
+          <input
+            type="checkbox"
+            checked={outputChecked}
+            onChange={() => toggleToolItemField(exportId!, 'output')}
+            title="Include output in copy"
+            className="cursor-pointer accent-indigo-500"
+          />
+        )}
+      </div>
       {isExpanded && (
         <div
           className="max-h-96 overflow-auto rounded p-3 font-mono text-xs"
@@ -44,9 +69,7 @@ export const CollapsibleOutputSection: React.FC<CollapsibleOutputSectionProps> =
             backgroundColor: 'var(--code-bg)',
             border: '1px solid var(--code-border)',
             color:
-              status === 'error'
-                ? 'var(--tool-result-error-text)'
-                : 'var(--color-text-secondary)',
+              status === 'error' ? 'var(--tool-result-error-text)' : 'var(--color-text-secondary)',
           }}
         >
           {children}

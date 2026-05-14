@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { ExportSelectionContext } from '@renderer/contexts/ExportSelectionContext';
 import { isNearBottom, useAutoScrollBottom } from '@renderer/hooks/useAutoScrollBottom';
 import { useTabNavigationController } from '@renderer/hooks/useTabNavigationController';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useVisibleAIGroup } from '@renderer/hooks/useVisibleAIGroup';
 import { useStore } from '@renderer/store';
+import {
+  assembleToolContent,
+  type ExportItemType,
+  extractExportItems,
+  type ToolFieldKey,
+} from '@renderer/utils/conversationExtractor';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronsDown } from 'lucide-react';
+import { Check, ChevronsDown, Clipboard } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { SessionContextPanel } from './SessionContextPanel/index';
@@ -21,6 +28,9 @@ import { ChatHistoryItem } from './ChatHistoryItem';
 import { ChatHistoryLoadingState } from './ChatHistoryLoadingState';
 
 import type { ContextInjection } from '@renderer/types/contextInjection';
+import type { ExportItem } from '@renderer/utils/conversationExtractor';
+
+const ALL_TOOL_FIELDS = new Set<ToolFieldKey>(['name', 'summary', 'input', 'output']);
 
 /**
  * Waits for two requestAnimationFrame cycles, allowing the virtualizer to render.
@@ -47,6 +57,8 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     savedScrollTop,
     saveScrollPosition,
     expandAIGroup,
+    expandAllAIGroups,
+    triggerExpandAll,
     expandSubagentTrace,
     selectedContextPhase,
     setSelectedContextPhase,
@@ -99,6 +111,219 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     sessionPhaseInfo,
     sessionDetail,
   } = tabData;
+
+  // Export selection mode
+  const { exportSelectionMode, closeExportSelectionMode } = useStore(
+    useShallow((s) => ({
+      exportSelectionMode: s.exportSelectionMode,
+      closeExportSelectionMode: s.closeExportSelectionMode,
+    }))
+  );
+
+  // Pre-computed export items (recalculated when selection mode opens or conversation changes)
+  const [exportItems, setExportItems] = useState<ExportItem[]>([]);
+  // selectedExportIds: source of truth for non-tool items; for tool items it's kept in sync with toolItemFields
+  const [selectedExportIds, setSelectedExportIds] = useState<Set<string>>(new Set());
+  const [copyConfirmed, setCopyConfirmed] = useState(false);
+  // Global defaults for toolbar batch toggles
+  const [toolFieldsEnabled, setToolFieldsEnabled] = useState<Set<ToolFieldKey>>(
+    new Set<ToolFieldKey>(['name', 'summary', 'input', 'output'])
+  );
+  // Per-tool-item field sets. Invariant: selectedExportIds.has(id) <=> toolItemFields.get(id)?.size > 0
+  const [toolItemFields, setToolItemFields] = useState<Map<string, Set<ToolFieldKey>>>(new Map());
+
+  useEffect(() => {
+    if (exportSelectionMode && conversation) {
+      const items = extractExportItems(conversation);
+      setExportItems(items);
+      const selectedIds = new Set<string>();
+      const fieldMap = new Map<string, Set<ToolFieldKey>>();
+      for (const item of items) {
+        if (item.selected) selectedIds.add(item.id);
+        if (item.type === 'tool') {
+          fieldMap.set(item.id, new Set<ToolFieldKey>(['name', 'summary', 'input', 'output']));
+        }
+      }
+      setSelectedExportIds(selectedIds);
+      setToolItemFields(fieldMap);
+    } else if (!exportSelectionMode) {
+      setExportItems([]);
+      setSelectedExportIds(new Set());
+      setToolItemFields(new Map());
+    }
+  }, [exportSelectionMode, conversation]);
+
+  // Non-tool items: simple toggle
+  const toggleExportItem = useCallback((id: string) => {
+    setSelectedExportIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Tool items: toggle a single field; auto-syncs selectedExportIds
+  const toggleToolItemField = useCallback(
+    (id: string, field: ToolFieldKey) => {
+      const current = toolItemFields.get(id) ?? ALL_TOOL_FIELDS;
+      const updated = new Set(current);
+      if (updated.has(field)) updated.delete(field);
+      else updated.add(field);
+      const newItemFields = new Map(toolItemFields);
+      newItemFields.set(id, updated);
+      setToolItemFields(newItemFields);
+      // Sync selectedExportIds
+      setSelectedExportIds((prev) => {
+        const next = new Set(prev);
+        if (updated.size === 0) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    },
+    [toolItemFields]
+  );
+
+  // Tool items: set all 4 fields on or off at once; auto-syncs selectedExportIds
+  const setToolItemFieldsAll = useCallback(
+    (id: string, enabled: boolean) => {
+      const newFields = enabled ? new Set(ALL_TOOL_FIELDS) : new Set<ToolFieldKey>();
+      const newItemFields = new Map(toolItemFields);
+      newItemFields.set(id, newFields);
+      setToolItemFields(newItemFields);
+      setSelectedExportIds((prev) => {
+        const next = new Set(prev);
+        if (enabled) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [toolItemFields]
+  );
+
+  // Toolbar: batch-toggle one field across all tool items; also syncs selectedExportIds
+  const toggleToolField = useCallback(
+    (field: ToolFieldKey) => {
+      const willEnable = !toolFieldsEnabled.has(field);
+      const newGlobal = new Set(toolFieldsEnabled);
+      if (willEnable) newGlobal.add(field);
+      else newGlobal.delete(field);
+      setToolFieldsEnabled(newGlobal);
+
+      const newItemFields = new Map(toolItemFields);
+      const newSelectedIds = new Set(selectedExportIds);
+      for (const [id, fields] of toolItemFields) {
+        const updated = new Set(fields);
+        if (willEnable) updated.add(field);
+        else updated.delete(field);
+        newItemFields.set(id, updated);
+        if (updated.size === 0) newSelectedIds.delete(id);
+        else newSelectedIds.add(id);
+      }
+      setToolItemFields(newItemFields);
+      setSelectedExportIds(newSelectedIds);
+    },
+    [toolFieldsEnabled, toolItemFields, selectedExportIds]
+  );
+
+  // Category helpers — operate on selectedExportIds (non-tool items) or all fields (tool items)
+  const getCategoryItems = useCallback(
+    (type: ExportItemType) => exportItems.filter((i) => i.type === type),
+    [exportItems]
+  );
+
+  const isCategoryAllSelected = useCallback(
+    (type: ExportItemType) => {
+      const cat = exportItems.filter((i) => i.type === type);
+      if (cat.length === 0) return false;
+      if (type === 'tool') {
+        return cat.every((i) => (toolItemFields.get(i.id)?.size ?? 0) === 4);
+      }
+      return cat.every((i) => selectedExportIds.has(i.id));
+    },
+    [exportItems, selectedExportIds, toolItemFields]
+  );
+
+  const isCategoryAnySelected = useCallback(
+    (type: ExportItemType) => {
+      if (type === 'tool') {
+        return exportItems.some(
+          (i) => i.type === 'tool' && (toolItemFields.get(i.id)?.size ?? 0) > 0
+        );
+      }
+      return exportItems.some((i) => i.type === type && selectedExportIds.has(i.id));
+    },
+    [exportItems, selectedExportIds, toolItemFields]
+  );
+
+  const toggleCategory = useCallback(
+    (type: ExportItemType) => {
+      const cat = exportItems.filter((i) => i.type === type);
+      if (cat.length === 0) return;
+      if (type === 'tool') {
+        const allFull = cat.every((i) => (toolItemFields.get(i.id)?.size ?? 0) === 4);
+        const enable = !allFull;
+        const newItemFields = new Map(toolItemFields);
+        const newSelectedIds = new Set(selectedExportIds);
+        for (const item of cat) {
+          newItemFields.set(item.id, enable ? new Set(ALL_TOOL_FIELDS) : new Set<ToolFieldKey>());
+          if (enable) newSelectedIds.add(item.id);
+          else newSelectedIds.delete(item.id);
+        }
+        setToolItemFields(newItemFields);
+        setSelectedExportIds(newSelectedIds);
+      } else {
+        const allSelected = cat.every((i) => selectedExportIds.has(i.id));
+        setSelectedExportIds((prev) => {
+          const next = new Set(prev);
+          if (allSelected) cat.forEach((i) => next.delete(i.id));
+          else cat.forEach((i) => next.add(i.id));
+          return next;
+        });
+      }
+    },
+    [exportItems, selectedExportIds, toolItemFields]
+  );
+
+  const handleCopySelected = useCallback(async () => {
+    const text = exportItems
+      .filter((i) => selectedExportIds.has(i.id))
+      .map((i) => {
+        if (i.type === 'tool' && i.toolFields) {
+          const fields = toolItemFields.get(i.id) ?? toolFieldsEnabled;
+          return assembleToolContent(i.toolFields, fields);
+        }
+        return i.content;
+      })
+      .filter(Boolean)
+      .join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyConfirmed(true);
+      setTimeout(() => setCopyConfirmed(false), 2000);
+    } catch {
+      // clipboard unavailable
+    }
+  }, [exportItems, selectedExportIds, toolItemFields, toolFieldsEnabled]);
+
+  const exportCtxValue = useMemo(
+    () => ({
+      isActive: exportSelectionMode,
+      isSelected: (id: string) => selectedExportIds.has(id),
+      toggle: toggleExportItem,
+      getToolFields: (id: string) => toolItemFields.get(id) ?? ALL_TOOL_FIELDS,
+      toggleToolItemField,
+      setToolItemFieldsAll,
+    }),
+    [
+      exportSelectionMode,
+      selectedExportIds,
+      toggleExportItem,
+      toolItemFields,
+      toggleToolItemField,
+      setToolItemFieldsAll,
+    ]
+  );
 
   // State for Context button hover (local state OK - doesn't need per-tab isolation)
   const [isContextButtonHovered, setIsContextButtonHovered] = useState(false);
@@ -745,148 +970,303 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
   if (!conversation || conversation.items.length === 0) return <ChatHistoryEmptyState />;
 
   return (
-    <div
-      className="flex flex-1 flex-col overflow-hidden"
-      style={{ backgroundColor: 'var(--color-surface)' }}
-    >
-      <div className="relative flex flex-1 overflow-hidden">
-        {/* Chat content */}
-        <div
-          ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto"
-          style={{ backgroundColor: 'var(--color-surface)' }}
-          onScroll={checkScrollButton}
-        >
-          {/* Sticky Context button */}
-          {allContextInjections.length > 0 && (
-            <div className="pointer-events-none sticky top-0 z-10 flex justify-end px-4 pb-0 pt-3">
+    <ExportSelectionContext.Provider value={exportCtxValue}>
+      <div
+        className="flex flex-1 flex-col overflow-hidden"
+        style={{ backgroundColor: 'var(--color-surface)' }}
+      >
+        {/* Export selection toolbar — shown when selection mode is active */}
+        {exportSelectionMode && (
+          <div
+            className="flex shrink-0 flex-col gap-1 px-4 py-2"
+            style={{
+              backgroundColor: 'var(--color-surface-raised)',
+              borderBottom: '1px solid var(--color-border-emphasis)',
+            }}
+          >
+            {/* Row 1: category toggles + All/None shortcuts + count + Copy + Done */}
+            <div className="flex items-center gap-1.5">
+              {(
+                [
+                  ['user', 'User'],
+                  ['ai-text', 'Claude'],
+                  ['thinking', 'Thinking'],
+                  ['tool', 'Tool Calls'],
+                ] as [ExportItemType, string][]
+              )
+                .filter(([type]) => getCategoryItems(type).length > 0)
+                .map(([type, label]) => {
+                  const anyOn = isCategoryAnySelected(type);
+                  const allOn = isCategoryAllSelected(type);
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => toggleCategory(type)}
+                      className="rounded border px-2 py-0.5 text-xs transition-colors"
+                      style={{
+                        borderColor: anyOn ? 'var(--color-border-emphasis)' : 'transparent',
+                        color: anyOn
+                          ? allOn
+                            ? 'var(--color-text)'
+                            : 'var(--color-text-secondary)'
+                          : 'var(--color-text-muted)',
+                        backgroundColor: anyOn ? 'var(--color-surface)' : 'transparent',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              <span
+                className="mx-0.5 select-none text-xs"
+                style={{ color: 'var(--color-border-emphasis)' }}
+              >
+                |
+              </span>
               <button
-                onClick={() => setContextPanelVisible(!isContextPanelVisible)}
-                onMouseEnter={() => setIsContextButtonHovered(true)}
-                onMouseLeave={() => setIsContextButtonHovered(false)}
-                className="pointer-events-auto flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs shadow-lg transition-colors"
+                onClick={() => setSelectedExportIds(new Set(exportItems.map((i) => i.id)))}
+                className="rounded px-1.5 py-0.5 text-xs transition-opacity hover:opacity-70"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setSelectedExportIds(new Set())}
+                className="rounded px-1.5 py-0.5 text-xs transition-opacity hover:opacity-70"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                None
+              </button>
+              <span
+                className="mx-0.5 select-none text-xs"
+                style={{ color: 'var(--color-border-emphasis)' }}
+              >
+                |
+              </span>
+              <button
+                onClick={() => {
+                  expandAllAIGroups(
+                    conversation.items.filter((i) => i.type === 'ai').map((i) => i.group.id)
+                  );
+                  triggerExpandAll();
+                }}
+                className="rounded px-1.5 py-0.5 text-xs transition-opacity hover:opacity-70"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                Expand All
+              </button>
+              <div className="flex-1" />
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                {selectedExportIds.size}/{exportItems.length}
+              </span>
+              <button
+                onClick={() => void handleCopySelected()}
+                disabled={selectedExportIds.size === 0}
+                className="flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                 style={{
-                  backgroundColor: isContextPanelVisible
-                    ? 'var(--context-btn-active-bg)'
-                    : isContextButtonHovered
-                      ? 'var(--context-btn-bg-hover)'
-                      : 'var(--context-btn-bg)',
-                  color: isContextPanelVisible
-                    ? 'var(--context-btn-active-text)'
-                    : 'var(--color-text-secondary)',
+                  backgroundColor: copyConfirmed
+                    ? 'var(--badge-success-bg)'
+                    : 'var(--color-surface)',
+                  color: copyConfirmed ? '#fff' : 'var(--color-text)',
+                  border: '1px solid var(--color-border-emphasis)',
                 }}
               >
-                Context ({allContextInjections.length})
+                {copyConfirmed ? (
+                  <>
+                    <Check className="size-3" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Clipboard className="size-3" />
+                    Copy {selectedExportIds.size}
+                  </>
+                )}
+              </button>
+              <button
+                onClick={closeExportSelectionMode}
+                className="rounded px-2 py-0.5 text-xs transition-opacity hover:opacity-70"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                Done
               </button>
             </div>
-          )}
+
+            {/* Row 2: tool field toggles — only shown when tool items exist */}
+            {exportItems.some((i) => i.type === 'tool') && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  Tool fields:
+                </span>
+                {(
+                  [
+                    ['name', 'Name'],
+                    ['summary', 'Intent'],
+                    ['input', 'Input'],
+                    ['output', 'Output'],
+                  ] as [ToolFieldKey, string][]
+                ).map(([field, label]) => {
+                  const on = toolFieldsEnabled.has(field);
+                  return (
+                    <button
+                      key={field}
+                      onClick={() => toggleToolField(field)}
+                      className="rounded border px-2 py-0.5 text-xs transition-colors"
+                      style={{
+                        borderColor: on ? 'var(--color-border-emphasis)' : 'transparent',
+                        color: on ? 'var(--color-text-secondary)' : 'var(--color-text-muted)',
+                        backgroundColor: on ? 'var(--color-surface)' : 'transparent',
+                        opacity: on ? 1 : 0.5,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="relative flex flex-1 overflow-hidden">
+          {/* Chat content */}
           <div
-            className="mx-auto max-w-5xl px-6 py-8"
-            style={{ marginTop: allContextInjections.length > 0 ? '-2rem' : 0 }}
+            ref={scrollContainerRef}
+            className="flex-1 overflow-y-auto"
+            style={{ backgroundColor: 'var(--color-surface)' }}
+            onScroll={checkScrollButton}
           >
-            <div className="space-y-8">
-              {shouldVirtualize ? (
-                <div
+            {/* Sticky Context button */}
+            {allContextInjections.length > 0 && (
+              <div className="pointer-events-none sticky top-0 z-10 flex justify-end px-4 pb-0 pt-3">
+                <button
+                  onClick={() => setContextPanelVisible(!isContextPanelVisible)}
+                  onMouseEnter={() => setIsContextButtonHovered(true)}
+                  onMouseLeave={() => setIsContextButtonHovered(false)}
+                  className="pointer-events-auto flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs shadow-lg transition-colors"
                   style={{
-                    height: `${rowVirtualizer.getTotalSize()}px`,
-                    width: '100%',
-                    position: 'relative',
+                    backgroundColor: isContextPanelVisible
+                      ? 'var(--context-btn-active-bg)'
+                      : isContextButtonHovered
+                        ? 'var(--context-btn-bg-hover)'
+                        : 'var(--context-btn-bg)',
+                    color: isContextPanelVisible
+                      ? 'var(--context-btn-active-text)'
+                      : 'var(--color-text-secondary)',
                   }}
                 >
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const item = conversation.items[virtualRow.index];
-                    if (!item) return null;
-                    return (
-                      <div
-                        key={virtualRow.key}
-                        ref={rowVirtualizer.measureElement}
-                        data-index={virtualRow.index}
-                        className="pb-8"
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                      >
-                        <ChatHistoryItem
-                          item={item}
-                          highlightedGroupId={highlightedGroupId}
-                          highlightToolUseId={effectiveHighlightToolUseId}
-                          isSearchHighlight={isSearchHighlight}
-                          isNavigationHighlight={isNavigationHighlight}
-                          highlightColor={effectiveHighlightColor}
-                          registerChatItemRef={registerChatItemRef}
-                          registerAIGroupRef={registerAIGroupRefCombined}
-                          registerToolRef={registerToolRef}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                conversation.items.map((item) => (
-                  <ChatHistoryItem
-                    key={item.group.id}
-                    item={item}
-                    highlightedGroupId={highlightedGroupId}
-                    highlightToolUseId={effectiveHighlightToolUseId}
-                    isSearchHighlight={isSearchHighlight}
-                    isNavigationHighlight={isNavigationHighlight}
-                    highlightColor={effectiveHighlightColor}
-                    registerChatItemRef={registerChatItemRef}
-                    registerAIGroupRef={registerAIGroupRefCombined}
-                    registerToolRef={registerToolRef}
-                  />
-                ))
-              )}
+                  Context ({allContextInjections.length})
+                </button>
+              </div>
+            )}
+            <div
+              className="mx-auto max-w-5xl px-6 py-8"
+              style={{ marginTop: allContextInjections.length > 0 ? '-2rem' : 0 }}
+            >
+              <div className="space-y-8">
+                {shouldVirtualize ? (
+                  <div
+                    style={{
+                      height: `${rowVirtualizer.getTotalSize()}px`,
+                      width: '100%',
+                      position: 'relative',
+                    }}
+                  >
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const item = conversation.items[virtualRow.index];
+                      if (!item) return null;
+                      return (
+                        <div
+                          key={virtualRow.key}
+                          ref={rowVirtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          className="pb-8"
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          <ChatHistoryItem
+                            item={item}
+                            highlightedGroupId={highlightedGroupId}
+                            highlightToolUseId={effectiveHighlightToolUseId}
+                            isSearchHighlight={isSearchHighlight}
+                            isNavigationHighlight={isNavigationHighlight}
+                            highlightColor={effectiveHighlightColor}
+                            registerChatItemRef={registerChatItemRef}
+                            registerAIGroupRef={registerAIGroupRefCombined}
+                            registerToolRef={registerToolRef}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  conversation.items.map((item) => (
+                    <ChatHistoryItem
+                      key={item.group.id}
+                      item={item}
+                      highlightedGroupId={highlightedGroupId}
+                      highlightToolUseId={effectiveHighlightToolUseId}
+                      isSearchHighlight={isSearchHighlight}
+                      isNavigationHighlight={isNavigationHighlight}
+                      highlightColor={effectiveHighlightColor}
+                      registerChatItemRef={registerChatItemRef}
+                      registerAIGroupRef={registerAIGroupRefCombined}
+                      registerToolRef={registerToolRef}
+                    />
+                  ))
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Scroll to bottom button */}
+          {showScrollButton && (
+            <button
+              onClick={() => {
+                scrollToBottom('smooth');
+                setShowScrollButton(false);
+              }}
+              className="absolute bottom-5 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs shadow-lg transition-[right] duration-200"
+              style={{
+                right:
+                  isContextPanelVisible && allContextInjections.length > 0
+                    ? `calc(${CONTEXT_PANEL_WIDTH_PX}px + 1rem)`
+                    : '1rem',
+                backgroundColor: 'var(--context-btn-bg)',
+                color: 'var(--color-text-secondary)',
+                border: '1px solid var(--color-border-emphasis)',
+              }}
+              title="Scroll to bottom"
+            >
+              <ChevronsDown className="size-3.5" />
+              <span>Bottom</span>
+            </button>
+          )}
+
+          {/* Context panel sidebar */}
+          {isContextPanelVisible && allContextInjections.length > 0 && (
+            <div className="w-80 shrink-0">
+              <SessionContextPanel
+                injections={allContextInjections}
+                onClose={() => setContextPanelVisible(false)}
+                projectRoot={sessionDetail?.session?.projectPath}
+                onNavigateToTurn={handleNavigateToTurn}
+                onNavigateToTool={handleNavigateToTool}
+                onNavigateToUserGroup={handleNavigateToUserGroup}
+                totalSessionTokens={lastAiGroupTotalTokens}
+                phaseInfo={sessionPhaseInfo ?? undefined}
+                selectedPhase={selectedContextPhase}
+                onPhaseChange={setSelectedContextPhase}
+              />
+            </div>
+          )}
         </div>
-
-        {/* Scroll to bottom button */}
-        {showScrollButton && (
-          <button
-            onClick={() => {
-              scrollToBottom('smooth');
-              setShowScrollButton(false);
-            }}
-            className="absolute bottom-5 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs shadow-lg transition-[right] duration-200"
-            style={{
-              right:
-                isContextPanelVisible && allContextInjections.length > 0
-                  ? `calc(${CONTEXT_PANEL_WIDTH_PX}px + 1rem)`
-                  : '1rem',
-              backgroundColor: 'var(--context-btn-bg)',
-              color: 'var(--color-text-secondary)',
-              border: '1px solid var(--color-border-emphasis)',
-            }}
-            title="Scroll to bottom"
-          >
-            <ChevronsDown className="size-3.5" />
-            <span>Bottom</span>
-          </button>
-        )}
-
-        {/* Context panel sidebar */}
-        {isContextPanelVisible && allContextInjections.length > 0 && (
-          <div className="w-80 shrink-0">
-            <SessionContextPanel
-              injections={allContextInjections}
-              onClose={() => setContextPanelVisible(false)}
-              projectRoot={sessionDetail?.session?.projectPath}
-              onNavigateToTurn={handleNavigateToTurn}
-              onNavigateToTool={handleNavigateToTool}
-              onNavigateToUserGroup={handleNavigateToUserGroup}
-              totalSessionTokens={lastAiGroupTotalTokens}
-              phaseInfo={sessionPhaseInfo ?? undefined}
-              selectedPhase={selectedContextPhase}
-              onPhaseChange={setSelectedContextPhase}
-            />
-          </div>
-        )}
       </div>
-    </div>
+    </ExportSelectionContext.Provider>
   );
 };

@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 
+import { useExportSelection } from '@renderer/contexts/ExportSelectionContext';
 import { useStore } from '@renderer/store';
 import { AlertTriangle, CheckCircle, FileCheck, XCircle } from 'lucide-react';
 import remarkGfm from 'remark-gfm';
@@ -21,6 +22,8 @@ interface LastOutputDisplayProps {
   isLastGroup?: boolean;
   /** Whether the session is ongoing (from sessions array, same source as sidebar) */
   isSessionOngoing?: boolean;
+  /** Export ID — when provided, shows per-field checkboxes in selection mode */
+  exportId?: string;
 }
 
 /**
@@ -39,7 +42,10 @@ export const LastOutputDisplay = ({
   aiGroupId,
   isLastGroup = false,
   isSessionOngoing = false,
+  exportId,
 }: Readonly<LastOutputDisplayProps>): React.JSX.Element | null => {
+  const { isActive: isSelectionActive, getToolFields, toggleToolItemField } = useExportSelection();
+  const showFieldCheckboxes = isSelectionActive && Boolean(exportId);
   // Only re-render if THIS AI group has search matches
   const { searchQuery, searchMatches, currentSearchIndex } = useStore(
     useShallow((s) => {
@@ -129,16 +135,27 @@ export const LastOutputDisplay = ({
             }}
           />
           {lastOutput.toolName && (
-            <code
-              className="rounded px-1.5 py-0.5 text-xs"
-              style={{
-                backgroundColor: 'var(--tag-bg)',
-                color: 'var(--tag-text)',
-                border: '1px solid var(--tag-border)',
-              }}
-            >
-              {lastOutput.toolName}
-            </code>
+            <>
+              {showFieldCheckboxes && (
+                <input
+                  type="checkbox"
+                  checked={getToolFields(exportId!).has('name')}
+                  onChange={() => toggleToolItemField(exportId!, 'name')}
+                  title="Include tool name in copy"
+                  className="cursor-pointer accent-indigo-500"
+                />
+              )}
+              <code
+                className="rounded px-1.5 py-0.5 text-xs"
+                style={{
+                  backgroundColor: 'var(--tag-bg)',
+                  color: 'var(--tag-text)',
+                  border: '1px solid var(--tag-border)',
+                }}
+              >
+                {lastOutput.toolName}
+              </code>
+            </>
           )}
           {isError && (
             <span
@@ -152,6 +169,20 @@ export const LastOutputDisplay = ({
 
         {/* Content */}
         <div className="px-4 py-3">
+          {showFieldCheckboxes && (
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="text-xs" style={{ color: 'var(--tool-item-muted)' }}>
+                Output
+              </span>
+              <input
+                type="checkbox"
+                checked={getToolFields(exportId!).has('output')}
+                onChange={() => toggleToolItemField(exportId!, 'output')}
+                title="Include output in copy"
+                className="cursor-pointer accent-indigo-500"
+              />
+            </div>
+          )}
           <pre
             className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words font-mono text-sm"
             style={{ color: 'var(--color-text)' }}

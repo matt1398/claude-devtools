@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 
 import { api } from '@renderer/api';
+import { useExportSelection } from '@renderer/contexts/ExportSelectionContext';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useStore } from '@renderer/store';
 import { parseTaskNotifications } from '@shared/utils/contentSanitizer';
@@ -348,6 +349,9 @@ const UserChatGroupInner = ({ userGroup }: Readonly<UserChatGroupProps>): React.
   const hasImages = content.images.length > 0;
   // Use rawText to preserve /commands inline
   const textContent = content.rawText ?? content.text ?? '';
+
+  const { isActive: isSelectionActive, isSelected, toggle } = useExportSelection();
+  const exportId = `user-${userGroup.id}`;
   const isLongContent = textContent.length > 500;
 
   // Parse task notifications from the original message content (before sanitization)
@@ -439,7 +443,16 @@ const UserChatGroupInner = ({ userGroup }: Readonly<UserChatGroupProps>): React.
     isLongContent && !isExpanded ? textContent.slice(0, 500) + '...' : textContent;
 
   return (
-    <div className="flex justify-end">
+    <div className="flex items-start justify-end gap-2">
+      {isSelectionActive && textContent && (
+        <input
+          type="checkbox"
+          checked={isSelected(exportId)}
+          onChange={() => toggle(exportId)}
+          className="mt-8 shrink-0 cursor-pointer accent-indigo-500"
+          title="Include in copy"
+        />
+      )}
       <div className="max-w-[85%] space-y-2">
         {/* Header - right aligned with improved hierarchy */}
         <div className="flex items-center justify-end gap-1.5">
@@ -509,10 +522,7 @@ const UserChatGroupInner = ({ userGroup }: Readonly<UserChatGroupProps>): React.
                   border: '1px solid var(--card-border)',
                 }}
               >
-                <StatusIcon
-                  className="mt-0.5 size-3.5 shrink-0"
-                  style={{ color: statusColor }}
-                />
+                <StatusIcon className="mt-0.5 size-3.5 shrink-0" style={{ color: statusColor }} />
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <div
                     className="text-xs font-medium leading-snug"
@@ -520,7 +530,10 @@ const UserChatGroupInner = ({ userGroup }: Readonly<UserChatGroupProps>): React.
                   >
                     {cmdName}
                   </div>
-                  <div className="flex items-center gap-2 text-[10px]" style={{ color: 'var(--color-text-muted)' }}>
+                  <div
+                    className="flex items-center gap-2 text-[10px]"
+                    style={{ color: 'var(--color-text-muted)' }}
+                  >
                     <span className="capitalize">{notif.status}</span>
                     {exitCode != null && <span>exit {exitCode}</span>}
                     {notif.outputFile && (

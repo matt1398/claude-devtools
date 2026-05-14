@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   CODE_BG,
@@ -8,6 +8,7 @@ import {
   TOOL_CALL_BORDER,
   TOOL_CALL_TEXT,
 } from '@renderer/constants/cssVariables';
+import { useExportSelection } from '@renderer/contexts/ExportSelectionContext';
 import { formatTokensCompact } from '@renderer/utils/formatters';
 import { format } from 'date-fns';
 import { ChevronRight, Layers, MailOpen } from 'lucide-react';
@@ -38,6 +39,36 @@ interface DisplayItemListProps {
   /** Optional callback to register tool element refs for scroll targeting */
   registerToolRef?: (toolId: string, el: HTMLDivElement | null) => void;
 }
+
+/** Checkbox that supports the indeterminate (partial) state. */
+const TriStateCheckbox = ({
+  checked,
+  indeterminate,
+  onChange,
+  className,
+  title,
+}: {
+  checked: boolean;
+  indeterminate: boolean;
+  onChange: () => void;
+  className?: string;
+  title?: string;
+}): React.JSX.Element => {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      className={className}
+      title={title}
+    />
+  );
+};
 
 /**
  * Truncates text to a maximum length and adds ellipsis if needed.
@@ -78,6 +109,14 @@ export const DisplayItemList = React.memo(function DisplayItemList({
     setReplyLinkToolId(toolId);
   }, []);
 
+  const {
+    isActive: isSelectionActive,
+    isSelected,
+    toggle,
+    getToolFields,
+    setToolItemFieldsAll,
+  } = useExportSelection();
+
   /** Check if an item is part of the currently highlighted reply link */
   const isItemInReplyLink = (item: AIGroupDisplayItem): boolean => {
     if (!replyLinkToolId) return false;
@@ -95,11 +134,19 @@ export const DisplayItemList = React.memo(function DisplayItemList({
     );
   }
 
+  // Track count of extractable items (thinking / output / tool) seen so far.
+  // Used to generate stable export IDs that match conversationExtractor.ts.
+  let extractableCount = 0;
+
   return (
     <div className="space-y-2">
       {items.map((item, index) => {
         let itemKey = '';
         let element: React.ReactNode = null;
+        const isExtractable =
+          item.type === 'thinking' || item.type === 'output' || item.type === 'tool';
+        const exportId = isExtractable ? `ai-${aiGroupId}-${extractableCount}` : '';
+        if (isExtractable) extractableCount++;
 
         switch (item.type) {
           case 'thinking': {
@@ -161,6 +208,7 @@ export const DisplayItemList = React.memo(function DisplayItemList({
                 registerRef={
                   registerToolRef ? (el) => registerToolRef(item.tool.id, el) : undefined
                 }
+                exportId={isSelectionActive ? exportId : undefined}
               />
             );
             break;
@@ -328,13 +376,50 @@ export const DisplayItemList = React.memo(function DisplayItemList({
         return (
           <div
             key={itemKey}
+            className={isSelectionActive && isExtractable ? 'flex items-start gap-2' : ''}
             style={
               replyLinkToolId !== null
                 ? { opacity: isDimmed ? 0.2 : 1, transition: 'opacity 150ms ease' }
                 : undefined
             }
           >
-            {element}
+            {isSelectionActive &&
+              isExtractable &&
+              (() => {
+                if (item.type === 'tool') {
+                  const fields = getToolFields(exportId);
+                  const numOn = fields.size;
+                  const isChecked = numOn === 4;
+                  const isPartial = numOn > 0 && numOn < 4;
+                  return (
+                    <TriStateCheckbox
+                      checked={isChecked || isPartial}
+                      indeterminate={isPartial}
+                      onChange={() => setToolItemFieldsAll(exportId, numOn === 0)}
+                      className="mt-1.5 shrink-0 cursor-pointer accent-indigo-500"
+                      title={
+                        isChecked
+                          ? 'Deselect tool'
+                          : isPartial
+                            ? 'Toggle tool (partial)'
+                            : 'Select tool'
+                      }
+                    />
+                  );
+                }
+                return (
+                  <input
+                    type="checkbox"
+                    checked={isSelected(exportId)}
+                    onChange={() => toggle(exportId)}
+                    className="mt-1.5 shrink-0 cursor-pointer accent-indigo-500"
+                    title="Include in copy"
+                  />
+                );
+              })()}
+            <div className={isSelectionActive && isExtractable ? 'min-w-0 flex-1' : ''}>
+              {element}
+            </div>
           </div>
         );
       })}

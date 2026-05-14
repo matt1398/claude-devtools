@@ -35,6 +35,9 @@ interface UseTabUIReturn {
   isAIGroupExpanded: (aiGroupId: string) => boolean;
   toggleAIGroupExpansion: (aiGroupId: string) => void;
   expandAIGroup: (aiGroupId: string) => void;
+  expandAllAIGroups: (aiGroupIds: string[]) => void;
+  expandAllSignal: number;
+  triggerExpandAll: () => void;
   getExpandedDisplayItemIds: (aiGroupId: string) => Set<string>;
   toggleDisplayItemExpansion: (aiGroupId: string, itemId: string) => void;
   expandDisplayItem: (aiGroupId: string, itemId: string) => void;
@@ -77,6 +80,8 @@ export function useTabUI(): UseTabUIReturn {
   const {
     toggleAIGroupExpansionForTab,
     expandAIGroupForTab,
+    expandAllAIGroupsForTab,
+    triggerExpandAllForTab,
     toggleDisplayItemExpansionForTab,
     expandDisplayItemForTab,
     toggleSubagentTraceExpansionForTab,
@@ -89,6 +94,8 @@ export function useTabUI(): UseTabUIReturn {
     useShallow((s) => ({
       toggleAIGroupExpansionForTab: s.toggleAIGroupExpansionForTab,
       expandAIGroupForTab: s.expandAIGroupForTab,
+      expandAllAIGroupsForTab: s.expandAllAIGroupsForTab,
+      triggerExpandAllForTab: s.triggerExpandAllForTab,
       toggleDisplayItemExpansionForTab: s.toggleDisplayItemExpansionForTab,
       expandDisplayItemForTab: s.expandDisplayItemForTab,
       toggleSubagentTraceExpansionForTab: s.toggleSubagentTraceExpansionForTab,
@@ -127,6 +134,21 @@ export function useTabUI(): UseTabUIReturn {
     },
     [tabId, expandAIGroupForTab]
   );
+
+  const expandAllAIGroups = useCallback(
+    (aiGroupIds: string[]): void => {
+      if (!tabId) return;
+      expandAllAIGroupsForTab(tabId, aiGroupIds);
+    },
+    [tabId, expandAllAIGroupsForTab]
+  );
+
+  const expandAllSignal = tabState?.expandAllSignal ?? 0;
+
+  const triggerExpandAll = useCallback((): void => {
+    if (!tabId) return;
+    triggerExpandAllForTab(tabId);
+  }, [tabId, triggerExpandAllForTab]);
 
   // Display item expansion - derive from tabState
   const getExpandedDisplayItemIds = useCallback(
@@ -223,6 +245,9 @@ export function useTabUI(): UseTabUIReturn {
     isAIGroupExpanded,
     toggleAIGroupExpansion,
     expandAIGroup,
+    expandAllAIGroups,
+    expandAllSignal,
+    triggerExpandAll,
 
     // Display item expansion
     getExpandedDisplayItemIds,

@@ -42,6 +42,9 @@ export interface TabUIState {
 
   /** Saved scroll position for restoring when switching back to this tab */
   savedScrollTop?: number;
+
+  /** Incremented each time "expand all" is triggered; AIChatGroup reacts to expand its items */
+  expandAllSignal: number;
 }
 
 /**
@@ -55,6 +58,7 @@ function createDefaultTabUIState(): TabUIState {
     showContextPanel: false,
     selectedContextPhase: null,
     savedScrollTop: undefined,
+    expandAllSignal: 0,
   };
 }
 
@@ -79,6 +83,10 @@ export interface TabUISlice {
   isAIGroupExpandedForTab: (tabId: string, aiGroupId: string) => boolean;
   /** Expand AI group for a specific tab (for auto-expand scenarios) */
   expandAIGroupForTab: (tabId: string, aiGroupId: string) => void;
+  /** Expand all AI groups for a tab at once */
+  expandAllAIGroupsForTab: (tabId: string, aiGroupIds: string[]) => void;
+  /** Signal all AI groups in a tab to expand their display items */
+  triggerExpandAllForTab: (tabId: string) => void;
 
   // Display item expansion (per-tab)
   /** Toggle display item expansion within an AI group for a specific tab */
@@ -179,6 +187,23 @@ export const createTabUISlice: StateCreator<AppState, [], [], TabUISlice> = (set
     newExpandedIds.add(aiGroupId);
 
     newMap.set(tabId, { ...currentTabState, expandedAIGroupIds: newExpandedIds });
+    set({ tabUIStates: newMap });
+  },
+
+  expandAllAIGroupsForTab: (tabId: string, aiGroupIds: string[]) => {
+    const state = get();
+    const newMap = new Map(state.tabUIStates);
+    const currentTabState = newMap.get(tabId) ?? createDefaultTabUIState();
+    const newExpandedIds = new Set([...currentTabState.expandedAIGroupIds, ...aiGroupIds]);
+    newMap.set(tabId, { ...currentTabState, expandedAIGroupIds: newExpandedIds });
+    set({ tabUIStates: newMap });
+  },
+
+  triggerExpandAllForTab: (tabId: string) => {
+    const state = get();
+    const newMap = new Map(state.tabUIStates);
+    const currentTabState = newMap.get(tabId) ?? createDefaultTabUIState();
+    newMap.set(tabId, { ...currentTabState, expandAllSignal: currentTabState.expandAllSignal + 1 });
     set({ tabUIStates: newMap });
   },
 

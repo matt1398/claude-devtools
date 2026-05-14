@@ -7,14 +7,20 @@
 import React from 'react';
 
 import { CodeBlockViewer } from '@renderer/components/chat/viewers';
+import { useExportSelection } from '@renderer/contexts/ExportSelectionContext';
 
 import type { LinkedToolItem } from '@renderer/types/groups';
 
 interface SkillToolViewerProps {
   linkedTool: LinkedToolItem;
+  exportId?: string;
 }
 
-export const SkillToolViewer: React.FC<SkillToolViewerProps> = ({ linkedTool }) => {
+export const SkillToolViewer: React.FC<SkillToolViewerProps> = ({ linkedTool, exportId }) => {
+  const { isActive, getToolFields, toggleToolItemField } = useExportSelection();
+  const showCheckbox = isActive && Boolean(exportId);
+  const outputChecked = exportId ? getToolFields(exportId).has('output') : true;
+
   const skillInstructions = linkedTool.skillInstructions;
   const skillName = (linkedTool.input.skill as string) || 'Unknown Skill';
 
@@ -30,11 +36,22 @@ export const SkillToolViewer: React.FC<SkillToolViewerProps> = ({ linkedTool }) 
 
   return (
     <div className="space-y-3">
-      {/* Initial result */}
+      {/* Result */}
       {resultText && (
         <div>
-          <div className="mb-1 text-xs" style={{ color: 'var(--tool-item-muted)' }}>
-            Result
+          <div className="mb-1 flex items-center gap-1.5">
+            <span className="text-xs" style={{ color: 'var(--tool-item-muted)' }}>
+              Result
+            </span>
+            {showCheckbox && (
+              <input
+                type="checkbox"
+                checked={outputChecked}
+                onChange={() => toggleToolItemField(exportId!, 'output')}
+                title="Include result in copy"
+                className="cursor-pointer accent-indigo-500"
+              />
+            )}
           </div>
           <div
             className="overflow-x-auto rounded p-3 font-mono text-xs"

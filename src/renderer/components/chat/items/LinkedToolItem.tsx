@@ -10,6 +10,7 @@ import React, { useRef } from 'react';
 
 import { CARD_ICON_MUTED } from '@renderer/constants/cssVariables';
 import { getTeamColorSet } from '@renderer/constants/teamColors';
+import { useExportSelection } from '@renderer/contexts/ExportSelectionContext';
 import {
   getToolContextTokens,
   getToolStatus,
@@ -40,6 +41,7 @@ import {
 } from './linkedTool';
 
 import type { LinkedToolItem as LinkedToolItemType } from '@renderer/types/groups';
+import type { ToolFieldKey } from '@renderer/utils/conversationExtractor';
 
 interface LinkedToolItemProps {
   linkedTool: LinkedToolItemType;
@@ -53,6 +55,8 @@ interface LinkedToolItemProps {
   notificationDotColor?: TriggerColor;
   /** Optional ref registration callback for external scroll control */
   registerRef?: (el: HTMLDivElement | null) => void;
+  /** Export ID for this item — enables per-field checkboxes in selection mode */
+  exportId?: string;
 }
 
 export const LinkedToolItem: React.FC<LinkedToolItemProps> = React.memo(function LinkedToolItem({
@@ -63,10 +67,20 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = React.memo(function
   highlightColor,
   notificationDotColor,
   registerRef,
+  exportId,
 }) {
   const status = getToolStatus(linkedTool);
   const summary = getToolSummary(linkedTool.name, linkedTool.input);
   const elementRef = useRef<HTMLDivElement>(null);
+
+  const { isActive, getToolFields, toggleToolItemField } = useExportSelection();
+  const exportSelection =
+    isActive && exportId
+      ? {
+          getField: (f: ToolFieldKey) => getToolFields(exportId).has(f),
+          toggleField: (f: ToolFieldKey) => toggleToolItemField(exportId, f),
+        }
+      : undefined;
 
   // Combined ref callback - handles both internal ref and external registration
   const handleRef = (el: HTMLDivElement | null): void => {
@@ -164,21 +178,26 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = React.memo(function
         highlightClasses={highlightClasses}
         highlightStyle={highlightStyle}
         notificationDotColor={notificationDotColor}
+        exportSelection={exportSelection}
       >
         {/* Read tool with CodeBlockViewer */}
-        {useReadViewer && <ReadToolViewer linkedTool={linkedTool} />}
+        {useReadViewer && <ReadToolViewer linkedTool={linkedTool} exportId={exportId} />}
 
         {/* Edit tool with DiffViewer */}
-        {useEditViewer && <EditToolViewer linkedTool={linkedTool} status={status} />}
+        {useEditViewer && (
+          <EditToolViewer linkedTool={linkedTool} status={status} exportId={exportId} />
+        )}
 
         {/* Write tool */}
-        {useWriteViewer && <WriteToolViewer linkedTool={linkedTool} />}
+        {useWriteViewer && <WriteToolViewer linkedTool={linkedTool} exportId={exportId} />}
 
         {/* Skill tool with instructions */}
-        {useSkillViewer && <SkillToolViewer linkedTool={linkedTool} />}
+        {useSkillViewer && <SkillToolViewer linkedTool={linkedTool} exportId={exportId} />}
 
         {/* Default rendering for other tools */}
-        {useDefaultViewer && <DefaultToolViewer linkedTool={linkedTool} status={status} />}
+        {useDefaultViewer && (
+          <DefaultToolViewer linkedTool={linkedTool} status={status} exportId={exportId} />
+        )}
 
         {/* Error output for Read tool */}
         {showReadError && <ToolErrorDisplay linkedTool={linkedTool} />}
