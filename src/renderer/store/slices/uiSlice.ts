@@ -13,11 +13,14 @@ export interface UISlice {
   // State
   commandPaletteOpen: boolean;
   sidebarCollapsed: boolean;
+  exportSelectionMode: boolean;
 
   // Actions
   openCommandPalette: () => void;
   closeCommandPalette: () => void;
   toggleSidebar: () => void;
+  openExportSelectionMode: () => void;
+  closeExportSelectionMode: () => void;
 }
 
 // =============================================================================
@@ -28,6 +31,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set) => (
   // Initial state
   commandPaletteOpen: false,
   sidebarCollapsed: false,
+  exportSelectionMode: false,
 
   // Command palette actions
   openCommandPalette: () => {
@@ -41,5 +45,14 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set) => (
   // Sidebar actions
   toggleSidebar: () => {
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
+  },
+
+  // Export selection mode
+  openExportSelectionMode: () => {
+    set({ exportSelectionMode: true });
+  },
+
+  closeExportSelectionMode: () => {
+    set({ exportSelectionMode: false });
   },
 });

@@ -42,6 +42,9 @@ export interface TabUIState {
 
   /** Saved scroll position for restoring when switching back to this tab */
   savedScrollTop?: number;
+
+  /** Incremented each time "expand all" is triggered; AIChatGroup reacts to expand its items */
+  expandAllSignal: number;
 }
 
 /**
@@ -55,6 +58,7 @@ function createDefaultTabUIState(): TabUIState {
     showContextPanel: false,
     selectedContextPhase: null,
     savedScrollTop: undefined,
+    expandAllSignal: 0,
   };
 }
 
@@ -79,6 +83,10 @@ export interface TabUISlice {
   isAIGroupExpandedForTab: (tabId: string, aiGroupId: string) => boolean;
   /** Expand AI group for a specific tab (for auto-expand scenarios) */
   expandAIGroupForTab: (tabId: string, aiGroupId: string) => void;
+  /** Expand all AI groups for a tab at once */
+  expandAllAIGroupsForTab: (tabId: string, aiGroupIds: string[]) => void;
+  /** Signal all AI groups in a tab to expand their display items */
+  triggerExpandAllForTab: (tabId: string) => void;
 
   // Display item expansion (per-tab)
   /** Toggle display item expansion within an AI group for a specific tab */
@@ -87,6 +95,13 @@ export interface TabUISlice {
   getExpandedDisplayItemIdsForTab: (tabId: string, aiGroupId: string) => Set<string>;
   /** Expand a display item for a specific tab (for auto-expand scenarios) */
   expandDisplayItemForTab: (tabId: string, aiGroupId: string, itemId: string) => void;
+  /** Expand many display items + subagent traces for a tab in a single store update */
+  expandManyForTab: (
+    tabId: string,
+    aiGroupId: string,
+    itemIds: string[],
+    subagentIds: string[]
+  ) => void;
 
   // Subagent trace expansion (per-tab)
   /** Toggle subagent trace expansion for a specific tab */
@@ -182,6 +197,23 @@ export const createTabUISlice: StateCreator<AppState, [], [], TabUISlice> = (set
     set({ tabUIStates: newMap });
   },
 
+  expandAllAIGroupsForTab: (tabId: string, aiGroupIds: string[]) => {
+    const state = get();
+    const newMap = new Map(state.tabUIStates);
+    const currentTabState = newMap.get(tabId) ?? createDefaultTabUIState();
+    const newExpandedIds = new Set([...currentTabState.expandedAIGroupIds, ...aiGroupIds]);
+    newMap.set(tabId, { ...currentTabState, expandedAIGroupIds: newExpandedIds });
+    set({ tabUIStates: newMap });
+  },
+
+  triggerExpandAllForTab: (tabId: string) => {
+    const state = get();
+    const newMap = new Map(state.tabUIStates);
+    const currentTabState = newMap.get(tabId) ?? createDefaultTabUIState();
+    newMap.set(tabId, { ...currentTabState, expandAllSignal: currentTabState.expandAllSignal + 1 });
+    set({ tabUIStates: newMap });
+  },
+
   // ==========================================================================
   // Display Item Expansion
   // ==========================================================================
@@ -226,6 +258,34 @@ export const createTabUISlice: StateCreator<AppState, [], [], TabUISlice> = (set
     newDisplayItemMap.set(aiGroupId, newSet);
 
     newMap.set(tabId, { ...currentTabState, expandedDisplayItemIds: newDisplayItemMap });
+    set({ tabUIStates: newMap });
+  },
+
+  expandManyForTab: (
+    tabId: string,
+    aiGroupId: string,
+    itemIds: string[],
+    subagentIds: string[]
+  ) => {
+    if (itemIds.length === 0 && subagentIds.length === 0) return;
+    const state = get();
+    const newMap = new Map(state.tabUIStates);
+    const currentTabState = newMap.get(tabId) ?? createDefaultTabUIState();
+
+    const newDisplayItemMap = new Map(currentTabState.expandedDisplayItemIds);
+    const currentItems = newDisplayItemMap.get(aiGroupId) ?? new Set<string>();
+    const newItemSet = new Set(currentItems);
+    for (const id of itemIds) newItemSet.add(id);
+    newDisplayItemMap.set(aiGroupId, newItemSet);
+
+    const newSubagentSet = new Set(currentTabState.expandedSubagentTraceIds);
+    for (const id of subagentIds) newSubagentSet.add(id);
+
+    newMap.set(tabId, {
+      ...currentTabState,
+      expandedDisplayItemIds: newDisplayItemMap,
+      expandedSubagentTraceIds: newSubagentSet,
+    });
     set({ tabUIStates: newMap });
   },
 

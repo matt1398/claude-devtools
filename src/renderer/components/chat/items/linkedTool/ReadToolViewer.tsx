@@ -7,25 +7,26 @@
 import React from 'react';
 
 import { CodeBlockViewer, MarkdownViewer } from '@renderer/components/chat/viewers';
+import { useExportSelection } from '@renderer/contexts/ExportSelectionContext';
 
 import type { LinkedToolItem } from '@renderer/types/groups';
 
 interface ReadToolViewerProps {
   linkedTool: LinkedToolItem;
+  exportId?: string;
 }
 
-export const ReadToolViewer: React.FC<ReadToolViewerProps> = ({ linkedTool }) => {
+export const ReadToolViewer: React.FC<ReadToolViewerProps> = ({ linkedTool, exportId }) => {
+  const { isActive, getToolFields, toggleToolItemField } = useExportSelection();
+  const showCheckbox = isActive && Boolean(exportId);
+  const outputChecked = exportId ? getToolFields(exportId).has('output') : true;
+
   const filePath = linkedTool.input.file_path as string;
 
   // Prefer enriched toolUseResult data
   const toolUseResult = linkedTool.result?.toolUseResult as Record<string, unknown> | undefined;
   const fileData = toolUseResult?.file as
-    | {
-        content?: string;
-        startLine?: number;
-        totalLines?: number;
-        numLines?: number;
-      }
+    | { content?: string; startLine?: number; totalLines?: number; numLines?: number }
     | undefined;
 
   // Get content: prefer enriched file data, fall back to raw result content
@@ -55,10 +56,29 @@ export const ReadToolViewer: React.FC<ReadToolViewerProps> = ({ linkedTool }) =>
       : undefined;
 
   const isMarkdownFile = /\.mdx?$/i.test(filePath);
-  const [viewMode, setViewMode] = React.useState<'code' | 'preview'>(isMarkdownFile ? 'preview' : 'code');
+  const [viewMode, setViewMode] = React.useState<'code' | 'preview'>(
+    isMarkdownFile ? 'preview' : 'code'
+  );
 
   return (
     <div className="space-y-2">
+      {/* Output label + checkbox */}
+      {showCheckbox && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs" style={{ color: 'var(--tool-item-muted)' }}>
+            File content
+          </span>
+          <input
+            type="checkbox"
+            checked={outputChecked}
+            onChange={() => toggleToolItemField(exportId!, 'output')}
+            title="Include file content in copy"
+            aria-label="Include file content in copy"
+            className="cursor-pointer accent-indigo-500"
+          />
+        </div>
+      )}
+
       {isMarkdownFile && (
         <div className="flex items-center justify-end gap-1">
           <button

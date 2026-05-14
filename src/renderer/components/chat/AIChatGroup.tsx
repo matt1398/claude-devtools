@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 
+import { TriStateCheckbox } from '@renderer/components/common/TriStateCheckbox';
 import { COLOR_TEXT_MUTED, COLOR_TEXT_SECONDARY } from '@renderer/constants/cssVariables';
+import { useExportSelection } from '@renderer/contexts/ExportSelectionContext';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useStore } from '@renderer/store';
 import { enhanceAIGroup, type PrecedingSlashInfo } from '@renderer/utils/aiGroupEnhancer';
@@ -24,6 +26,7 @@ import type {
   EnhancedAIGroup,
   UserGroup,
 } from '@renderer/types/groups';
+import type { ToolFieldKey } from '@renderer/utils/conversationExtractor';
 import type { TriggerColor } from '@shared/constants/triggerColors';
 
 /**
@@ -120,6 +123,57 @@ function containsToolUseId(items: AIGroupDisplayItem[], toolUseId: string): bool
  * - DisplayItemList: Shows items when expanded with inline expansion support
  * - Manages local expansion state and inline item expansion
  */
+
+// Parent checkbox for the last-output block.
+// Tool results get a tristate checkbox (name/summary/input/output fields as children).
+// Non-tool results get a simple checkbox.
+const LastOutputCheckbox = ({
+  exportId,
+  isToolResult,
+  getToolFields,
+  setToolItemFieldsAll,
+  isSelected,
+  toggle,
+}: {
+  exportId: string;
+  isToolResult: boolean;
+  getToolFields: (id: string) => Set<ToolFieldKey>;
+  setToolItemFieldsAll: (id: string, enabled: boolean) => void;
+  isSelected: (id: string) => boolean;
+  toggle: (id: string) => void;
+}): React.JSX.Element => {
+  if (isToolResult) {
+    const fields = getToolFields(exportId);
+    const numOn = fields.size;
+    const isPartial = numOn > 0 && numOn < 4;
+    return (
+      <TriStateCheckbox
+        checked={numOn > 0}
+        indeterminate={isPartial}
+        onChange={() => setToolItemFieldsAll(exportId, numOn === 0)}
+        className="mt-2 shrink-0 cursor-pointer accent-indigo-500"
+        title={
+          numOn === 0
+            ? 'Select tool result'
+            : isPartial
+              ? 'Partial — click to deselect'
+              : 'Deselect tool result'
+        }
+      />
+    );
+  }
+  return (
+    <input
+      type="checkbox"
+      checked={isSelected(exportId)}
+      onChange={() => toggle(exportId)}
+      className="mt-2 shrink-0 cursor-pointer accent-indigo-500"
+      title="Include in copy"
+      aria-label="Include in copy"
+    />
+  );
+};
+
 const AIChatGroupInner = ({
   aiGroup,
   highlightToolUseId,
@@ -134,6 +188,8 @@ const AIChatGroupInner = ({
     getExpandedDisplayItemIds,
     toggleDisplayItemExpansion,
     expandDisplayItem,
+    expandMany,
+    expandAllSignal,
   } = useTabUI();
 
   // Per-tab session data, falling back to global state
@@ -379,6 +435,46 @@ const AIChatGroupInner = ({
     expandDisplayItem,
   ]);
 
+  // When "Expand All" is triggered, expand every display item + subagent trace
+  // in this group via a single batched store update.
+  const prevExpandAllSignalRef = useRef(0);
+  useEffect(() => {
+    if (expandAllSignal === 0 || expandAllSignal === prevExpandAllSignalRef.current) return;
+    prevExpandAllSignalRef.current = expandAllSignal;
+    const itemIds: string[] = [];
+    const subagentIds: string[] = [];
+    enhanced.displayItems.forEach((item, i) => {
+      switch (item.type) {
+        case 'thinking':
+          itemIds.push(`thinking-${i}`);
+          break;
+        case 'output':
+          itemIds.push(`output-${i}`);
+          break;
+        case 'tool':
+          itemIds.push(`tool-${item.tool.id}-${i}`);
+          break;
+        case 'subagent':
+          itemIds.push(`subagent-${item.subagent.id}-${i}`);
+          subagentIds.push(item.subagent.id);
+          break;
+        case 'slash':
+          itemIds.push(`slash-${item.slash.name}-${i}`);
+          break;
+        case 'teammate_message':
+          itemIds.push(`teammate-${item.teammateMessage.id}-${i}`);
+          break;
+        case 'subagent_input':
+          itemIds.push(`input-${i}`);
+          break;
+        case 'compact_boundary':
+          itemIds.push(`compact-${i}`);
+          break;
+      }
+    });
+    expandMany(aiGroup.id, itemIds, subagentIds);
+  }, [expandAllSignal, enhanced.displayItems, aiGroup.id, expandMany]);
+
   // Determine if there's content to toggle
   const hasToggleContent = enhanced.displayItems.length > 0;
 
@@ -386,6 +482,18 @@ const AIChatGroupInner = ({
   const handleItemClick = (itemId: string): void => {
     toggleDisplayItemExpansion(aiGroup.id, itemId);
   };
+
+  const {
+    isActive: isSelectionActive,
+    isSelected,
+    toggle,
+    getToolFields,
+    setToolItemFieldsAll,
+  } = useExportSelection();
+  const lastOutputExportId = `ai-last-${aiGroup.id}`;
+  const showLastOutputCheckbox =
+    isSelectionActive && enhanced.lastOutput !== null && enhanced.lastOutput.type !== 'ongoing';
+  const lastOutputIsToolResult = enhanced.lastOutput?.type === 'tool_result';
 
   return (
     <div className="space-y-3 border-l-2 pl-3" style={{ borderColor: 'var(--chat-ai-border)' }}>
@@ -514,13 +622,26 @@ const AIChatGroupInner = ({
       )}
 
       {/* Always-visible Output */}
-      <div>
-        <LastOutputDisplay
-          lastOutput={enhanced.lastOutput}
-          aiGroupId={aiGroup.id}
-          isLastGroup={aiGroup.isOngoing ?? false}
-          isSessionOngoing={isSessionOngoing}
-        />
+      <div className={showLastOutputCheckbox ? 'flex items-start gap-2' : ''}>
+        {showLastOutputCheckbox && (
+          <LastOutputCheckbox
+            exportId={lastOutputExportId}
+            isToolResult={lastOutputIsToolResult}
+            getToolFields={getToolFields}
+            setToolItemFieldsAll={setToolItemFieldsAll}
+            isSelected={isSelected}
+            toggle={toggle}
+          />
+        )}
+        <div className={showLastOutputCheckbox ? 'min-w-0 flex-1' : ''}>
+          <LastOutputDisplay
+            lastOutput={enhanced.lastOutput}
+            aiGroupId={aiGroup.id}
+            isLastGroup={aiGroup.isOngoing ?? false}
+            isSessionOngoing={isSessionOngoing}
+            exportId={showLastOutputCheckbox ? lastOutputExportId : undefined}
+          />
+        </div>
       </div>
     </div>
   );
