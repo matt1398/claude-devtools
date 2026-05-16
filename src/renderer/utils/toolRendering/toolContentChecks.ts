@@ -56,3 +56,10 @@ export function hasWriteContent(linkedTool: LinkedToolItem): boolean {
 
   return false;
 }
+
+/**
+ * Checks if a Bash tool has a command to display.
+ */
+export function hasBashContent(linkedTool: LinkedToolItem): boolean {
+  return !!linkedTool.input?.command;
+}
