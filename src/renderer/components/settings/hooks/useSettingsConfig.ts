@@ -47,6 +47,7 @@ export interface SafeConfig {
     showTimestamps: boolean;
     compactMode: boolean;
     syntaxHighlighting: boolean;
+    keepContextNavExpanded: boolean;
   };
 }
 
@@ -173,6 +174,7 @@ export function useSettingsConfig(): UseSettingsConfigReturn {
         showTimestamps: displayConfig?.display?.showTimestamps ?? true,
         compactMode: displayConfig?.display?.compactMode ?? false,
         syntaxHighlighting: displayConfig?.display?.syntaxHighlighting ?? true,
+        keepContextNavExpanded: displayConfig?.display?.keepContextNavExpanded ?? false,
       },
     }),
     [displayConfig]

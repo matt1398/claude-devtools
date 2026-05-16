@@ -275,6 +275,8 @@ export interface AppConfig {
     compactMode: boolean;
     /** Whether to enable syntax highlighting in code blocks */
     syntaxHighlighting: boolean;
+    /** Whether to keep AI groups expanded after navigating from the Visible Context panel */
+    keepContextNavExpanded: boolean;
   };
   /** Session-related settings */
   sessions: {
