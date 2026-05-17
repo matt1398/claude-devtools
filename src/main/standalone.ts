@@ -171,7 +171,10 @@ async function start(): Promise<void> {
   // Start the server
   const port = await httpServer.start(services, modeSwitchHandler, PORT, HOST);
   logger.info(`Standalone server running at http://${HOST}:${port}`);
-  logger.info('Open in your browser to view Claude Code sessions');
+  // Always print the URL regardless of log level so users know where to connect
+  const displayHost = HOST === '0.0.0.0' || HOST === '::' ? 'localhost' : HOST;
+  const urlHost = displayHost.includes(':') ? `[${displayHost}]` : displayHost;
+  console.log(`\n  claude-devtools running at http://${urlHost}:${port}\n`);
 }
 
 async function shutdown(): Promise<void> {
