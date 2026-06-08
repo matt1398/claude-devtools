@@ -1,8 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { generateUUID } from '../../../src/renderer/utils/stringUtils';
+import { capitalize, generateUUID } from '../../../src/renderer/utils/stringUtils';
 
 const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+describe('capitalize', () => {
+  it('capitalizes a lowercase server tool name (advisor → Advisor)', () => {
+    expect(capitalize('advisor')).toBe('Advisor');
+  });
+
+  it('leaves an already-capitalized tool name unchanged', () => {
+    expect(capitalize('Bash')).toBe('Bash');
+  });
+
+  it('only touches the first character', () => {
+    expect(capitalize('askUserQuestion')).toBe('AskUserQuestion');
+  });
+
+  it('returns an empty string unchanged', () => {
+    expect(capitalize('')).toBe('');
+  });
+});
 
 describe('generateUUID', () => {
   it('delegates to crypto.randomUUID when available', () => {

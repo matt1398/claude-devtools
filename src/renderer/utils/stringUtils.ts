@@ -21,6 +21,19 @@ export function generateUUID(): string {
   return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10).join('')}`;
 }
 
+/**
+ * Capitalizes the first character of a string, leaving the rest unchanged.
+ * Used for tool-name display labels so server tools like `advisor` render as `Advisor`
+ * while already-PascalCase names (Bash, Read, …) are unaffected.
+ *
+ * @example capitalize('advisor') → 'Advisor'
+ * @example capitalize('Bash') → 'Bash'
+ */
+export function capitalize(text: string): string {
+  if (!text) return text;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 const isMacPlatform =
   typeof window !== 'undefined' && window.navigator.userAgent.includes('Macintosh');
 

@@ -10,6 +10,7 @@ import React, { useRef } from 'react';
 
 import { CARD_ICON_MUTED } from '@renderer/constants/cssVariables';
 import { getTeamColorSet } from '@renderer/constants/teamColors';
+import { capitalize } from '@renderer/utils/stringUtils';
 import {
   getToolContextTokens,
   getToolStatus,
@@ -65,7 +66,7 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = React.memo(function
   registerRef,
 }) {
   const status = getToolStatus(linkedTool);
-  const summary = getToolSummary(linkedTool.name, linkedTool.input);
+  const summary = getToolSummary(linkedTool.name, linkedTool.input, linkedTool.sourceModel);
   const elementRef = useRef<HTMLDivElement>(null);
 
   // Combined ref callback - handles both internal ref and external registration
@@ -154,7 +155,7 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = React.memo(function
             style={{ color: isHighlighted ? getTriggerColorDef(highlightColor).hex : undefined }}
           />
         }
-        label={linkedTool.name}
+        label={capitalize(linkedTool.name)}
         summary={summary}
         tokenCount={getToolContextTokens(linkedTool)}
         status={status}

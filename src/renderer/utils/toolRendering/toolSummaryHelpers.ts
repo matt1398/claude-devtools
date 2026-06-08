@@ -16,9 +16,19 @@ function truncate(str: string, maxLength: number): string {
 
 /**
  * Generates a human-readable summary for a tool call.
+ *
+ * @param sourceModel - For server tools (advisor), the model that served the call;
+ *   shown as the summary so the reader sees which model gave the advice.
  */
-export function getToolSummary(toolName: string, input: Record<string, unknown>): string {
+export function getToolSummary(
+  toolName: string,
+  input: Record<string, unknown>,
+  sourceModel?: string
+): string {
   switch (toolName) {
+    case 'advisor':
+      return sourceModel ?? 'advisor';
+
     case 'Edit': {
       const filePath = input.file_path as string | undefined;
       const oldString = input.old_string as string | undefined;

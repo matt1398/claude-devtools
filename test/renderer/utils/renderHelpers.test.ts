@@ -1,6 +1,10 @@
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { extractOutputText } from '../../../src/renderer/components/chat/items/linkedTool/renderHelpers';
+import {
+  extractOutputText,
+  renderInput,
+} from '../../../src/renderer/components/chat/items/linkedTool/renderHelpers';
 
 describe('renderHelpers', () => {
   describe('extractOutputText', () => {
@@ -54,6 +58,18 @@ describe('renderHelpers', () => {
       const content = [{ type: 'image', url: 'http://example.com/img.png' }];
       const result = extractOutputText(content);
       expect(result).toContain('"type": "image"');
+    });
+  });
+
+  describe('renderInput', () => {
+    it('renders "no parameters" when the input is empty', () => {
+      expect(renderToStaticMarkup(renderInput('advisor', {}))).toContain('no parameters');
+    });
+
+    it('renders the parameter keys and no empty-state label when the input has parameters', () => {
+      const html = renderToStaticMarkup(renderInput('WebFetch', { url: 'https://example.com' }));
+      expect(html).toContain('url');
+      expect(html).not.toContain('no parameters');
     });
   });
 });

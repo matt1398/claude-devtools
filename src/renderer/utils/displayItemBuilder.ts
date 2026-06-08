@@ -425,8 +425,7 @@ export function buildDisplayItemsFromMessages(
       }
       // Only treat as subagent input if there are NO tool_result blocks in this message
       const hasToolResults =
-        Array.isArray(msg.content) &&
-        msg.content.some((b) => b.type === 'tool_result');
+        Array.isArray(msg.content) && msg.content.some((b) => b.type === 'tool_result');
       if (rawText.trim() && !hasToolResults) {
         displayItems.push({
           type: 'subagent_input',
@@ -459,6 +458,21 @@ export function buildDisplayItemsFromMessages(
             timestamp: msgTimestamp,
             sourceMessageId: msg.uuid,
             sourceModel: msg.model,
+          });
+        } else if (block.type === 'server_tool_use' && block.name === 'advisor' && block.id) {
+          toolCallsById.set(block.id, {
+            id: block.id,
+            name: 'advisor',
+            input: {},
+            timestamp: msgTimestamp,
+            sourceMessageId: msg.uuid,
+            sourceModel: msg.advisorModel,
+          });
+        } else if (block.type === 'advisor_tool_result' && block.tool_use_id) {
+          toolResultsById.set(block.tool_use_id, {
+            content: block.content?.text ?? '',
+            isError: false,
+            timestamp: msgTimestamp,
           });
         } else if (block.type === 'text' && block.text) {
           // Add text output
