@@ -156,6 +156,18 @@ export interface WslClaudeRootCandidate {
  */
 export interface SessionAPI {
   scrollToLine: (sessionId: string, lineNumber: number) => Promise<void>;
+  getPath: (
+    projectId: string,
+    sessionId: string
+  ) => Promise<{ success: boolean; path?: string; error?: string }>;
+  revealPath: (
+    projectId: string,
+    sessionId: string
+  ) => Promise<{ success: boolean; error?: string }>;
+  delete: (
+    projectId: string,
+    sessionId: string
+  ) => Promise<{ success: boolean; error?: string }>;
 }
 
 // =============================================================================

@@ -482,6 +482,18 @@ export class HttpAPIClient implements ElectronAPI {
   session: SessionAPI = {
     scrollToLine: (sessionId: string, lineNumber: number): Promise<void> =>
       this.post('/api/session/scroll-to-line', { sessionId, lineNumber }),
+    getPath: async (): Promise<{ success: boolean; path?: string; error?: string }> => {
+      console.warn('[HttpAPIClient] session.getPath is not available in browser mode');
+      return { success: false, error: 'Not available in browser mode' };
+    },
+    revealPath: async (): Promise<{ success: boolean; error?: string }> => {
+      console.warn('[HttpAPIClient] session.revealPath is not available in browser mode');
+      return { success: false, error: 'Not available in browser mode' };
+    },
+    delete: async (): Promise<{ success: boolean; error?: string }> => {
+      console.warn('[HttpAPIClient] session.delete is not available in browser mode');
+      return { success: false, error: 'Not available in browser mode' };
+    },
   };
 
   // ---------------------------------------------------------------------------

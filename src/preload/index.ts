@@ -338,6 +338,12 @@ const electronAPI: ElectronAPI = {
   session: {
     scrollToLine: (sessionId: string, lineNumber: number) =>
       ipcRenderer.invoke('session:scrollToLine', sessionId, lineNumber),
+    getPath: (projectId: string, sessionId: string) =>
+      ipcRenderer.invoke('session:getPath', projectId, sessionId),
+    revealPath: (projectId: string, sessionId: string) =>
+      ipcRenderer.invoke('session:revealPath', projectId, sessionId),
+    delete: (projectId: string, sessionId: string) =>
+      ipcRenderer.invoke('session:delete', projectId, sessionId),
   },
 
   // Zoom factor sync (used for traffic-light-safe layout)

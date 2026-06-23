@@ -7,7 +7,9 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { api } from '@renderer/api';
 import { useStore } from '@renderer/store';
+import { createLogger } from '@shared/utils/logger';
 import { formatTokensCompact } from '@shared/utils/tokenFormatting';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { EyeOff, MessageSquare, Pin } from 'lucide-react';
@@ -18,6 +20,8 @@ import { OngoingIndicator } from '../common/OngoingIndicator';
 import { SessionContextMenu } from './SessionContextMenu';
 
 import type { PhaseTokenBreakdown, Session } from '@renderer/types/data';
+
+const logger = createLogger('SessionItem');
 
 interface SessionItemProps {
   session: Session;
@@ -147,6 +151,8 @@ export const SessionItem = React.memo(function SessionItem({
     splitPane,
     togglePinSession,
     toggleHideSession,
+    refreshSessionsInPlace,
+    closeTabs,
   } = useStore(
     useShallow((s) => ({
       openTab: s.openTab,
@@ -156,6 +162,8 @@ export const SessionItem = React.memo(function SessionItem({
       splitPane: s.splitPane,
       togglePinSession: s.togglePinSession,
       toggleHideSession: s.toggleHideSession,
+      refreshSessionsInPlace: s.refreshSessionsInPlace,
+      closeTabs: s.closeTabs,
     }))
   );
 
@@ -240,6 +248,67 @@ export const SessionItem = React.memo(function SessionItem({
     }
   }, [activeProjectId, openTab, selectSession, session.id, sessionLabel, splitPane]);
 
+  const handleOpenSessionPath = useCallback(async () => {
+    if (!activeProjectId) return;
+    try {
+      const result = await api.session.revealPath(activeProjectId, session.id);
+      if (!result.success) {
+        logger.error('Failed to reveal session path:', result.error);
+        window.alert(result.error ?? 'Failed to reveal the session path.');
+      }
+    } catch (error) {
+      logger.error('Error revealing session path:', error);
+      window.alert('Failed to reveal the session path.');
+    }
+  }, [activeProjectId, session.id]);
+
+  const handleResolveSessionPath = useCallback(async (): Promise<string | null> => {
+    if (!activeProjectId) return null;
+    try {
+      const result = await api.session.getPath(activeProjectId, session.id);
+      if (result.success && result.path) {
+        return result.path;
+      }
+      logger.error('Failed to resolve session path:', result.error);
+      window.alert(result.error ?? 'Failed to resolve the session path.');
+      return null;
+    } catch (error) {
+      logger.error('Error resolving session path:', error);
+      window.alert('Failed to resolve the session path.');
+      return null;
+    }
+  }, [activeProjectId, session.id]);
+
+  const handleDeleteSession = useCallback(async () => {
+    if (!activeProjectId) return;
+    const confirmed = window.confirm(
+      `Delete this session permanently?\n\n${sessionLabel}\n\nThis removes the session file from disk and cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const result = await api.session.delete(activeProjectId, session.id);
+      if (!result.success) {
+        logger.error('Failed to delete session:', result.error);
+        window.alert(result.error ?? 'Failed to delete the session.');
+        return;
+      }
+
+      const staleTabIds = useStore
+        .getState()
+        .openTabs.filter((tab) => tab.type === 'session' && tab.sessionId === session.id)
+        .map((tab) => tab.id);
+      if (staleTabIds.length > 0) {
+        closeTabs(staleTabIds);
+      }
+
+      await refreshSessionsInPlace(activeProjectId);
+    } catch (error) {
+      logger.error('Error deleting session:', error);
+      window.alert('Failed to delete the session.');
+    }
+  }, [activeProjectId, closeTabs, refreshSessionsInPlace, session.id, sessionLabel]);
+
   // Height must match SESSION_HEIGHT (48px) in DateGroupedSessions.tsx for virtual scroll
   return (
     <>
@@ -320,6 +389,9 @@ export const SessionItem = React.memo(function SessionItem({
             onSplitRightAndOpen={handleSplitRightAndOpen}
             onTogglePin={() => void togglePinSession(session.id)}
             onToggleHide={() => void toggleHideSession(session.id)}
+            onOpenSessionPath={() => void handleOpenSessionPath()}
+            onResolveSessionPath={handleResolveSessionPath}
+            onDeleteSession={() => void handleDeleteSession()}
           />,
           document.body
         )}
