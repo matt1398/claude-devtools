@@ -1096,9 +1096,10 @@ export class ProjectScanner {
   async searchSessions(
     projectId: string,
     query: string,
-    maxResults: number = 50
+    maxResults: number = 50,
+    fuzzy: boolean = false
   ): Promise<SearchSessionsResult> {
-    return this.sessionSearcher.searchSessions(projectId, query, maxResults);
+    return this.sessionSearcher.searchSessions(projectId, query, maxResults, fuzzy);
   }
 
   /**
@@ -1108,7 +1109,11 @@ export class ProjectScanner {
    * @param query - Search query string
    * @param maxResults - Maximum number of results to return (default 50)
    */
-  async searchAllProjects(query: string, maxResults: number = 50): Promise<SearchSessionsResult> {
+  async searchAllProjects(
+    query: string,
+    maxResults: number = 50,
+    fuzzy: boolean = false
+  ): Promise<SearchSessionsResult> {
     const startedAt = Date.now();
     try {
       if (!query || query.trim().length === 0) {
@@ -1138,7 +1143,9 @@ export class ProjectScanner {
       for (let i = 0; i < projects.length; i += searchBatchSize) {
         const batch = projects.slice(i, i + searchBatchSize);
         const batchResults = await Promise.allSettled(
-          batch.map((project) => this.sessionSearcher.searchSessions(project.id, query, maxResults))
+          batch.map((project) =>
+            this.sessionSearcher.searchSessions(project.id, query, maxResults, fuzzy)
+          )
         );
 
         for (const result of batchResults) {

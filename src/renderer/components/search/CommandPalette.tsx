@@ -23,6 +23,7 @@ import {
   Loader2,
   MessageSquare,
   Search,
+  Sparkles,
   User,
   X,
 } from 'lucide-react';
@@ -243,6 +244,7 @@ export const CommandPalette = (): React.JSX.Element | null => {
   const [totalMatches, setTotalMatches] = useState(0);
   const [searchIsPartial, setSearchIsPartial] = useState(false);
   const [globalSearchEnabled, setGlobalSearchEnabled] = useState(false);
+  const [fuzzyEnabled, setFuzzyEnabled] = useState(false);
   const [sessionIdMatch, setSessionIdMatch] = useState<FindSessionByIdResult | null>(null);
   const [partialIdMatches, setPartialIdMatches] = useState<
     FindSessionsByPartialIdResult['results']
@@ -428,8 +430,8 @@ export const CommandPalette = (): React.JSX.Element | null => {
       setLoading(true);
       try {
         const searchResult = globalSearchEnabled
-          ? await api.searchAllProjects(query.trim(), 50)
-          : await api.searchSessions(selectedProjectId!, query.trim(), 50);
+          ? await api.searchAllProjects(query.trim(), 50, fuzzyEnabled)
+          : await api.searchSessions(selectedProjectId!, query.trim(), 50, fuzzyEnabled);
         if (latestSearchRequestRef.current !== requestId) {
           return;
         }
@@ -459,6 +461,7 @@ export const CommandPalette = (): React.JSX.Element | null => {
     commandPaletteOpen,
     searchMode,
     globalSearchEnabled,
+    fuzzyEnabled,
     queryIsSessionId,
   ]);
 
@@ -668,22 +671,36 @@ export const CommandPalette = (): React.JSX.Element | null => {
                 </>
               )}
             </div>
-            <button
-              onClick={() => setGlobalSearchEnabled(!globalSearchEnabled)}
-              className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
-                globalSearchEnabled
-                  ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
-                  : 'text-text-muted hover:bg-surface-raised hover:text-text'
-              }`}
-              title={
-                !globalSearchEnabled
-                  ? `Search across all projects (${formatModifierShortcut('G')})`
-                  : undefined
-              }
-            >
-              <Globe className="size-3" />
-              <span>Global</span>
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setFuzzyEnabled(!fuzzyEnabled)}
+                className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
+                  fuzzyEnabled
+                    ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                    : 'text-text-muted hover:bg-surface-raised hover:text-text'
+                }`}
+                title="Fuzzy matching — tolerate typos and approximate spelling"
+              >
+                <Sparkles className="size-3" />
+                <span>Fuzzy</span>
+              </button>
+              <button
+                onClick={() => setGlobalSearchEnabled(!globalSearchEnabled)}
+                className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
+                  globalSearchEnabled
+                    ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                    : 'text-text-muted hover:bg-surface-raised hover:text-text'
+                }`}
+                title={
+                  !globalSearchEnabled
+                    ? `Search across all projects (${formatModifierShortcut('G')})`
+                    : undefined
+                }
+              >
+                <Globe className="size-3" />
+                <span>Global</span>
+              </button>
+            </div>
           </div>
         </div>
 

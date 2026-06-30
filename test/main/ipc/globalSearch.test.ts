@@ -133,8 +133,8 @@ describe('Global Search - ProjectScanner.searchAllProjects', () => {
 
       expect(mockScan).toHaveBeenCalledOnce();
       expect(mockSearchSessions).toHaveBeenCalledTimes(2);
-      expect(mockSearchSessions).toHaveBeenCalledWith('project1', 'test', 50);
-      expect(mockSearchSessions).toHaveBeenCalledWith('project2', 'test', 50);
+      expect(mockSearchSessions).toHaveBeenCalledWith('project1', 'test', 50, false);
+      expect(mockSearchSessions).toHaveBeenCalledWith('project2', 'test', 50, false);
 
       expect(result.results).toHaveLength(2);
       expect(result.totalMatches).toBe(2);
@@ -260,7 +260,7 @@ describe('Global Search - ProjectScanner.searchAllProjects', () => {
       const result = await projectScanner.searchAllProjects('test', 25);
 
       expect(result.results.length).toBe(25); // Limited to maxResults
-      expect(mockSearchSessions).toHaveBeenCalledWith('project1', 'test', 25);
+      expect(mockSearchSessions).toHaveBeenCalledWith('project1', 'test', 25, false);
     });
 
     it('should handle search errors gracefully', async () => {
