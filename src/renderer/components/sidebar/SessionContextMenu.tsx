@@ -6,7 +6,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { useStore } from '@renderer/store';
 import { MAX_PANES } from '@renderer/types/panes';
+import { buildResumeCommand } from '@renderer/utils/resumeCommand';
 import { formatShortcut } from '@renderer/utils/stringUtils';
 import { Check, ClipboardCopy, Eye, EyeOff, Pin, PinOff, Terminal } from 'lucide-react';
 
@@ -31,6 +33,7 @@ export const SessionContextMenu = ({
   x,
   y,
   sessionId,
+  projectId,
   paneCount,
   isPinned,
   isHidden,
@@ -43,6 +46,9 @@ export const SessionContextMenu = ({
 }: SessionContextMenuProps): React.JSX.Element => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [copiedField, setCopiedField] = useState<'id' | 'command' | null>(null);
+  // The encoded project dir is the session's launch cwd; resolve it so the
+  // copied command can cd there instead of forcing a manual directory change.
+  const projectPath = useStore((s) => s.projects.find((p) => p.id === projectId)?.path);
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent): void => {
@@ -138,7 +144,7 @@ export const SessionContextMenu = ({
             <Terminal className="size-4" />
           )
         }
-        onClick={handleCopy(`claude --resume ${sessionId}`, 'command')}
+        onClick={handleCopy(buildResumeCommand(sessionId, projectPath), 'command')}
       />
     </div>
   );
