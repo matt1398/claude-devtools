@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { OngoingBanner } from '@renderer/components/common/OngoingIndicator';
 import { isNearBottom, useAutoScrollBottom } from '@renderer/hooks/useAutoScrollBottom';
+import { useSessionLiveState } from '@renderer/hooks/useSessionLiveState';
 import { useTabNavigationController } from '@renderer/hooks/useTabNavigationController';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useVisibleAIGroup } from '@renderer/hooks/useVisibleAIGroup';
 import { useStore } from '@renderer/store';
+import { enhanceAIGroup } from '@renderer/utils/aiGroupEnhancer';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronsDown } from 'lucide-react';
+import { ChevronsDown, Loader2 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { SessionContextPanel } from './SessionContextPanel/index';
+import { ChatFilterBar } from './ChatFilterBar';
+import {
+  ALL_FILTER_TYPES,
+  type FilterType,
+  getAIGroupFilterTypes,
+  isAIGroupVisible,
+} from './chatItemFilter';
 
 /** Pixels from bottom considered "near bottom" for scroll-button visibility and auto-scroll. */
 const SCROLL_THRESHOLD = 300;
@@ -51,6 +61,16 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     selectedContextPhase,
     setSelectedContextPhase,
   } = useTabUI();
+
+  // Per-type filter selection is GLOBAL (shared across all sessions/tabs) and persisted
+  // to localStorage — read/write it from the top-level filter slice, not per-tab state.
+  const { hiddenFilterTypes, toggleFilterType, setHiddenFilterTypes } = useStore(
+    useShallow((s) => ({
+      hiddenFilterTypes: s.globalHiddenFilterTypes,
+      toggleFilterType: s.toggleGlobalFilterType,
+      setHiddenFilterTypes: s.setGlobalHiddenFilterTypes,
+    }))
+  );
 
   // Global store subscriptions (shared data)
   const {
@@ -182,7 +202,42 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const isSearchActive = searchQuery.trim().length > 0;
-  const shouldVirtualize = (conversation?.items.length ?? 0) >= VIRTUALIZATION_THRESHOLD;
+
+  // Per-group present filter-types, computed once per conversation (toggle-independent).
+  // enhanceAIGroup is pure over already-parsed data; stats args only affect the
+  // claudeMdStats field, which the filter-type computation does not read.
+  const groupFilterTypes = useMemo(() => {
+    const map = new Map<string, Set<FilterType>>();
+    if (!conversation?.items) return map;
+    for (const item of conversation.items) {
+      if (item.type === 'ai') {
+        map.set(item.group.id, getAIGroupFilterTypes(enhanceAIGroup(item.group)));
+      }
+    }
+    return map;
+  }, [conversation]);
+
+  // Apply the per-type filter at the top level: an AI group drops out of the
+  // (virtualized) list when every type it contains is hidden. Non-AI items (user,
+  // system, compact) have no chip and always remain.
+  const filteredItems = useMemo(() => {
+    const items = conversation?.items ?? [];
+    if (hiddenFilterTypes.size === 0) return items;
+    return items.filter((item) => {
+      if (item.type !== 'ai') return true;
+      const types = groupFilterTypes.get(item.group.id) ?? new Set<FilterType>();
+      return isAIGroupVisible(types, hiddenFilterTypes);
+    });
+  }, [conversation, groupFilterTypes, hiddenFilterTypes]);
+
+  const shouldVirtualize = filteredItems.length >= VIRTUALIZATION_THRESHOLD;
+
+  // Show the tail indicator only when the last AI group isn't already rendering its
+  // own ongoing banner, so mid-turn we don't stack two spinners.
+  const { isLive } = useSessionLiveState(tabId);
+  const lastItem = filteredItems[filteredItems.length - 1];
+  const lastGroupHasOwnBanner = lastItem?.type === 'ai' && (lastItem.group.isOngoing ?? false);
+  const showLiveTail = isLive && !lastGroupHasOwnBanner;
   const emptyRenderedSyncCountRef = useRef(0);
 
   const setSearchQueryForTab = useCallback(
@@ -192,19 +247,18 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     [setSearchQuery, conversation]
   );
 
+  // Index map is built over the FILTERED list so navigation/search scrollToIndex stays
+  // aligned with what the virtualizer actually renders.
   const groupIndexMap = useMemo(() => {
     const map = new Map<string, number>();
-    if (!conversation?.items) {
-      return map;
-    }
-    conversation.items.forEach((item, index) => {
+    filteredItems.forEach((item, index) => {
       map.set(item.group.id, index);
     });
     return map;
-  }, [conversation]);
+  }, [filteredItems]);
 
   const rowVirtualizer = useVirtualizer({
-    count: shouldVirtualize ? (conversation?.items.length ?? 0) : 0,
+    count: shouldVirtualize ? filteredItems.length : 0,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => ESTIMATED_CHAT_ITEM_HEIGHT,
     overscan: 8,
@@ -227,9 +281,11 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     [groupIndexMap, rowVirtualizer, shouldVirtualize]
   );
 
-  // Sticky context button height (py-3 = 12px padding * 2 + button height ~28px + pt-3 = 12px)
-  // Total: approximately 52px, round up to 60px for safety
-  const STICKY_BUTTON_OFFSET = allContextInjections.length > 0 ? 60 : 0;
+  // Height of the pinned header, so scroll-into-view navigation clears it. The filter bar
+  // is always present (~72px: px-6 py-3 wrapper + bordered chip box); the Context button
+  // row (~48px) only exists when there are context injections. Chips may wrap taller — this
+  // is an estimate with headroom, matching the pre-existing best-effort offset.
+  const STICKY_BUTTON_OFFSET = allContextInjections.length > 0 ? 120 : 72;
 
   // Unified navigation controller - replaces useNavigationCoordinator + useSearchContextNavigation
   // Must be created before useAutoScrollBottom so we can pass shouldDisableAutoScroll
@@ -352,6 +408,9 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
 
   // Scroll-to-bottom button visibility
   const [showScrollButton, setShowScrollButton] = useState(false);
+  // True while the one-click "scroll to true bottom" routine is converging.
+  const [isScrollingToBottom, setIsScrollingToBottom] = useState(false);
+  const isScrollingToBottomRef = useRef(false);
 
   const checkScrollButton = useCallback(() => {
     const container = scrollContainerRef.current;
@@ -363,14 +422,73 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
   // Auto-follow when conversation updates, but only if the user was already near bottom.
   // This preserves manual reading position when the user scrolls up.
   // Disabled during navigation to prevent conflicts with deep-link/search scrolling.
-  const { scrollToBottom } = useAutoScrollBottom([conversation], {
+  // `showLiveTail` is a dep so the tail indicator appearing also pulls the view down —
+  // otherwise the "Thinking…" banner can render just below the fold.
+  const { scrollToBottom } = useAutoScrollBottom([conversation, showLiveTail], {
     threshold: SCROLL_THRESHOLD,
     smoothDuration: 300,
-    autoBehavior: 'auto',
+    // Instant while reading history (jumping is what you want when loading a session);
+    // smooth while streaming, so arriving blocks glide into view instead of snapping.
+    autoBehavior: isLive ? 'smooth' : 'auto',
     disabled: shouldDisableAutoScroll,
     externalRef: scrollContainerRef,
     resetKey: effectiveTabId,
   });
+
+  // One-click "scroll to the TRUE bottom".
+  //
+  // The conversation is fully loaded (no chat-item pagination); the reason a single
+  // scrollToBottom lands mid-way is virtualization: rowVirtualizer.getTotalSize() uses
+  // the per-item height ESTIMATE for rows that haven't rendered yet, so scrollHeight
+  // grows as we descend and freshly measured rows report their real heights. We converge
+  // by repeatedly jumping to the last index (or container bottom), waiting a double-rAF
+  // for the virtualizer to render + measure the newly revealed rows, and repeating until
+  // scrollTop/scrollHeight stabilize AND we are pinned to the bottom.
+  const handleScrollToTrueBottom = useCallback(async (): Promise<void> => {
+    const container = scrollContainerRef.current;
+    if (!container || isScrollingToBottomRef.current) return;
+
+    isScrollingToBottomRef.current = true;
+    setIsScrollingToBottom(true);
+    try {
+      const MAX_ITERATIONS = 30;
+      const lastIndex = filteredItems.length - 1;
+      let prevScrollTop = -1;
+      let prevScrollHeight = -1;
+
+      for (let i = 0; i < MAX_ITERATIONS; i++) {
+        // Ask the virtualizer to bring the final row fully into view when virtualizing;
+        // otherwise a plain jump to the measured bottom is enough. Both trigger the
+        // container's scroll handler, which renders the bottom rows for measurement.
+        if (shouldVirtualize && lastIndex >= 0) {
+          rowVirtualizer.scrollToIndex(lastIndex, { align: 'end' });
+        } else {
+          container.scrollTop = container.scrollHeight - container.clientHeight;
+        }
+
+        // Let the virtualizer render + measure the newly revealed rows.
+        await waitForDoubleRaf();
+
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        const atBottom = scrollHeight - scrollTop - clientHeight <= 2;
+        // Converged: nothing shifted this pass and we're pinned to the bottom pixel.
+        if (atBottom && scrollHeight === prevScrollHeight && scrollTop === prevScrollTop) {
+          break;
+        }
+        prevScrollTop = scrollTop;
+        prevScrollHeight = scrollHeight;
+      }
+
+      // Final hard snap to the true bottom pixel and sync the auto-scroll hook's
+      // internal "at bottom" state so normal follow-on-update behavior resumes.
+      container.scrollTop = container.scrollHeight - container.clientHeight;
+      scrollToBottom('auto');
+    } finally {
+      isScrollingToBottomRef.current = false;
+      setIsScrollingToBottom(false);
+      checkScrollButton();
+    }
+  }, [filteredItems.length, shouldVirtualize, rowVirtualizer, scrollToBottom, checkScrollButton]);
 
   // Re-check button visibility whenever conversation updates
   useEffect(() => {
@@ -757,33 +875,60 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
           style={{ backgroundColor: 'var(--color-surface)' }}
           onScroll={checkScrollButton}
         >
-          {/* Sticky Context button */}
-          {allContextInjections.length > 0 && (
-            <div className="pointer-events-none sticky top-0 z-10 flex justify-end px-4 pb-0 pt-3">
-              <button
-                onClick={() => setContextPanelVisible(!isContextPanelVisible)}
-                onMouseEnter={() => setIsContextButtonHovered(true)}
-                onMouseLeave={() => setIsContextButtonHovered(false)}
-                className="pointer-events-auto flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs shadow-lg transition-colors"
-                style={{
-                  backgroundColor: isContextPanelVisible
-                    ? 'var(--context-btn-active-bg)'
-                    : isContextButtonHovered
-                      ? 'var(--context-btn-bg-hover)'
-                      : 'var(--context-btn-bg)',
-                  color: isContextPanelVisible
-                    ? 'var(--context-btn-active-text)'
-                    : 'var(--color-text-secondary)',
-                }}
-              >
-                Context ({allContextInjections.length})
-              </button>
-            </div>
-          )}
+          {/*
+            Pinned header — the Context button row and the per-type filter bar both stay
+            visible while the messages scroll UNDER them. Sticky (not fixed) so it keeps its
+            place in the scroll container's normal flow: the virtualized list below starts
+            right beneath it, so no scrollMargin adjustment is needed and virtualization is
+            unaffected. Solid theme-aware background + z-20 (above chat content, below the
+            z-20 scroll-to-bottom button which is absolutely positioned at the bottom).
+          */}
           <div
-            className="mx-auto max-w-5xl px-6 py-8"
-            style={{ marginTop: allContextInjections.length > 0 ? '-2rem' : 0 }}
+            className="sticky top-0 z-20"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              borderBottom: '1px solid var(--color-border)',
+            }}
           >
+            {/* Context button row (right-aligned) */}
+            {allContextInjections.length > 0 && (
+              <div className="flex justify-end px-4 pt-3">
+                <button
+                  onClick={() => setContextPanelVisible(!isContextPanelVisible)}
+                  onMouseEnter={() => setIsContextButtonHovered(true)}
+                  onMouseLeave={() => setIsContextButtonHovered(false)}
+                  className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs shadow-lg transition-colors"
+                  style={{
+                    backgroundColor: isContextPanelVisible
+                      ? 'var(--context-btn-active-bg)'
+                      : isContextButtonHovered
+                        ? 'var(--context-btn-bg-hover)'
+                        : 'var(--context-btn-bg)',
+                    color: isContextPanelVisible
+                      ? 'var(--context-btn-active-text)'
+                      : 'var(--color-text-secondary)',
+                  }}
+                >
+                  Context ({allContextInjections.length})
+                </button>
+              </div>
+            )}
+            {/* Always-visible, wrap-friendly per-type filter chips */}
+            <div className="mx-auto max-w-5xl px-6 py-3">
+              <div
+                className="overflow-hidden rounded-lg"
+                style={{ border: '1px solid var(--color-border)' }}
+              >
+                <ChatFilterBar
+                  hidden={hiddenFilterTypes}
+                  onToggle={toggleFilterType}
+                  onAll={() => setHiddenFilterTypes(new Set())}
+                  onNone={() => setHiddenFilterTypes(new Set(ALL_FILTER_TYPES))}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="mx-auto max-w-5xl px-6 pb-8 pt-6">
             <div className="space-y-8">
               {shouldVirtualize ? (
                 <div
@@ -794,7 +939,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
                   }}
                 >
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const item = conversation.items[virtualRow.index];
+                    const item = filteredItems[virtualRow.index];
                     if (!item) return null;
                     return (
                       <div
@@ -826,7 +971,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
                   })}
                 </div>
               ) : (
-                conversation.items.map((item) => (
+                filteredItems.map((item) => (
                   <ChatHistoryItem
                     key={item.group.id}
                     item={item}
@@ -841,6 +986,16 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
                   />
                 ))
               )}
+
+              {/*
+                Live tail indicator. The per-group banner inside AIChatGroup can only
+                render once an AI group exists, so it can't cover the window between
+                submitting a prompt and Claude's first content block reaching the
+                JSONL — the exact stretch where the app looked frozen. This sits after
+                the last item (both the virtualized and plain branches) and fills that
+                gap, driven by the terminal-state hook.
+              */}
+              {showLiveTail && <OngoingBanner activityKind="thinking" />}
             </div>
           </div>
         </div>
@@ -849,10 +1004,10 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
         {showScrollButton && (
           <button
             onClick={() => {
-              scrollToBottom('smooth');
-              setShowScrollButton(false);
+              void handleScrollToTrueBottom();
             }}
-            className="absolute bottom-5 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs shadow-lg transition-[right] duration-200"
+            disabled={isScrollingToBottom}
+            className="absolute bottom-5 z-20 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs shadow-lg transition-[right] duration-200 disabled:cursor-default disabled:opacity-80"
             style={{
               right:
                 isContextPanelVisible && allContextInjections.length > 0
@@ -864,7 +1019,11 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
             }}
             title="Scroll to bottom"
           >
-            <ChevronsDown className="size-3.5" />
+            {isScrollingToBottom ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <ChevronsDown className="size-3.5" />
+            )}
             <span>Bottom</span>
           </button>
         )}

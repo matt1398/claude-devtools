@@ -21,6 +21,7 @@ export function getSessionResetState(): Partial<AppState> {
     sessionsHasMore: false,
     sessionsTotalCount: 0,
     sessionsLoadingMore: false,
+    sessionsPagesLoaded: 0,
   };
 }
 

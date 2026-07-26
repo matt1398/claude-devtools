@@ -9,6 +9,7 @@
  * This builds on claudeMdTracker.ts and extends it to track all context sources.
  */
 
+import { isSubagentDispatchTool } from '@shared/constants';
 import { estimateTokens } from '@shared/utils/tokenFormatting';
 
 import { MAX_MENTIONED_FILE_TOKENS } from '../types/contextInjection';
@@ -208,8 +209,10 @@ function aggregateToolOutputs(
     const toolTokenCount = callTokens + resultTokens + skillTokens;
 
     if (toolTokenCount > 0) {
-      // Rename "Task" to "Task (Subagent)" for clarity in the UI
-      const displayName = linkedTool.name === 'Task' ? 'Task (Subagent)' : linkedTool.name;
+      // Rename "Task"/"Agent" to "<name> (Subagent)" for clarity in the UI
+      const displayName = isSubagentDispatchTool(linkedTool.name)
+        ? `${linkedTool.name} (Subagent)`
+        : linkedTool.name;
       toolBreakdown.push({
         toolName: displayName,
         tokenCount: toolTokenCount,

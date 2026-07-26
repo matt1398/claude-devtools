@@ -27,6 +27,17 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Local machine setup — never publish. Keep your host-specific hardening,
+# update scripts and paths here so `git pull` stays conflict-free and no
+# environment detail reaches the public history. See scripts/leak-check.mjs.
+docker-compose.override.yml
+update-devtools.sh
+*.local.sh
+
+# Claude Code session transcripts — these contain real conversation content
+# and must never be committed, even as test fixtures.
+*.jsonl
+
 # Environment
 .env
 .env.local

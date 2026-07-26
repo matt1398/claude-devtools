@@ -7,7 +7,7 @@ import remarkGfm from 'remark-gfm';
 import { useShallow } from 'zustand/react/shallow';
 
 import { CopyButton } from '../common/CopyButton';
-import { OngoingBanner } from '../common/OngoingIndicator';
+import { OngoingBanner, type OngoingActivityKind } from '../common/OngoingIndicator';
 
 import { createMarkdownComponents, markdownComponents } from './markdownComponents';
 import { createSearchContext, EMPTY_SEARCH_MATCHES } from './searchHighlightUtils';
@@ -21,6 +21,12 @@ interface LastOutputDisplayProps {
   isLastGroup?: boolean;
   /** Whether the session is ongoing (from sessions array, same source as sidebar) */
   isSessionOngoing?: boolean;
+  /** Last activity kind of the in-progress turn (thinking vs tool_use). */
+  ongoingActivityKind?: OngoingActivityKind;
+  /** Tool name when the in-progress turn's last activity is a tool_use. */
+  ongoingToolName?: string;
+  /** In-progress turn's output tokens, shown as "↓ <n> tok" in the banner */
+  ongoingOutputTokens?: number;
 }
 
 /**
@@ -39,6 +45,9 @@ export const LastOutputDisplay = ({
   aiGroupId,
   isLastGroup = false,
   isSessionOngoing = false,
+  ongoingActivityKind,
+  ongoingToolName,
+  ongoingOutputTokens,
 }: Readonly<LastOutputDisplayProps>): React.JSX.Element | null => {
   // Only re-render if THIS AI group has search matches
   const { searchQuery, searchMatches, currentSearchIndex } = useStore(
@@ -67,7 +76,13 @@ export const LastOutputDisplay = ({
   // Show ongoing banner if this is the last AI group and session is ongoing
   // This uses the same source (sessions array) as the sidebar green dot for consistency
   if (isLastGroup && isSessionOngoing) {
-    return <OngoingBanner />;
+    return (
+      <OngoingBanner
+        activityKind={ongoingActivityKind}
+        toolName={ongoingToolName}
+        outputTokens={ongoingOutputTokens}
+      />
+    );
   }
 
   if (!lastOutput) {
@@ -90,8 +105,8 @@ export const LastOutputDisplay = ({
       >
         <CopyButton text={textContent} />
 
-        {/* Content - scrollable */}
-        <div className="max-h-96 overflow-y-auto px-4 py-3" data-search-content>
+        {/* Content - grows to full height (no fixed cap) */}
+        <div className="px-4 py-3" data-search-content>
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
             {textContent}
           </ReactMarkdown>
@@ -233,8 +248,8 @@ export const LastOutputDisplay = ({
             <CopyButton text={planContent} inline />
           </div>
 
-          {/* Plan content - scrollable */}
-          <div className="max-h-96 overflow-y-auto px-4 py-3">
+          {/* Plan content - grows to full height (no fixed cap) */}
+          <div className="px-4 py-3">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
               {planContent}
             </ReactMarkdown>

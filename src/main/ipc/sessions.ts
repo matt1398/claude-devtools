@@ -23,6 +23,8 @@ import {
   type SessionsPaginationOptions,
 } from '../types';
 
+import { getActiveSessionTailer } from '../services/streaming/activeSessionTailer';
+
 import { coercePageLimit, validateProjectId, validateSessionId } from './guards';
 
 import type { ServiceContextRegistry } from '../services';
@@ -222,10 +224,12 @@ async function handleGetSessionDetail(
     // Without this, a missed FileWatcher event leaves a stale cache entry
     // that survives manual refresh for up to 10 minutes (the TTL).
     let fingerprint: string | undefined;
+    let tailOffset: number | undefined;
+    const sessionFilePath = projectScanner.getSessionPath(safeProjectId, safeSessionId);
     try {
-      const filePath = projectScanner.getSessionPath(safeProjectId, safeSessionId);
-      const stats = await projectScanner.getFileSystemProvider().stat(filePath);
+      const stats = await projectScanner.getFileSystemProvider().stat(sessionFilePath);
       fingerprint = `${stats.mtimeMs}-${stats.size}`;
+      tailOffset = stats.size;
     } catch {
       // Stat failure is non-fatal — fall through to the existence check below.
     }
@@ -241,6 +245,15 @@ async function handleGetSessionDetail(
       fingerprint !== undefined &&
       knownFingerprint === fingerprint
     ) {
+      // Still the open session — re-arm the tailer (it may have been LRU-evicted).
+      if (tailOffset !== undefined) {
+        getActiveSessionTailer()?.setBaseline(
+          safeSessionId,
+          sessionFilePath,
+          tailOffset,
+          safeProjectId
+        );
+      }
       return { unchanged: true, fingerprint };
     }
 
@@ -282,13 +295,25 @@ async function handleGetSessionDetail(
     // Strip raw messages before IPC transfer — the renderer never uses them.
     // Only chunks (with semantic steps) and process summaries cross the boundary.
     // This cuts IPC serialization + renderer heap by ~50-60%.
+    // Register the streaming baseline so the SessionTailer emits `session-append`
+    // deltas from exactly this byte offset (open-session live updates).
+    if (tailOffset !== undefined) {
+      const tailer = getActiveSessionTailer();
+      tailer?.setBaseline(safeSessionId, sessionFilePath, tailOffset, safeProjectId);
+      // Seed the tailer's message cache (sessionDetail here always carries the full
+      // parsed messages + processes, whether cache-hit or freshly built) so the first
+      // append rebuilds chunks in-memory — no disk read, no re-parse.
+      tailer?.primeMessages(safeSessionId, sessionDetail.messages, sessionDetail.processes);
+    }
+
     // The fingerprint travels with the payload so the renderer can cache it
-    // and pass it back on the next refresh.
+    // and pass it back on the next refresh. tailOffset is the streaming baseline.
     return {
       ...sessionDetail,
       messages: [],
       processes: sessionDetail.processes.map((p) => ({ ...p, messages: [] })),
       fingerprint,
+      tailOffset,
     };
   } catch (error) {
     logger.error(`Error in get-session-detail for ${projectId}/${sessionId}:`, error);

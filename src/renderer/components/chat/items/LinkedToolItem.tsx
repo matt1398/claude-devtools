@@ -31,6 +31,7 @@ import { Wrench } from 'lucide-react';
 import { BaseItem, StatusDot } from './BaseItem';
 import { formatDuration } from './baseItemHelpers';
 import {
+  AskUserQuestionToolViewer,
   DefaultToolViewer,
   EditToolViewer,
   ReadToolViewer,
@@ -139,7 +140,11 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = React.memo(function
   const useWriteViewer =
     linkedTool.name === 'Write' && hasWriteContent(linkedTool) && !linkedTool.result?.isError;
   const useSkillViewer = linkedTool.name === 'Skill' && hasSkillInstructions(linkedTool);
-  const useDefaultViewer = !useReadViewer && !useEditViewer && !useWriteViewer && !useSkillViewer;
+  const useAskViewer =
+    linkedTool.name === 'AskUserQuestion' &&
+    Array.isArray((linkedTool.input as Record<string, unknown>)?.questions);
+  const useDefaultViewer =
+    !useReadViewer && !useEditViewer && !useWriteViewer && !useSkillViewer && !useAskViewer;
 
   // Check if we should show error display for Read/Write tools
   const showReadError = linkedTool.name === 'Read' && linkedTool.result?.isError;
@@ -176,6 +181,9 @@ export const LinkedToolItem: React.FC<LinkedToolItemProps> = React.memo(function
 
         {/* Skill tool with instructions */}
         {useSkillViewer && <SkillToolViewer linkedTool={linkedTool} />}
+
+        {/* AskUserQuestion — questions, options, and the chosen answer */}
+        {useAskViewer && <AskUserQuestionToolViewer linkedTool={linkedTool} />}
 
         {/* Default rendering for other tools */}
         {useDefaultViewer && <DefaultToolViewer linkedTool={linkedTool} status={status} />}

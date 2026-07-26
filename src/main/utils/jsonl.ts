@@ -14,9 +14,11 @@ import * as readline from 'readline';
 import { SessionContentFilter } from '../services/discovery/SessionContentFilter';
 import { LocalFileSystemProvider } from '../services/infrastructure/LocalFileSystemProvider';
 import {
+  type AttachmentEntry,
   type ChatHistoryEntry,
   type ContentBlock,
   EMPTY_METRICS,
+  type QueuedCommandAttachment,
   isConversationalEntry,
   isParsedUserChunkMessage,
   isTextContent,
@@ -107,6 +109,16 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
     return null;
   }
 
+  // Attachment entries carry out-of-band payloads. Most (hook output, diagnostics)
+  // are non-conversational, but a QUEUED user message — text the user typed while
+  // the assistant was mid-turn — is recorded ONLY as a `queued_command` attachment
+  // with origin.kind === 'human'; there is no `type:"user"` entry for it. Surface
+  // those as real user messages so they render as visible user turns in
+  // chronological position. All other attachments are skipped.
+  if (entry.type === 'attachment') {
+    return parseQueuedCommandAttachment(entry);
+  }
+
   const type = parseMessageType(entry.type);
   if (!type) {
     return null;
@@ -191,6 +203,93 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
     toolUseResult,
     requestId,
   };
+}
+
+/**
+ * Convert a `queued_command` attachment (a message the user typed mid-turn) into
+ * a synthetic user ParsedMessage.
+ *
+ * Only human-originated queued commands are real user input. Agent-generated
+ * queued_commands (e.g. `<task-notification>` payloads) carry a non-human origin
+ * and return null so they stay out of the conversation, exactly as before.
+ *
+ * The produced message has STRING content (the prompt) and isMeta=false, so it
+ * flows through the normal classification path (isParsedUserChunkMessage → user
+ * chunk) and renders as a "You" bubble in chronological position. The text is
+ * used verbatim — Claude Code stores the prompt without the terminal "❯ " marker,
+ * so no stripping is needed.
+ */
+function parseQueuedCommandAttachment(entry: AttachmentEntry): ParsedMessage | null {
+  if (!entry.uuid) {
+    return null;
+  }
+
+  const attachment = entry.attachment;
+  if (!attachment || attachment.type !== 'queued_command') {
+    return null;
+  }
+
+  const queued = attachment as QueuedCommandAttachment;
+  // Guard: only surface messages the human actually typed.
+  if (queued.origin?.kind !== 'human' || typeof queued.prompt !== 'string') {
+    return null;
+  }
+
+  const prompt = queued.prompt.trim();
+  if (prompt.length === 0) {
+    return null;
+  }
+
+  return {
+    uuid: entry.uuid,
+    parentUuid: entry.parentUuid ?? null,
+    type: 'user',
+    timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date(),
+    role: 'user',
+    content: prompt,
+    usage: undefined,
+    model: undefined,
+    cwd: entry.cwd,
+    gitBranch: entry.gitBranch,
+    agentId: undefined,
+    isSidechain: entry.isSidechain ?? false,
+    isMeta: false,
+    userType: undefined,
+    isCompactSummary: false,
+    toolCalls: [],
+    toolResults: [],
+    sourceToolUseID: undefined,
+    sourceToolAssistantUUID: undefined,
+    toolUseResult: undefined,
+    requestId: undefined,
+  };
+}
+
+/**
+ * Parse a batch of already-JSON-parsed raw JSONL entries into ParsedMessage[].
+ *
+ * This is the in-memory counterpart of {@link parseJsonlFile}: it runs the exact
+ * same per-entry parsing (`parseChatHistoryEntry`) but over objects the caller has
+ * ALREADY deserialized (e.g. the SessionTailer, which JSON.parses each appended
+ * line). Using it avoids re-reading the file and re-JSON.parsing entries that were
+ * already parsed — the dominant cost of the old full-refetch path.
+ *
+ * Malformed entries (missing uuid / unknown type) are skipped, mirroring the
+ * file-based path.
+ */
+export function parseChatHistoryEntries(entries: ChatHistoryEntry[]): ParsedMessage[] {
+  const messages: ParsedMessage[] = [];
+  for (const entry of entries) {
+    try {
+      const parsed = parseChatHistoryEntry(entry);
+      if (parsed) {
+        messages.push(parsed);
+      }
+    } catch (error) {
+      logger.error('Error parsing in-memory chat history entry:', error);
+    }
+  }
+  return messages;
 }
 
 /**
@@ -351,6 +450,20 @@ export interface SessionFileMetadata {
   /** Per-phase token breakdown */
   phaseBreakdown?: PhaseTokenBreakdown[];
   hasDisplayableContent: boolean;
+  /** True if any tool_result in the session had is_error === true */
+  hasError: boolean;
+  /**
+   * True if the last AskUserQuestion tool_use has no matching tool_result yet
+   * (the session is awaiting the user's answer).
+   */
+  awaitingUserInput: boolean;
+  /** True if the last "ending" event was a user interruption ("[Request interrupted by user"). */
+  endedInterrupted: boolean;
+  /**
+   * How the session was started, derived from the FIRST non-meta user message's
+   * top-level `promptSource`/`entrypoint` fields. undefined when undeterminable.
+   */
+  origin?: 'interactive' | 'sdk';
 }
 
 /**
@@ -368,6 +481,10 @@ export async function analyzeSessionFileMetadata(
       isOngoing: false,
       gitBranch: null,
       hasDisplayableContent: false,
+      hasError: false,
+      awaitingUserInput: false,
+      endedInterrupted: false,
+      origin: undefined,
     };
   }
 
@@ -379,6 +496,9 @@ export async function analyzeSessionFileMetadata(
 
   let firstUserMessage: { text: string; timestamp: string } | null = null;
   let firstCommandMessage: { text: string; timestamp: string } | null = null;
+  // Origin: derived from the FIRST non-meta user message's top-level promptSource/entrypoint.
+  let origin: 'interactive' | 'sdk' | undefined;
+  let originCaptured = false;
   let messageCount = 0;
   let hasDisplayableContent = false;
   // After a UserGroup, await the first main-thread assistant message to count the AIGroup
@@ -391,6 +511,14 @@ export async function analyzeSessionFileMetadata(
   let hasActivityAfterLastEnding = false;
   // Track tool_use IDs that are shutdown responses so their tool_results are also ending events
   const shutdownToolIds = new Set<string>();
+
+  // Status detection (threaded out as raw booleans; final precedence applied in ProjectScanner)
+  let hasError = false;
+  // Track the last AskUserQuestion tool_use and whether it has been answered yet.
+  let lastAskUserQuestionId: string | null = null;
+  let lastAskUserQuestionAnswered = false;
+  // Whether the most recent "ending" event was a user interruption.
+  let lastEndingWasInterrupt = false;
 
   // Context consumption tracking
 
@@ -438,6 +566,27 @@ export async function analyzeSessionFileMetadata(
 
     if (!gitBranch && 'gitBranch' in entry && entry.gitBranch) {
       gitBranch = entry.gitBranch;
+    }
+
+    // Capture origin from the FIRST non-meta user message. promptSource/entrypoint are
+    // TOP-LEVEL fields on the raw line object (not inside `message`), so read them off the
+    // raw entry as a record.
+    if (
+      !originCaptured &&
+      entry.type === 'user' &&
+      !('isMeta' in entry && entry.isMeta === true)
+    ) {
+      originCaptured = true;
+      const raw = entry as unknown as Record<string, unknown>;
+      const promptSource = typeof raw.promptSource === 'string' ? raw.promptSource : undefined;
+      const entrypoint = typeof raw.entrypoint === 'string' ? raw.entrypoint : undefined;
+      if (promptSource === 'typed' || entrypoint === 'cli') {
+        origin = 'interactive';
+      } else if (promptSource === 'sdk' || entrypoint?.startsWith('sdk')) {
+        origin = 'sdk';
+      } else {
+        origin = undefined;
+      }
     }
 
     if (
@@ -503,6 +652,7 @@ export async function analyzeSessionFileMetadata(
           if (block.name === 'ExitPlanMode') {
             lastEndingIndex = activityIndex++;
             hasActivityAfterLastEnding = false;
+            lastEndingWasInterrupt = false;
           } else if (
             block.name === 'SendMessage' &&
             block.input?.type === 'shutdown_response' &&
@@ -512,7 +662,13 @@ export async function analyzeSessionFileMetadata(
             shutdownToolIds.add(block.id);
             lastEndingIndex = activityIndex++;
             hasActivityAfterLastEnding = false;
+            lastEndingWasInterrupt = false;
           } else {
+            if (block.name === 'AskUserQuestion') {
+              // Awaiting a user answer until a matching tool_result arrives.
+              lastAskUserQuestionId = block.id;
+              lastAskUserQuestionAnswered = false;
+            }
             hasAnyOngoingActivity = true;
             if (lastEndingIndex >= 0) {
               hasActivityAfterLastEnding = true;
@@ -522,6 +678,7 @@ export async function analyzeSessionFileMetadata(
         } else if (block.type === 'text' && block.text && String(block.text).trim().length > 0) {
           lastEndingIndex = activityIndex++;
           hasActivityAfterLastEnding = false;
+          lastEndingWasInterrupt = false;
         }
       }
     } else if (parsed.type === 'user' && Array.isArray(parsed.content)) {
@@ -532,10 +689,18 @@ export async function analyzeSessionFileMetadata(
 
       for (const block of parsed.content) {
         if (block.type === 'tool_result' && block.tool_use_id) {
+          if (block.is_error === true) {
+            hasError = true;
+          }
+          // A matching tool_result for the pending AskUserQuestion = user answered.
+          if (block.tool_use_id === lastAskUserQuestionId) {
+            lastAskUserQuestionAnswered = true;
+          }
           if (shutdownToolIds.has(block.tool_use_id) || isRejection) {
             // Shutdown tool result or user rejection = ending event
             lastEndingIndex = activityIndex++;
             hasActivityAfterLastEnding = false;
+            lastEndingWasInterrupt = false;
           } else {
             hasAnyOngoingActivity = true;
             if (lastEndingIndex >= 0) {
@@ -550,6 +715,7 @@ export async function analyzeSessionFileMetadata(
         ) {
           lastEndingIndex = activityIndex++;
           hasActivityAfterLastEnding = false;
+          lastEndingWasInterrupt = true;
         }
       }
     }
@@ -644,5 +810,9 @@ export async function analyzeSessionFileMetadata(
     compactionCount: compactionPhases.length > 0 ? compactionPhases.length : undefined,
     phaseBreakdown,
     hasDisplayableContent,
+    hasError,
+    awaitingUserInput: lastAskUserQuestionId !== null && !lastAskUserQuestionAnswered,
+    endedInterrupted: lastEndingWasInterrupt,
+    origin,
   };
 }

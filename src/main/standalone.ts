@@ -16,6 +16,7 @@ import { createLogger } from '@shared/utils/logger';
 import * as path from 'path';
 
 import { HttpServer } from './services/infrastructure/HttpServer';
+import { SessionTailer } from './services/streaming/SessionTailer';
 import {
   getProjectsBasePath,
   getTodosBasePath,
@@ -131,12 +132,24 @@ async function start(): Promise<void> {
   // Create HTTP server
   httpServer = new HttpServer();
 
+  // SessionTailer streams appended JSONL content as `session-append` deltas for
+  // currently-open (baselined) sessions. Its deltas are broadcast alongside file-change.
+  const sessionTailer = new SessionTailer(localContext.fsProvider);
+  sessionTailer.on('session-append', (event: unknown) => {
+    httpServer.broadcast('session-append', event);
+  });
+
   // Wire file watcher events to SSE broadcast
   localContext.fileWatcher.on('file-change', (event: unknown) => {
     httpServer.broadcast('file-change', event);
+    // Feed the tailer so it can emit an incremental delta for open sessions.
+    void sessionTailer.handleFileChange(event as import('./types').FileChangeEvent);
   });
   localContext.fileWatcher.on('todo-change', (event: unknown) => {
     httpServer.broadcast('todo-change', event);
+  });
+  localContext.fileWatcher.on('terminal-state-change', (event: unknown) => {
+    httpServer.broadcast('terminal-state-change', event);
   });
   localContext.fileWatcher.on('memory-change', (event: unknown) => {
     httpServer.broadcast('memory:changed', event);
@@ -163,6 +176,7 @@ async function start(): Promise<void> {
     memoryReader: localContext.memoryReader,
     updaterService: updaterServiceStub,
     sshConnectionManager: sshConnectionManagerStub,
+    sessionTailer,
   };
 
   // No-op mode switch handler (no SSH in standalone)

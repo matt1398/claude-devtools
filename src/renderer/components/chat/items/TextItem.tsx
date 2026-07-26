@@ -5,7 +5,6 @@ import { MessageSquare } from 'lucide-react';
 import { MarkdownViewer } from '../viewers';
 
 import { BaseItem } from './BaseItem';
-import { truncateText } from './baseItemHelpers';
 
 import type { SemanticStep } from '@renderer/types/data';
 import type { TriggerColor } from '@shared/constants/triggerColors';
@@ -33,7 +32,6 @@ export const TextItem: React.FC<TextItemProps> = React.memo(function TextItem({
   notificationDotColor,
 }) {
   const fullContent = step.content.outputText ?? preview;
-  const truncatedPreview = truncateText(preview, 60);
 
   // Get token count from step.tokens.output or step.content.tokenCount
   const tokenCount = step.tokens?.output ?? step.content.tokenCount ?? 0;
@@ -42,7 +40,8 @@ export const TextItem: React.FC<TextItemProps> = React.memo(function TextItem({
     <BaseItem
       icon={<MessageSquare className="size-4" />}
       label="Output"
-      summary={truncatedPreview}
+      // No summary: the Output title is redundant with the full text rendered below.
+      // BaseItem substitutes a flex spacer when summary is omitted, so the row collapses cleanly.
       tokenCount={tokenCount}
       onClick={onClick}
       isExpanded={isExpanded}
@@ -50,7 +49,8 @@ export const TextItem: React.FC<TextItemProps> = React.memo(function TextItem({
       highlightStyle={highlightStyle}
       notificationDotColor={notificationDotColor}
     >
-      <MarkdownViewer content={fullContent} maxHeight="max-h-96" />
+      {/* Empty maxHeight => no fixed cap; Claude messages grow to full content height. */}
+      <MarkdownViewer content={fullContent} maxHeight="" />
     </BaseItem>
   );
 });

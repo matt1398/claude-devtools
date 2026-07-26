@@ -35,8 +35,16 @@ error: string | null
 
 ## Key Pattern: Per-Tab UI Isolation
 `tabUISlice` maintains independent UI state per tab using tabId:
-- `expandedAIGroupIds`, `expandedDisplayItemIds`, `expandedSubagentTraceIds`
-- Ensures expanding a group in tab A doesn't affect tab B
+- `collapsedAIGroupIds`, `collapsedDisplayItemIds` (default presentation is EXPANDED; these
+  track the exceptions the user manually collapsed), `expandedSubagentTraceIds`
+- Ensures collapsing a group in tab A doesn't affect tab B
+
+## Global Filter Selection
+The per-type chip filter is NOT per-tab. `filterSlice` holds a single global
+`globalHiddenFilterTypes: Set<string>` (empty = all shown) shared across every session/tab
+and persisted to `localStorage['devtools.hiddenFilterTypes']` (serialized as a `string[]`),
+so a chip toggle applies everywhere and survives restarts. Actions:
+`toggleGlobalFilterType`, `setGlobalHiddenFilterTypes`.
 
 ## Store Initialization
 Call `initializeNotificationListeners()` once in App.tsx useEffect:

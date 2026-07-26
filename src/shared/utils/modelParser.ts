@@ -37,7 +37,13 @@ export function parseModelString(model: string | undefined): ModelInfo | null {
     return null;
   }
 
-  const normalized = model.toLowerCase().trim();
+  // Strip bracketed context markers like "[1m]" (e.g. "claude-opus-4-8[1m]") so they
+  // don't corrupt version parsing. The marker is preserved on the raw string that
+  // callers pass to friendlyModelLabel for 1M-context detection.
+  const normalized = model
+    .toLowerCase()
+    .trim()
+    .replace(/\[[^\]]*\]/g, '');
 
   // Must start with "claude"
   if (!normalized.startsWith('claude')) {
@@ -135,6 +141,25 @@ export function parseModelString(model: string | undefined): ModelInfo | null {
     majorVersion,
     minorVersion,
   };
+}
+
+/**
+ * Map a raw model id + parsed info to a user-friendly label, e.g.
+ * "claude-opus-4-8[1m]" → "Opus 4.8 (1M context)", "claude-sonnet-5" → "Sonnet 5".
+ *
+ * The raw string is needed because `parseModelString` drops the "[1m]" context
+ * marker; pass it through so the 1M context can be surfaced.
+ */
+export function friendlyModelLabel(raw: string | null, info: ModelInfo | null): string {
+  const family = info?.family ?? '';
+  const titled = family ? family.charAt(0).toUpperCase() + family.slice(1) : (raw ?? '');
+  const version = info
+    ? info.minorVersion != null
+      ? `${info.majorVersion}.${info.minorVersion}`
+      : `${info.majorVersion}`
+    : '';
+  const base = version ? `${titled} ${version}` : titled;
+  return raw && /1m/i.test(raw) ? `${base} (1M context)` : base;
 }
 
 /**

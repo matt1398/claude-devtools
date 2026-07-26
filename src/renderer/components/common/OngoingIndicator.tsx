@@ -1,52 +1,122 @@
 /**
- * OngoingIndicator - Pulsing green dot for sessions/groups in progress.
- * Shared across SessionItem (sidebar) and LastOutputDisplay (chat).
+ * OngoingIndicator - Live-status visuals for sessions/turns in progress.
+ *
+ * Exports:
+ * - LiveStatusDot: wezterm-palette status dot for the sidebar rows and app tabs.
+ *   Renders NOTHING for non-live sessions (complete/interrupted).
+ * - OngoingBanner: in-session banner showing the current activity
+ *   ("Thinking…" / "Running <Tool>…" / "Working…") + output token total.
+ *
+ * There is intentionally NO elapsed-seconds ticker here — the owner does not
+ * want a countdown/timer next to status indicators, so no setInterval / no
+ * per-second re-render lives in this module.
  */
 
 import React from 'react';
 
-import { Loader2 } from 'lucide-react';
+import { type TerminalVisual } from '@renderer/constants/sessionStatus';
 
-interface OngoingIndicatorProps {
-  /** Size variant */
+interface LiveStatusDotProps {
+  /**
+   * Resolved terminal visual (from `getTerminalVisual(session.terminalState)`),
+   * or null/undefined when the session is not live in the terminal. The dot
+   * renders nothing in that case, so callers can pass the result directly.
+   */
+  visual: TerminalVisual | null | undefined;
+  /** Dot size variant. */
   size?: 'sm' | 'md';
-  /** Whether to show text label */
-  showLabel?: boolean;
-  /** Custom label text */
-  label?: string;
 }
 
 /**
- * Pulsing green dot indicator for ongoing sessions.
- * Use size="sm" for compact displays (sidebar), size="md" for larger displays (chat).
+ * LiveStatusDot - a compact wezterm-palette dot for a session's TRUE terminal
+ * state (from the wezterm hook), not the transcript-derived status.
+ *
+ * - working   → amber, pulsing
+ * - attention → purple, static
+ * - ready     → blue, static
+ * - done      → green, static
+ * - ended / stale / missing (null visual) → renders nothing
+ *
+ * The color/label/pulse decision lives entirely in `getTerminalVisual` (the
+ * shared wezterm palette); this component only renders the resolved visual.
  */
-export const OngoingIndicator = ({
+export const LiveStatusDot = ({
+  visual,
   size = 'sm',
-  showLabel = false,
-  label = 'Session in progress...',
-}: Readonly<OngoingIndicatorProps>): React.JSX.Element => {
+}: Readonly<LiveStatusDotProps>): React.JSX.Element | null => {
+  if (!visual) return null;
+
   const dotSize = size === 'sm' ? 'h-2 w-2' : 'h-2.5 w-2.5';
 
-  return (
-    <span className="inline-flex items-center gap-2" title="Session in progress">
-      <span className={`relative flex ${dotSize} shrink-0`}>
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-400 opacity-75" />
-        <span className={`relative inline-flex rounded-full ${dotSize} bg-green-500`} />
+  if (visual.pulse) {
+    return (
+      <span
+        className={`relative flex shrink-0 ${dotSize}`}
+        title={visual.label}
+        aria-label={visual.label}
+      >
+        <span
+          className="absolute inline-flex size-full animate-ping rounded-full opacity-75"
+          style={{ backgroundColor: visual.color }}
+        />
+        <span
+          className={`relative inline-flex rounded-full ${dotSize}`}
+          style={{ backgroundColor: visual.color }}
+        />
       </span>
-      {showLabel && (
-        <span className="text-sm" style={{ color: 'var(--info-text, #3b82f6)' }}>
-          {label}
-        </span>
-      )}
-    </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex shrink-0 rounded-full ${dotSize}`}
+      style={{ backgroundColor: visual.color }}
+      title={visual.label}
+      aria-label={visual.label}
+    />
   );
 };
 
+/** Kind of the in-progress turn's last activity, for the banner label. */
+export type OngoingActivityKind = 'thinking' | 'tool';
+
+interface OngoingBannerProps {
+  /** Last activity kind of the in-progress turn (thinking vs a tool_use). */
+  activityKind?: OngoingActivityKind;
+  /** Tool name when `activityKind === 'tool'`. */
+  toolName?: string;
+  /** In-progress turn's output tokens, shown as "↓ <n> tok" when > 0. */
+  outputTokens?: number;
+}
+
 /**
- * OngoingBanner - Full-width banner variant for the LastOutputDisplay.
- * Shows animated spinner and text.
+ * Resolve the banner's activity label:
+ * - thinking → "Thinking…"
+ * - tool     → "Running <ToolName>…"
+ * - anything indeterminate → "Working…"
  */
-export const OngoingBanner = (): React.JSX.Element => {
+function activityLabel(kind?: OngoingActivityKind, toolName?: string): string {
+  if (kind === 'thinking') return 'Thinking…';
+  if (kind === 'tool') {
+    const name = toolName?.trim();
+    return name ? `Running ${name}…` : 'Running…';
+  }
+  return 'Working…';
+}
+
+/**
+ * OngoingBanner - full-width banner for LastOutputDisplay when the last AI
+ * group of an ongoing session is still in progress. Shows a spinner glyph,
+ * the current activity label, and the output token total. No elapsed timer.
+ */
+export const OngoingBanner = ({
+  activityKind,
+  toolName,
+  outputTokens,
+}: Readonly<OngoingBannerProps>): React.JSX.Element => {
+  const label = activityLabel(activityKind, toolName);
+  const showTokens = outputTokens != null && outputTokens > 0;
+
   return (
     <div
       className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3"
@@ -55,12 +125,17 @@ export const OngoingBanner = (): React.JSX.Element => {
         border: '1px solid var(--info-border, rgba(59, 130, 246, 0.3))',
       }}
     >
-      <Loader2
-        className="size-4 shrink-0 animate-spin"
+      {/* Rotating asterisk spinner (theme-aware via inherited color). */}
+      <span
+        className="inline-block animate-spin text-sm leading-none"
         style={{ color: 'var(--info-text, #3b82f6)' }}
-      />
-      <span className="text-sm" style={{ color: 'var(--info-text, #3b82f6)' }}>
-        Session is in progress...
+        aria-hidden="true"
+      >
+        ✽
+      </span>
+      <span className="text-sm tabular-nums" style={{ color: 'var(--info-text, #3b82f6)' }}>
+        {label}
+        {showTokens && ` (↓ ${outputTokens.toLocaleString()} tok)`}
       </span>
     </div>
   );

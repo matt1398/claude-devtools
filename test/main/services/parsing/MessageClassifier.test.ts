@@ -104,6 +104,44 @@ describe('MessageClassifier', () => {
     });
   });
 
+  describe('notification category', () => {
+    const notificationContent =
+      '<task-notification>\n<task-id>abc123</task-id>\n<status>completed</status>\n' +
+      '<summary>Agent "PROJ-123 plan review round 1" finished</summary>\n</task-notification>';
+
+    it('should classify a <task-notification> string message as notification, not user', () => {
+      const message = createMessage({
+        type: 'user',
+        content: notificationContent,
+        isMeta: false,
+      });
+      const [result] = classifyMessages([message]);
+      expect(result.category).toBe('notification');
+    });
+
+    it('should classify a background-command notification as notification', () => {
+      const message = createMessage({
+        type: 'user',
+        content:
+          '<task-notification>\n<status>completed</status>\n' +
+          'Background command "npm run build" completed (exit code 0)\n</task-notification>',
+        isMeta: false,
+      });
+      const [result] = classifyMessages([message]);
+      expect(result.category).toBe('notification');
+    });
+
+    it('should NOT reclassify a real user message that merely mentions task-notification', () => {
+      const message = createMessage({
+        type: 'user',
+        content: 'What is a <task-notification> tag?',
+        isMeta: false,
+      });
+      const [result] = classifyMessages([message]);
+      expect(result.category).toBe('user');
+    });
+  });
+
   describe('system category', () => {
     it('should classify local-command-stdout as system', () => {
       const message = createMessage({

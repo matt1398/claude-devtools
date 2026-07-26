@@ -35,7 +35,14 @@ export type MessageType =
  * Message category for chunk building.
  * Used to classify messages into one of four categories for independent chunk creation.
  */
-export type MessageCategory = 'user' | 'system' | 'hardNoise' | 'ai' | 'compact';
+export type MessageCategory =
+  | 'user'
+  | 'system'
+  | 'hardNoise'
+  | 'ai'
+  | 'compact'
+  | 'notification'
+  | 'shell';
 
 // =============================================================================
 // Project & Session Types
@@ -78,6 +85,12 @@ export interface PhaseTokenBreakdown {
   postCompaction?: number;
 }
 
+/**
+ * Computed lifecycle status for a session, used for at-a-glance status indicators.
+ * Precedence (first match wins): ongoing > error > waiting > interrupted > complete.
+ */
+export type SessionStatus = 'ongoing' | 'error' | 'waiting' | 'interrupted' | 'complete';
+
 export interface Session {
   /** Session UUID (JSONL filename without extension) */
   id: string;
@@ -101,8 +114,18 @@ export interface Session {
   messageCount: number;
   /** Whether the session is ongoing (last AI response has no output yet) */
   isOngoing?: boolean;
+  /** Computed lifecycle status (ongoing/error/waiting/interrupted/complete) */
+  status?: SessionStatus;
   /** Git branch name if available */
   gitBranch?: string;
+  /**
+   * How the session was started, derived from the first non-meta user message's
+   * top-level `promptSource`/`entrypoint` fields:
+   * - 'interactive': a real user session (typed prompt / cli entrypoint)
+   * - 'sdk': programmatically spawned (SDK agents, review bots)
+   * - undefined: unknown — treated as interactive downstream (never hidden by accident)
+   */
+  origin?: 'interactive' | 'sdk';
   /** Metadata completeness level */
   metadataLevel?: SessionMetadataLevel;
   /** Total context consumed (compaction-aware sum of all phases) */
@@ -111,6 +134,35 @@ export interface Session {
   compactionCount?: number;
   /** Per-phase token breakdown for tooltip display */
   phaseBreakdown?: PhaseTokenBreakdown[];
+  /**
+   * Live terminal state written by an external hook to
+   * `${CLAUDE_ROOT}/devtools-state/<sessionId>.json` (sibling of projects/).
+   * `state` ∈ ready|working|attention|done|default; `ts` is unix SECONDS.
+   * Undefined when no state file exists for the session.
+   */
+  terminalState?: { state: string; ts: number; cwd?: string };
+  /**
+   * Snapshot of the owner's Claude Code statusline for this session, written by
+   * a hook to `${CLAUDE_ROOT}/devtools-state/<sessionId>.statusline.json`
+   * (sibling of the terminalState file). Present only for active sessions;
+   * undefined when no snapshot file exists. All fields best-effort.
+   */
+  statusline?: {
+    model?: string;
+    dir?: string;
+    branch?: string;
+    ahead?: string;
+    behind?: string;
+    /** REMAINING context % (already remaining, not consumed). */
+    context_pct?: number | null;
+    /** Weekly utilization % (e.g. 87). */
+    weekly_pct?: number | null;
+    weekly_reset?: string;
+    /** Current-session utilization % (e.g. 3). */
+    session_pct?: number | null;
+    session_reset?: string;
+    ts?: number;
+  };
 }
 
 /**

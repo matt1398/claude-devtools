@@ -33,6 +33,7 @@ import type {
   SearchSessionsResult,
   Session,
   SessionAPI,
+  SessionAppendEvent,
   SessionDetail,
   SessionMetrics,
   SessionsByIdsOptions,
@@ -43,6 +44,7 @@ import type {
   SshConnectionStatus,
   SshLastConnection,
   SubagentDetail,
+  TerminalStateChangeEvent,
   TriggerTestResult,
   UpdaterAPI,
   WaterfallData,
@@ -74,13 +76,22 @@ export class HttpAPIClient implements ElectronAPI {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- event callbacks have varying signatures
-  private addEventListener(channel: string, callback: (...args: any[]) => void): () => void {
+  private addEventListener(
+    channel: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- event callbacks have varying signatures
+    callback: (...args: any[]) => void,
+    reviver?: (key: string, value: unknown) => unknown
+  ): () => void {
     if (!this.eventListeners.has(channel)) {
       this.eventListeners.set(channel, new Set());
-      // Register SSE listener for this channel once
+      // Register SSE listener for this channel once. An optional reviver lets
+      // Date-bearing payloads (e.g. session-append chunks) rehydrate ISO strings
+      // back into Date instances, mirroring the fetch-response path (parseJson).
       this.eventSource?.addEventListener(channel, ((event: MessageEvent) => {
-        const data: unknown = JSON.parse(event.data as string);
+        const data: unknown = JSON.parse(
+          event.data as string,
+          reviver as ((this: unknown, key: string, value: unknown) => unknown) | undefined
+        );
         const listeners = this.eventListeners.get(channel);
         listeners?.forEach((cb) => cb(data));
       }) as EventListener);
@@ -504,6 +515,14 @@ export class HttpAPIClient implements ElectronAPI {
 
   onTodoChange = (callback: (event: FileChangeEvent) => void): (() => void) =>
     this.addEventListener('todo-change', callback);
+
+  onTerminalStateChange = (callback: (event: TerminalStateChangeEvent) => void): (() => void) =>
+    this.addEventListener('terminal-state-change', callback);
+
+  // Chunk-bearing payload — revive Date fields (chunk/step/message timestamps) so the
+  // group transformer's .getTime() calls work, exactly like the fetch path does.
+  onSessionAppend = (callback: (event: SessionAppendEvent) => void): (() => void) =>
+    this.addEventListener('session-append', callback, HttpAPIClient.reviveDates);
 
   // No-op in browser mode — Ctrl+R refresh is Electron-only
   onSessionRefresh = (_callback: () => void): (() => void) => {

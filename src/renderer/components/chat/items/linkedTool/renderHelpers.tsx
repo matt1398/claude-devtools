@@ -95,6 +95,81 @@ export function renderInput(toolName: string, input: Record<string, unknown>): R
     );
   }
 
+  // Special rendering for AskUserQuestion - render questions + options readably
+  if (toolName === 'AskUserQuestion' && Array.isArray(input.questions)) {
+    const questions = input.questions as Array<Record<string, unknown>>;
+    return (
+      <div className="space-y-4" style={{ color: COLOR_TEXT }}>
+        {questions.map((q, qi) => {
+          const header = q.header as string | undefined;
+          const question = q.question as string | undefined;
+          const multiSelect = q.multiSelect === true;
+          const options = Array.isArray(q.options)
+            ? (q.options as Array<Record<string, unknown>>)
+            : [];
+          return (
+            <div key={qi} className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {header && (
+                  <span
+                    className="rounded px-1.5 py-0.5 text-xs"
+                    style={{
+                      backgroundColor: 'var(--tag-bg)',
+                      color: 'var(--tag-text)',
+                      border: '1px solid var(--tag-border)',
+                    }}
+                  >
+                    {header}
+                  </span>
+                )}
+                {multiSelect && (
+                  <span className="text-xs" style={{ color: COLOR_TEXT_MUTED }}>
+                    multi-select
+                  </span>
+                )}
+              </div>
+              {question && <div className="text-sm font-medium">{question}</div>}
+              {options.length > 0 && (
+                <ul className="space-y-1.5">
+                  {options.map((opt, oi) => {
+                    const label = opt.label as string | undefined;
+                    const description = opt.description as string | undefined;
+                    const preview = opt.preview as string | undefined;
+                    return (
+                      <li
+                        key={oi}
+                        className="rounded px-2.5 py-1.5"
+                        style={{
+                          backgroundColor: 'var(--code-bg)',
+                          border: '1px solid var(--code-border)',
+                        }}
+                      >
+                        {label && <div className="text-sm font-medium">{label}</div>}
+                        {description && (
+                          <div className="mt-0.5 text-xs" style={{ color: COLOR_TEXT_MUTED }}>
+                            {description}
+                          </div>
+                        )}
+                        {preview && (
+                          <pre
+                            className="mt-1 whitespace-pre-wrap break-all rounded p-2 font-mono text-xs"
+                            style={{ backgroundColor: 'var(--code-header-bg)', color: COLOR_TEXT }}
+                          >
+                            {preview}
+                          </pre>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   // Default: key-value format with readable string values
   return (
     <div className="space-y-2" style={{ color: COLOR_TEXT }}>

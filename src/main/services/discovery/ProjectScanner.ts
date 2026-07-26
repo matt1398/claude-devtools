@@ -27,6 +27,7 @@ import {
   type SessionMetadataLevel,
   type SessionsByIdsOptions,
   type SessionsPaginationOptions,
+  type SessionStatus,
 } from '@main/types';
 import { analyzeSessionFileMetadata, extractCwd } from '@main/utils/jsonl';
 import {
@@ -59,6 +60,29 @@ const logger = createLogger('Discovery:ProjectScanner');
 /** How long to reuse the cached project list for search (ms) */
 const SEARCH_PROJECT_CACHE_TTL_MS = 30_000;
 
+/**
+ * How long to reuse the cached devtools terminal-state map (ms). Kept short so a
+ * single listing pass reads the dir once while staleness never exceeds one tick;
+ * the FileWatcher pushes a refresh on any state file change for live updates.
+ */
+const TERMINAL_STATE_CACHE_TTL_MS = 1_000;
+
+/**
+ * Derive the computed session status from the (already staleness-gated) isOngoing
+ * flag and the raw detection booleans from analyzeSessionFileMetadata.
+ * Precedence, first match wins: ongoing > error > waiting > interrupted > complete.
+ */
+function computeSessionStatus(
+  isOngoing: boolean,
+  flags: { hasError: boolean; awaitingUserInput: boolean; endedInterrupted: boolean }
+): SessionStatus {
+  if (isOngoing) return 'ongoing';
+  if (flags.hasError) return 'error';
+  if (flags.awaitingUserInput) return 'waiting';
+  if (flags.endedInterrupted) return 'interrupted';
+  return 'complete';
+}
+
 export class ProjectScanner {
   private readonly projectsDir: string;
   private readonly todosDir: string;
@@ -77,6 +101,17 @@ export class ProjectScanner {
 
   /** Cached project list for search — avoids re-scanning disk on every query */
   private searchProjectCache: { projects: Project[]; timestamp: number } | null = null;
+
+  /**
+   * Cached terminal-state map (sessionId → info) read from the devtools-state
+   * dir. Short TTL so a single listing pass reads the whole dir once rather than
+   * a stat per session; live updates arrive via the FileWatcher refresh signal.
+   */
+  private terminalStateCache: {
+    map: Map<string, { state: string; ts: number; cwd?: string }>;
+    statuslineMap: Map<string, NonNullable<Session['statusline']>>;
+    timestamp: number;
+  } | null = null;
 
   // Delegated services
   private readonly fsProvider: FileSystemProvider;
@@ -736,10 +771,12 @@ export class ProjectScanner {
       });
     }
 
-    // Check for subagents and load task list data in parallel
-    const [hasSubagents, todoData] = await Promise.all([
+    // Check for subagents, load task list data, and read terminal state in parallel
+    const [hasSubagents, todoData, terminalState, statusline] = await Promise.all([
       this.subagentLocator.hasSubagents(projectId, sessionId),
       this.loadTodoData(sessionId),
+      this.getTerminalStateForSession(sessionId),
+      this.getStatuslineForSession(sessionId),
     ]);
     const metadataLevel: SessionMetadataLevel = 'deep';
     const firstMessageTimestampMs = this.parseTimestampMs(metadata.firstUserMessage?.timestamp);
@@ -754,6 +791,10 @@ export class ProjectScanner {
     const isOngoing =
       metadata.isOngoing && Date.now() - effectiveMtime < STALE_SESSION_THRESHOLD_MS;
 
+    // Computed status precedence (first match wins): ongoing > error > waiting >
+    // interrupted > complete. 'ongoing' uses the staleness-gated value above.
+    const status = computeSessionStatus(isOngoing, metadata);
+
     return {
       id: sessionId,
       projectId,
@@ -766,11 +807,15 @@ export class ProjectScanner {
       hasSubagents,
       messageCount: metadata.messageCount,
       isOngoing,
+      status,
       gitBranch: metadata.gitBranch ?? undefined,
+      origin: metadata.origin,
       metadataLevel,
       contextConsumption: metadata.contextConsumption,
       compactionCount: metadata.compactionCount,
       phaseBreakdown: metadata.phaseBreakdown,
+      terminalState,
+      statusline,
     };
   }
 
@@ -815,6 +860,9 @@ export class ProjectScanner {
           isOngoing: false,
           gitBranch: null,
           hasDisplayableContent: false,
+          hasError: false,
+          awaitingUserInput: false,
+          endedInterrupted: false,
         };
       }
     }
@@ -826,6 +874,15 @@ export class ProjectScanner {
         ? previewTimestampMs
         : birthtimeMs;
 
+    // Light/SSH path: no staleness gate is applied here, so 'ongoing' reflects the
+    // raw parse result. Best-effort — 'waiting' still works when the parse succeeded.
+    const status = computeSessionStatus(metadata.isOngoing, metadata);
+
+    const [terminalState, statusline] = await Promise.all([
+      this.getTerminalStateForSession(sessionId),
+      this.getStatuslineForSession(sessionId),
+    ]);
+
     return {
       id: sessionId,
       projectId,
@@ -836,7 +893,11 @@ export class ProjectScanner {
       messageTimestamp: metadata.firstUserMessage?.timestamp,
       hasSubagents: false,
       messageCount: metadata.messageCount,
+      origin: metadata.origin,
       metadataLevel,
+      status,
+      terminalState,
+      statusline,
     };
   }
 
@@ -955,6 +1016,125 @@ export class ProjectScanner {
   }
 
   // ===========================================================================
+  // Terminal State (devtools-state sibling dir)
+  // ===========================================================================
+
+  /**
+   * Loads the terminal-state map from `${CLAUDE_ROOT}/devtools-state/` (a sibling
+   * of projects/). Reads the whole dir once and memoizes it with a short TTL so a
+   * listing pass performs a single directory read rather than a stat per session.
+   *
+   * Fully defensive: a missing dir, unreadable file, or unparseable JSON yields an
+   * empty/partial map — this never throws.
+   */
+  private async loadTerminalStates(): Promise<{
+    map: Map<string, { state: string; ts: number; cwd?: string }>;
+    statuslineMap: Map<string, NonNullable<Session['statusline']>>;
+  }> {
+    const now = Date.now();
+    if (
+      this.terminalStateCache &&
+      now - this.terminalStateCache.timestamp < TERMINAL_STATE_CACHE_TTL_MS
+    ) {
+      return this.terminalStateCache;
+    }
+
+    const map = new Map<string, { state: string; ts: number; cwd?: string }>();
+    const statuslineMap = new Map<string, NonNullable<Session['statusline']>>();
+    try {
+      const stateDir = path.join(path.dirname(this.projectsDir), 'devtools-state');
+      const entries = await this.fsProvider.readdir(stateDir);
+      for (const entry of entries) {
+        if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+
+        // Statusline snapshot: `<sessionId>.statusline.json` (checked first so it
+        // isn't mistaken for a terminal-state file, which shares the .json suffix).
+        if (entry.name.endsWith('.statusline.json')) {
+          const sessionId = entry.name.replace(/\.statusline\.json$/, '');
+          try {
+            const content = await this.fsProvider.readFile(path.join(stateDir, entry.name));
+            const parsed = JSON.parse(content) as Record<string, unknown>;
+            if (parsed && typeof parsed === 'object') {
+              const str = (v: unknown): string | undefined =>
+                typeof v === 'string' ? v : undefined;
+              const num = (v: unknown): number | null | undefined =>
+                typeof v === 'number' ? v : v === null ? null : undefined;
+              statuslineMap.set(sessionId, {
+                model: str(parsed.model),
+                dir: str(parsed.dir),
+                branch: str(parsed.branch),
+                ahead: str(parsed.ahead),
+                behind: str(parsed.behind),
+                context_pct: num(parsed.context_pct),
+                weekly_pct: num(parsed.weekly_pct),
+                weekly_reset: str(parsed.weekly_reset),
+                session_pct: num(parsed.session_pct),
+                session_reset: str(parsed.session_reset),
+                ts: typeof parsed.ts === 'number' ? parsed.ts : undefined,
+              });
+            }
+          } catch {
+            // Ignore unreadable/unparseable statusline files.
+          }
+          continue;
+        }
+
+        const sessionId = entry.name.replace(/\.json$/, '');
+        try {
+          const content = await this.fsProvider.readFile(path.join(stateDir, entry.name));
+          const parsed = JSON.parse(content) as {
+            state?: unknown;
+            ts?: unknown;
+            cwd?: unknown;
+          };
+          if (typeof parsed?.state === 'string' && typeof parsed?.ts === 'number') {
+            map.set(sessionId, {
+              state: parsed.state,
+              ts: parsed.ts,
+              cwd: typeof parsed.cwd === 'string' ? parsed.cwd : undefined,
+            });
+          }
+        } catch {
+          // Ignore unreadable/unparseable state files.
+        }
+      }
+    } catch {
+      // devtools-state dir may not exist yet — treat as "no terminal state".
+    }
+
+    this.terminalStateCache = { map, statuslineMap, timestamp: now };
+    return { map, statuslineMap };
+  }
+
+  /**
+   * Returns the parsed terminal state for a session, or undefined when absent.
+   */
+  private async getTerminalStateForSession(
+    sessionId: string
+  ): Promise<{ state: string; ts: number; cwd?: string } | undefined> {
+    try {
+      const { map } = await this.loadTerminalStates();
+      return map.get(sessionId);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Returns the statusline snapshot for a session, or undefined when absent.
+   */
+  private async getStatuslineForSession(
+    sessionId: string
+  ): Promise<NonNullable<Session['statusline']> | undefined> {
+    try {
+      const { statuslineMap } = await this.loadTerminalStates();
+      return statuslineMap.get(sessionId);
+    } catch {
+      return undefined;
+    }
+  }
+
+  // ===========================================================================
   // Path Helpers
   // ===========================================================================
 
@@ -1066,6 +1246,28 @@ export class ProjectScanner {
     // projectId is URL-encoded; the cache keys are absolute file paths containing the decoded dir
     const decoded = decodeURIComponent(projectId);
     const prefix = path.join(this.projectsDir, decoded);
+    for (const key of this.contentPresenceCache.keys()) {
+      if (key.startsWith(prefix)) this.contentPresenceCache.delete(key);
+    }
+    for (const key of this.sessionMetadataCache.keys()) {
+      if (key.startsWith(prefix)) this.sessionMetadataCache.delete(key);
+    }
+  }
+
+  /**
+   * Invalidate internal caches for a SINGLE session.
+   *
+   * Preferred over {@link invalidateCachesForProject} for `change` events: an
+   * actively streaming session fires one of those every few hundred ms, and
+   * dropping every session's metadata each time forced the sidebar's whole first
+   * page to be re-stat'd and re-read from disk on every refresh.
+   *
+   * The prefix `<projectsDir>/<decoded>/<sessionId>` covers both the session file
+   * (`<sessionId>.jsonl`) and its subagent directory (`<sessionId>/subagents/*`).
+   */
+  invalidateCachesForSession(projectId: string, sessionId: string): void {
+    const decoded = decodeURIComponent(projectId);
+    const prefix = path.join(this.projectsDir, decoded, sessionId);
     for (const key of this.contentPresenceCache.keys()) {
       if (key.startsWith(prefix)) this.contentPresenceCache.delete(key);
     }

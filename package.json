@@ -27,6 +27,9 @@
     "dist:win": "electron-builder --win --publish always",
     "dist:linux": "electron-builder --linux --publish always",
     "preview": "electron-vite preview",
+    "leakcheck": "node scripts/leak-check.mjs",
+    "leakcheck:all": "node scripts/leak-check.mjs --all",
+    "hooks:install": "git config core.hooksPath .githooks",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
@@ -34,7 +37,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css}\"",
     "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "fix": "pnpm lint:fix && pnpm format",
-    "quality": "pnpm check && pnpm format:check && npx knip",
+    "quality": "pnpm check && pnpm format:check && pnpm leakcheck:all && npx knip",
     "test:chunks": "tsx test/test-chunk-building.ts",
     "test:semantic": "tsx test/test-semantic-steps.ts",
     "test:noise": "tsx test/test-noise-filtering.ts",
@@ -45,7 +48,8 @@
     "test:coverage:critical": "vitest run --coverage --config vitest.critical.config.ts",
     "standalone": "tsx src/main/standalone.ts",
     "standalone:build": "electron-vite build && vite build --config vite.standalone.config.ts",
-    "standalone:start": "node dist-standalone/index.cjs"
+    "standalone:start": "node dist-standalone/index.cjs",
+    "web": "vite --config vite.web.config.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -40,6 +40,22 @@ const sessionChunkFingerprint = new Map<string, string>();
  * a renderer-local content fingerprint used as a second-line guard.
  */
 const sessionFileFingerprint = new Map<string, string>();
+/**
+ * Renderer-side streaming baseline per session (keyed by sessionId): the byte offset
+ * up to which the current conversation reflects the file. Seeded from
+ * `SessionDetail.tailOffset` on every fetch/refresh and advanced by each applied
+ * `session-append` delta. A delta whose `baseOffset` doesn't match this value signals
+ * a gap/overlap → fall back to a full refetch.
+ */
+const sessionTailOffset = new Map<string, number>();
+/**
+ * Latest pending append per session, coalesced into a single rAF/microtask flush so
+ * bursts don't each pay a transform+setState. Each event carries the FULL rebuilt chunk
+ * array, so keeping only the newest is correct; baselines are still chained
+ * synchronously in `applySessionAppend` so no delta is skipped.
+ */
+const pendingSessionAppends = new Map<string, SessionAppendEvent>();
+let appendFlushScheduled = false;
 let sessionDetailFetchGeneration = 0;
 let agentConfigsCachedForProject = '';
 
@@ -55,7 +71,8 @@ import type {
 import type { ClaudeMdFileInfo, SessionDetail } from '@renderer/types/data';
 import type { AIGroup, SessionConversation } from '@renderer/types/groups';
 import type { AgentConfig } from '@shared/types/api';
-import type { StateCreator } from 'zustand';
+import type { SessionAppendEvent } from '@shared/types';
+import type { StateCreator, StoreApi } from 'zustand';
 
 // =============================================================================
 // Per-tab session data type
@@ -124,11 +141,184 @@ export interface SessionDetailSlice {
   fetchSessionDetail: (projectId: string, sessionId: string, tabId?: string) => Promise<void>;
   /** Refresh session without loading states or UI resets - for real-time updates */
   refreshSessionInPlace: (projectId: string, sessionId: string) => Promise<void>;
+  /**
+   * Apply an incremental `session-append` delta WITHOUT a full `getSessionDetail`
+   * re-fetch. Returns `true` when the delta was accepted (baseline matched and the
+   * session is loaded) and a coalesced conversation update was scheduled; `false` when
+   * the caller must fall back to `refreshSessionInPlace` (gap/overlap, session not
+   * loaded, or malformed payload).
+   */
+  applySessionAppend: (event: SessionAppendEvent) => boolean;
   setVisibleAIGroup: (aiGroupId: string | null) => void;
   /** Set visible AI group for a specific tab */
   setTabVisibleAIGroup: (tabId: string, aiGroupId: string | null) => void;
   /** Clean up per-tab session data when tab is closed */
   cleanupTabSessionData: (tabId: string) => void;
+}
+
+// =============================================================================
+// Incremental append flush (coalesced)
+// =============================================================================
+
+type StoreGet = StoreApi<AppState>['getState'];
+type StoreSet = StoreApi<AppState>['setState'];
+
+/**
+ * Schedules a single coalesced flush of pending append deltas on the next animation
+ * frame (falling back to a macrotask). Deliberately NOT behind the size-adaptive
+ * refresh debounce — appends must feel near-instant.
+ */
+function scheduleAppendFlush(get: StoreGet, set: StoreSet): void {
+  if (appendFlushScheduled) {
+    return;
+  }
+  appendFlushScheduled = true;
+  const run = (): void => {
+    appendFlushScheduled = false;
+    flushPendingAppends(get, set);
+  };
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(run);
+  } else {
+    setTimeout(run, 0);
+  }
+}
+
+function flushPendingAppends(get: StoreGet, set: StoreSet): void {
+  if (pendingSessionAppends.size === 0) {
+    return;
+  }
+  const events = Array.from(pendingSessionAppends.values());
+  pendingSessionAppends.clear();
+  for (const event of events) {
+    try {
+      commitAppend(get, set, event);
+    } catch (err) {
+      logger.error('applySessionAppend commit error:', err);
+    }
+  }
+}
+
+type AiItem = { type: 'ai'; group: { id: string } };
+
+/**
+ * Commits one append delta's rebuilt chunks into the conversation for `sessionId`,
+ * reusing the SAME incremental transform + UI-preservation path as
+ * `refreshSessionInPlace` (visibleAIGroupId untouched, selectedAIGroup re-pointed at
+ * the new object, expansion levels preserved, virtualization stable via reused items).
+ * Does NOT touch `sessionDetail`/fingerprints — the metadata is unchanged by an append.
+ */
+function commitAppend(get: StoreGet, set: StoreSet, event: SessionAppendEvent): void {
+  const { sessionId, chunks } = event;
+  const state = get();
+
+  const allTabs = getAllTabs(state.paneLayout);
+  const viewingTabs = allTabs.filter((t) => t.type === 'session' && t.sessionId === sessionId);
+  const isSelected = state.selectedSessionId === sessionId;
+  if (!isSelected && viewingTabs.length === 0) {
+    return; // no longer viewing — drop the delta
+  }
+
+  const enhancedChunks = asEnhancedChunkArray(chunks);
+  if (!enhancedChunks) {
+    return;
+  }
+
+  // Previous conversation to build on: the global one when this is the selected
+  // session, else the first viewing tab's conversation.
+  let prevConversation: SessionConversation | null = null;
+  if (isSelected && state.conversation) {
+    prevConversation = state.conversation;
+  } else {
+    for (const tab of viewingTabs) {
+      const c = state.tabSessionData[tab.id]?.conversation;
+      if (c) {
+        prevConversation = c;
+        break;
+      }
+    }
+  }
+  if (!prevConversation || prevConversation.items.length === 0) {
+    return; // nothing to build on — the caller's fallback refetch covers first paint
+  }
+
+  // A session receiving appends is, by definition, in progress.
+  const newConversation = incrementalUpdateConversation(prevConversation, enhancedChunks, [], true);
+  if (!newConversation) {
+    return;
+  }
+
+  const prevGroupIds = new Set(
+    prevConversation.items.filter((i) => i.type === 'ai').map((i) => (i as AiItem).group.id)
+  );
+
+  // --- Global conversation (only when this is the selected session) ---
+  if (isSelected) {
+    const currentVisibleId = state.visibleAIGroupId;
+    const visibleStillExists =
+      !!currentVisibleId &&
+      newConversation.items.some((i) => i.type === 'ai' && i.group.id === currentVisibleId);
+    let updatedSelected = state.selectedAIGroup;
+    if (visibleStillExists && currentVisibleId) {
+      const found = newConversation.items.find(
+        (i) => i.type === 'ai' && i.group.id === currentVisibleId
+      );
+      if (found?.type === 'ai') {
+        updatedSelected = found.group;
+      }
+    }
+    set((s) => ({
+      conversation: newConversation,
+      sessions: s.sessions.map((se) => (se.id === sessionId ? { ...se, isOngoing: true } : se)),
+      ...(visibleStillExists ? { selectedAIGroup: updatedSelected } : {}),
+    }));
+  }
+
+  // --- Per-tab conversations for every tab viewing this session ---
+  const latestTabData = { ...get().tabSessionData };
+  let tabChanged = false;
+  for (const tab of viewingTabs) {
+    const tabData = latestTabData[tab.id];
+    if (!tabData) {
+      continue;
+    }
+    const tabVisibleId = tabData.visibleAIGroupId;
+    const tabVisibleExists =
+      !!tabVisibleId &&
+      newConversation.items.some((i) => i.type === 'ai' && i.group.id === tabVisibleId);
+    let tabSelected = tabData.selectedAIGroup;
+    if (tabVisibleExists && tabVisibleId) {
+      const found = newConversation.items.find(
+        (i) => i.type === 'ai' && i.group.id === tabVisibleId
+      );
+      if (found?.type === 'ai') {
+        tabSelected = found.group;
+      }
+    }
+    latestTabData[tab.id] = {
+      ...tabData,
+      conversation: newConversation,
+      ...(tabVisibleExists ? { selectedAIGroup: tabSelected } : {}),
+    };
+    tabChanged = true;
+  }
+  if (tabChanged) {
+    set({ tabSessionData: latestTabData });
+  }
+
+  // --- Auto-expand newly-arrived AI groups (mirrors refreshSessionInPlace) ---
+  if (get().appConfig?.general?.autoExpandAIGroups) {
+    const newGroupIds = newConversation.items
+      .filter((i) => i.type === 'ai' && !prevGroupIds.has((i as AiItem).group.id))
+      .map((i) => (i as AiItem).group.id);
+    if (newGroupIds.length > 0) {
+      for (const tab of viewingTabs) {
+        for (const groupId of newGroupIds) {
+          get().expandAIGroupForTab(tab.id, groupId);
+        }
+      }
+    }
+  }
 }
 
 // =============================================================================
@@ -200,6 +390,11 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
       const refreshKey = `${projectId}/${sessionId}`;
       if (detail?.fingerprint) {
         sessionFileFingerprint.set(refreshKey, detail.fingerprint);
+      }
+      // Seed the streaming baseline so subsequent `session-append` deltas can be applied
+      // in place (their baseOffset must equal this to be accepted).
+      if (typeof detail?.tailOffset === 'number') {
+        sessionTailOffset.set(sessionId, detail.tailOffset);
       }
 
       // Transform chunks to conversation
@@ -594,6 +789,11 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
       if (detail.fingerprint) {
         sessionFileFingerprint.set(refreshKey, detail.fingerprint);
       }
+      // Re-anchor the streaming baseline to the freshly-fetched offset. A full refetch
+      // supersedes any in-flight append deltas — the next delta chains from here.
+      if (typeof detail.tailOffset === 'number') {
+        sessionTailOffset.set(sessionId, detail.tailOffset);
+      }
 
       // Transform chunks to conversation - validate with type guard
       const isOngoing = detail.session?.isOngoing ?? false;
@@ -753,6 +953,39 @@ export const createSessionDetailSlice: StateCreator<AppState, [], [], SessionDet
         void get().refreshSessionInPlace(projectId, sessionId);
       }
     }
+  },
+
+  // Apply an incremental append delta in place (no full re-fetch).
+  applySessionAppend: (event: SessionAppendEvent): boolean => {
+    const { sessionId, baseOffset, tailOffset, chunks } = event;
+    const state = get();
+
+    // Only apply for a session currently loaded in some pane/tab.
+    const allTabs = getAllTabs(state.paneLayout);
+    const isViewing =
+      state.selectedSessionId === sessionId ||
+      allTabs.some((t) => t.type === 'session' && t.sessionId === sessionId);
+    if (!isViewing) {
+      return false;
+    }
+
+    // Baseline continuity: the delta must start exactly where our conversation ends.
+    // Any gap/overlap (or a session we never baselined) → caller does a full refetch.
+    const expected = sessionTailOffset.get(sessionId);
+    if (expected === undefined || expected !== baseOffset) {
+      return false;
+    }
+
+    if (!Array.isArray(chunks) || chunks.length === 0) {
+      return false;
+    }
+
+    // Advance the baseline synchronously so a burst of deltas chains correctly even
+    // though the heavier conversation commit is coalesced into a single rAF flush.
+    sessionTailOffset.set(sessionId, tailOffset);
+    pendingSessionAppends.set(sessionId, event);
+    scheduleAppendFlush(get, set);
+    return true;
   },
 
   // Set visible AI Group (called by scroll observer)

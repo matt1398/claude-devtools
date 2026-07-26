@@ -67,6 +67,8 @@ process.on('uncaughtException', (error) => {
 });
 
 import { HttpServer } from './services/infrastructure/HttpServer';
+import { setActiveSessionTailer } from './services/streaming/activeSessionTailer';
+import { SessionTailer } from './services/streaming/SessionTailer';
 import {
   configManager,
   configManagerPromise,
@@ -90,10 +92,17 @@ let notificationManager: NotificationManager;
 let updaterService: UpdaterService;
 let sshConnectionManager: SshConnectionManager;
 let httpServer: HttpServer;
+/**
+ * Streams appended session content as `session-append` deltas for open sessions.
+ * Module-level and context-agnostic: its provider is swapped and baselines cleared
+ * on context switch (see wireFileWatcherEvents).
+ */
+let sessionTailer: SessionTailer | null = null;
 
 // File watcher event cleanup functions
 let fileChangeCleanup: (() => void) | null = null;
 let todoChangeCleanup: (() => void) | null = null;
+let terminalStateCleanup: (() => void) | null = null;
 
 /**
  * Resolve production renderer index path.
@@ -123,6 +132,26 @@ function wireFileWatcherEvents(context: ServiceContext): void {
     todoChangeCleanup();
     todoChangeCleanup = null;
   }
+  if (terminalStateCleanup) {
+    terminalStateCleanup();
+    terminalStateCleanup = null;
+  }
+
+  // SessionTailer: point it at this context's filesystem and reset baselines, since
+  // byte offsets from a previous context don't apply after a switch.
+  if (!sessionTailer) {
+    sessionTailer = new SessionTailer(context.fsProvider);
+    sessionTailer.on('session-append', (event: unknown) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('session-append', event);
+      }
+      httpServer?.broadcast('session-append', event);
+    });
+    setActiveSessionTailer(sessionTailer);
+  } else {
+    sessionTailer.setFileSystemProvider(context.fsProvider);
+    sessionTailer.clear();
+  }
 
   // Wire file-change events to renderer and HTTP SSE
   const fileChangeHandler = (event: unknown): void => {
@@ -130,6 +159,8 @@ function wireFileWatcherEvents(context: ServiceContext): void {
       mainWindow.webContents.send('file-change', event);
     }
     httpServer?.broadcast('file-change', event);
+    // Feed the tailer so it can emit an incremental delta for open sessions.
+    void sessionTailer?.handleFileChange(event as import('./types').FileChangeEvent);
   };
   context.fileWatcher.on('file-change', fileChangeHandler);
   fileChangeCleanup = () => context.fileWatcher.off('file-change', fileChangeHandler);
@@ -143,6 +174,18 @@ function wireFileWatcherEvents(context: ServiceContext): void {
   };
   context.fileWatcher.on('todo-change', todoChangeHandler);
   todoChangeCleanup = () => context.fileWatcher.off('todo-change', todoChangeHandler);
+
+  // Forward terminal-state changes (wezterm hook) to renderer and HTTP SSE.
+  // Kept off the file-change channel on purpose — see TerminalStateChangeEvent.
+  const terminalStateHandler = (event: unknown): void => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('terminal-state-change', event);
+    }
+    httpServer?.broadcast('terminal-state-change', event);
+  };
+  context.fileWatcher.on('terminal-state-change', terminalStateHandler);
+  terminalStateCleanup = () =>
+    context.fileWatcher.off('terminal-state-change', terminalStateHandler);
 
   // Forward memory-change events to renderer and HTTP SSE
   const memoryChangeHandler = (event: unknown): void => {
@@ -378,6 +421,7 @@ async function startHttpServer(
         memoryReader: activeContext.memoryReader,
         updaterService,
         sshConnectionManager,
+        sessionTailer: sessionTailer ?? undefined,
       },
       modeSwitchHandler,
       config.httpServer?.port ?? 3456
@@ -407,6 +451,10 @@ function shutdownServices(): void {
   if (todoChangeCleanup) {
     todoChangeCleanup();
     todoChangeCleanup = null;
+  }
+  if (terminalStateCleanup) {
+    terminalStateCleanup();
+    terminalStateCleanup = null;
   }
 
   // Dispose all contexts (including local)

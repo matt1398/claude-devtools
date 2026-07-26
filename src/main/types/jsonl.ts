@@ -18,7 +18,8 @@ type EntryType =
   | 'system'
   | 'summary'
   | 'file-history-snapshot'
-  | 'queue-operation';
+  | 'queue-operation'
+  | 'attachment';
 
 type ContentType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'image';
 
@@ -209,13 +210,46 @@ export interface QueueOperationEntry extends BaseEntry {
   operation: string;
 }
 
+/**
+ * A queued command attachment: the text a user typed while the assistant was
+ * mid-turn ("queued"/interrupt message). Claude Code records the message text
+ * ONLY here (`origin.kind === 'human'`) — there is no separate `type:"user"`
+ * entry for it, so if this attachment is skipped the user's words are invisible.
+ * Agent-generated queued_commands (e.g. task-notifications) carry a non-human
+ * origin and are NOT user input.
+ */
+export interface QueuedCommandAttachment {
+  type: 'queued_command';
+  prompt: string;
+  commandMode?: string;
+  origin?: { kind?: string };
+  timestamp?: string;
+}
+
+/**
+ * Attachment entries carry out-of-band payloads Claude Code appends to the
+ * transcript: hook output, diagnostics, and — critically — queued human
+ * messages (see {@link QueuedCommandAttachment}). Only the human queued_command
+ * variant is conversational; every other attachment payload is skipped by the
+ * parser.
+ */
+export interface AttachmentEntry extends BaseEntry {
+  type: 'attachment';
+  parentUuid?: string | null;
+  isSidechain?: boolean;
+  cwd?: string;
+  gitBranch?: string;
+  attachment: QueuedCommandAttachment | { type: string; [key: string]: unknown };
+}
+
 export type ChatHistoryEntry =
   | UserEntry
   | AssistantEntry
   | SystemEntry
   | SummaryEntry
   | FileHistorySnapshotEntry
-  | QueueOperationEntry;
+  | QueueOperationEntry
+  | AttachmentEntry;
 
 /**
  * Conversational entries - entries that represent chat messages.

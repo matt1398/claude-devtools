@@ -40,6 +40,7 @@ export function getAvailableMatchFields(
           { value: 'description', label: 'Description' },
         ];
       case 'Task':
+      case 'Agent':
         return [
           { value: 'description', label: 'Description' },
           { value: 'prompt', label: 'Prompt' },

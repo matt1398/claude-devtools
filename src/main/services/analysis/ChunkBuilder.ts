@@ -23,8 +23,10 @@ import {
   type ConversationGroup,
   EMPTY_METRICS,
   type EnhancedChunk,
+  type EnhancedShellCommandChunk,
   isAIChunk,
   isCompactChunk,
+  isParsedShellOutputMessage,
   isSystemChunk,
   isUserChunk,
   type MessageCategory,
@@ -48,8 +50,11 @@ import { classifyMessages } from '../parsing/MessageClassifier';
 import {
   buildAIChunkFromBuffer,
   buildCompactChunk,
+  buildNotificationChunk,
+  buildShellCommandChunk,
   buildSystemChunk,
   buildUserChunk,
+  mergeShellOutput,
 } from './ChunkFactory';
 import { buildGroups as buildConversationGroups } from './ConversationGroupBuilder';
 import { buildSubagentDetail as buildSubagentDetailFn } from './SubagentDetailBuilder';
@@ -94,8 +99,13 @@ export class ChunkBuilder {
 
     // Build chunks from classification - AI chunks are INDEPENDENT
     let aiBuffer: ParsedMessage[] = [];
+    // The shell-command chunk still open to absorb its immediately-following
+    // `<bash-stdout>`/`<bash-stderr>` output entry. Reset whenever any other
+    // (non-shell) category interrupts, so output only merges when contiguous.
+    let pendingShellChunk: EnhancedShellCommandChunk | null = null;
 
     for (const { message, category } of classified) {
+      if (category !== 'shell') pendingShellChunk = null;
       switch (category) {
         case 'hardNoise':
           // Skip - filtered out
@@ -109,6 +119,36 @@ export class ChunkBuilder {
           }
           chunks.push(buildCompactChunk(message));
           break;
+
+        case 'notification':
+          // Flush any buffered AI messages first
+          if (aiBuffer.length > 0) {
+            chunks.push(buildAIChunkFromBuffer(aiBuffer, subagents, messages));
+            aiBuffer = [];
+          }
+          chunks.push(buildNotificationChunk(message));
+          break;
+
+        case 'shell': {
+          // An output-only entry (`<bash-stdout>`/`<bash-stderr>`) immediately
+          // following a command merges into the open shell chunk.
+          if (pendingShellChunk && isParsedShellOutputMessage(message)) {
+            mergeShellOutput(pendingShellChunk, message);
+            break;
+          }
+          // Otherwise this starts a new shell block (a `<bash-input>` command, or
+          // an orphaned output entry with no preceding command → command === '').
+          if (aiBuffer.length > 0) {
+            chunks.push(buildAIChunkFromBuffer(aiBuffer, subagents, messages));
+            aiBuffer = [];
+          }
+          const shellChunk = buildShellCommandChunk(message);
+          chunks.push(shellChunk);
+          // Only a command entry can absorb subsequent output; a standalone
+          // output entry is already complete.
+          pendingShellChunk = isParsedShellOutputMessage(message) ? null : shellChunk;
+          break;
+        }
 
         case 'user':
           // Flush any buffered AI messages first
@@ -395,6 +435,8 @@ export class ChunkBuilder {
         return 'System';
       case 'compact':
         return 'Compact';
+      case 'shell':
+        return 'Shell';
       default:
         return 'Chunk';
     }

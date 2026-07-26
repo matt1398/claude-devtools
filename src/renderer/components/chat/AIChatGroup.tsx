@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { COLOR_TEXT_MUTED, COLOR_TEXT_SECONDARY } from '@renderer/constants/cssVariables';
+import { useSessionLiveState } from '@renderer/hooks/useSessionLiveState';
 import { useTabUI } from '@renderer/hooks/useTabUI';
 import { useStore } from '@renderer/store';
 import { enhanceAIGroup, type PrecedingSlashInfo } from '@renderer/utils/aiGroupEnhancer';
@@ -13,6 +14,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { TokenUsageDisplay } from '../common/TokenUsageDisplay';
 
+import { lastOutputFilterType } from './chatItemFilter';
 import { ContextBadge } from './ContextBadge';
 import { DisplayItemList } from './DisplayItemList';
 import { LastOutputDisplay } from './LastOutputDisplay';
@@ -131,21 +133,24 @@ const AIChatGroupInner = ({
     tabId,
     isAIGroupExpanded: isAIGroupExpandedForTab,
     toggleAIGroupExpansion,
+    getCollapsedDisplayItemIds,
     getExpandedDisplayItemIds,
     toggleDisplayItemExpansion,
     expandDisplayItem,
   } = useTabUI();
+
+  // Per-type filter selection is GLOBAL + persisted (see filterSlice), not per-tab.
+  const hiddenFilterTypes = useStore((s) => s.globalHiddenFilterTypes);
 
   // Per-tab session data, falling back to global state
   const projectRoot = useStore((s) => {
     const td = tabId ? s.tabSessionData[tabId] : null;
     return (td?.sessionDetail ?? s.sessionDetail)?.session?.projectPath;
   });
-  const isSessionOngoing = useStore((s) => {
-    const id = s.selectedSessionId;
-    if (!id) return false;
-    return s.sessions.find((sess) => sess.id === id)?.isOngoing ?? false;
-  });
+  // Per-tab, and terminal-state aware — see useSessionLiveState. Keying this off
+  // the global selectedSessionId meant split panes all reported the focused
+  // session's state instead of their own.
+  const { isLive: isSessionOngoing } = useSessionLiveState(tabId);
 
   // Per-tab session data subscriptions, falling back to global state
   const {
@@ -296,11 +301,25 @@ const AIChatGroupInner = ({
     [enhanced.displayItems]
   );
 
-  // Get expanded item IDs for this AI group (per-tab)
+  // Get collapsed item IDs for this AI group (per-tab; default presentation is expanded)
+  const collapsedItemIds = useMemo(
+    () => getCollapsedDisplayItemIds(aiGroup.id),
+    [getCollapsedDisplayItemIds, aiGroup.id]
+  );
+
+  // Explicitly-expanded item IDs (override collapsed-by-default types), per-tab.
   const expandedItemIds = useMemo(
     () => getExpandedDisplayItemIds(aiGroup.id),
     [getExpandedDisplayItemIds, aiGroup.id]
   );
+
+  // Whether the always-visible last output should be hidden by the per-type filter.
+  // Interruptions / ongoing state (null type) are never hidden.
+  const lastOutputHidden = useMemo(() => {
+    if (hiddenFilterTypes.size === 0) return false;
+    const t = lastOutputFilterType(enhanced.lastOutput);
+    return t !== null && hiddenFilterTypes.has(t);
+  }, [hiddenFilterTypes, enhanced.lastOutput]);
 
   // Track which highlightToolUseId we've already processed to prevent infinite loops
   const processedHighlightRef = useRef<string | null>(null);
@@ -379,12 +398,31 @@ const AIChatGroupInner = ({
     expandDisplayItem,
   ]);
 
+  // Determine the in-progress turn's current activity for the ongoing banner:
+  // the last thinking-or-tool display item decides "Thinking…" vs "Running <Tool>…".
+  // Output items (final text) and other kinds are ignored so the banner reflects
+  // what the model is actively doing; indeterminate → banner falls back to "Working…".
+  const { ongoingActivityKind, ongoingToolName } = useMemo(() => {
+    for (let i = enhanced.displayItems.length - 1; i >= 0; i--) {
+      const item = enhanced.displayItems[i];
+      if (item.type === 'thinking') {
+        return { ongoingActivityKind: 'thinking' as const, ongoingToolName: undefined };
+      }
+      if (item.type === 'tool') {
+        return { ongoingActivityKind: 'tool' as const, ongoingToolName: item.tool.name };
+      }
+    }
+    return { ongoingActivityKind: undefined, ongoingToolName: undefined };
+  }, [enhanced.displayItems]);
+
   // Determine if there's content to toggle
   const hasToggleContent = enhanced.displayItems.length > 0;
 
-  // Handle item click - toggle inline expansion using store action
-  const handleItemClick = (itemId: string): void => {
-    toggleDisplayItemExpansion(aiGroup.id, itemId);
+  // Handle item click - toggle inline expansion using store action.
+  // `defaultExpanded` is the item's per-type default, forwarded so the store can resolve
+  // the current effective state before flipping it.
+  const handleItemClick = (itemId: string, defaultExpanded: boolean): void => {
+    toggleDisplayItemExpansion(aiGroup.id, itemId, defaultExpanded);
   };
 
   return (
@@ -503,25 +541,39 @@ const AIChatGroupInner = ({
           <DisplayItemList
             items={enhanced.displayItems}
             onItemClick={handleItemClick}
+            collapsedItemIds={collapsedItemIds}
             expandedItemIds={expandedItemIds}
+            hiddenFilterTypes={hiddenFilterTypes}
             aiGroupId={aiGroup.id}
             highlightToolUseId={highlightToolUseId}
             highlightColor={highlightColor}
             notificationColorMap={notificationColorMap}
             registerToolRef={registerToolRef}
+            // Deliberately NOT gated on isSessionOngoing. That flips with the
+            // terminal state (working → attention on a permission prompt →
+            // working), and toggling the class off and back on RESTARTS the CSS
+            // animation for every mounted item — re-animating the whole group on
+            // each flip, the opposite of what this prop is for. `aiGroup.isOngoing`
+            // only changes when the group stops being the last one.
+            animateNewItems={aiGroup.isOngoing ?? false}
           />
         </div>
       )}
 
-      {/* Always-visible Output */}
-      <div>
-        <LastOutputDisplay
-          lastOutput={enhanced.lastOutput}
-          aiGroupId={aiGroup.id}
-          isLastGroup={aiGroup.isOngoing ?? false}
-          isSessionOngoing={isSessionOngoing}
-        />
-      </div>
+      {/* Always-visible Output (hidden when its type is filtered out) */}
+      {!lastOutputHidden && (
+        <div>
+          <LastOutputDisplay
+            lastOutput={enhanced.lastOutput}
+            aiGroupId={aiGroup.id}
+            isLastGroup={aiGroup.isOngoing ?? false}
+            isSessionOngoing={isSessionOngoing}
+            ongoingActivityKind={ongoingActivityKind}
+            ongoingToolName={ongoingToolName}
+            ongoingOutputTokens={aiGroup.tokens.output}
+          />
+        </div>
+      )}
     </div>
   );
 };

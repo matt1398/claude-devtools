@@ -27,6 +27,7 @@ If you're considering a non-trivial contribution, **open an Issue first** to che
 ## Setup
 ```bash
 pnpm install
+pnpm hooks:install   # installs the pre-commit leak check (see below)
 pnpm dev
 ```
 
@@ -61,6 +62,46 @@ AI coding tools are welcome, but **you are responsible for what you submit**:
 - Large static data that could be fetched at runtime
 - Generated files that aren't part of the build output
 - Experimental features without prior discussion
+- **Anything specific to your machine or your other projects** — see below
+
+## Keeping Your Environment Out of the History
+
+This is a viewer for Claude Code sessions, so working copies sit next to real
+transcripts, real ticket IDs and real credentials. It is easy to paste one into
+a test fixture by accident, and the history is public.
+
+`scripts/leak-check.mjs` guards against that. It is fully generic — no
+usernames, hostnames or project names are hardcoded — so it behaves the same for
+every contributor. It flags:
+
+- credentials (Anthropic/OpenAI/Stripe/AWS/GitHub/Google/Slack/npm tokens,
+  private keys, connection strings with inline passwords, hardcoded
+  `apiKey`/`password`/`secret` assignments)
+- absolute paths containing a real account name (`/home/…`, `/Users/…`,
+  `C:\Users\…`) — placeholders like `/home/user` are fine
+- issue-tracker keys such as `ACME-123`, which name projects that may be private
+- files that should never be committed: `*.jsonl` transcripts, `.env`, SSH keys,
+  certificates, `docker-compose.override.yml`
+
+Run it manually any time:
+```bash
+pnpm leakcheck            # staged changes (what the hook runs)
+pnpm leakcheck:all        # every tracked file
+node scripts/leak-check.mjs --range main..HEAD
+```
+`pnpm quality` runs the full-tree scan too.
+
+Install the hook once per clone with `pnpm hooks:install` (it points
+`core.hooksPath` at `.githooks/`). Only staged **added** lines are scanned, so
+pre-existing content never blocks an unrelated commit.
+
+**False positives:** append `leak-check-ignore` to the line, or add an
+`allow <text>` / `path <glob>` entry to `.leakcheckignore`. Keep those entries
+narrow and explain them — anything allowlisted will be published.
+
+**Local-only files:** keep host-specific setup in `docker-compose.override.yml`,
+`update-devtools.sh` or `*.local.sh`. All three are gitignored, so your hardening
+and paths stay on your machine and `git pull` stays conflict-free.
 
 ## Commit Style
 - Prefer conventional commits (`feat:`, `fix:`, `chore:`, `docs:`).

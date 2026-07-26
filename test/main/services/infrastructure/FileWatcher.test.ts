@@ -568,4 +568,219 @@ describe('FileWatcher', () => {
       expect(watcherAny.pendingReprocess.size).toBe(0);
     });
   });
+
+  describe('terminal-state watcher', () => {
+    /**
+     * Builds a watcher over a real temp tree with a devtools-state dir, and returns
+     * the raw `handleStateChange` entry point plus collected emissions.
+     */
+    function setupStateWatcher() {
+      vi.useRealTimers();
+      useRealExistsSync();
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filewatcher-state-'));
+      const projectsDir = path.join(tempDir, 'projects');
+      const stateDir = path.join(tempDir, 'devtools-state');
+      fs.mkdirSync(projectsDir, { recursive: true });
+      fs.mkdirSync(stateDir, { recursive: true });
+
+      const watcher = new FileWatcher(
+        new DataCache(50, 10, false),
+        projectsDir,
+        path.join(tempDir, 'todos')
+      );
+
+      const terminalEvents: unknown[] = [];
+      const fileEvents: unknown[] = [];
+      watcher.on('terminal-state-change', (e) => terminalEvents.push(e));
+      watcher.on('file-change', (e) => fileEvents.push(e));
+
+      const handleStateChange = (eventType: string, filename: string): void =>
+        (
+          watcher as unknown as { handleStateChange: (t: string, f: string) => void }
+        ).handleStateChange(eventType, filename);
+
+      const cleanup = (): void => {
+        watcher.stop();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      };
+
+      return { stateDir, handleStateChange, terminalEvents, fileEvents, cleanup };
+    }
+
+    /** Wait past the 100ms debounce plus the async file read inside it. */
+    const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 250));
+
+    it('emits terminal-state-change with the state inline, not file-change', async () => {
+      const s = setupStateWatcher();
+      const payload = { state: 'working', ts: 1_700_000_000, cwd: '/repo' };
+      fs.writeFileSync(path.join(s.stateDir, 'session-1.json'), JSON.stringify(payload), 'utf8');
+
+      s.handleStateChange('change', 'session-1.json');
+      await settle();
+
+      expect(s.terminalEvents).toEqual([{ sessionId: 'session-1', state: payload }]);
+      // Routing these through file-change is what made the sidebar refetch its page
+      // on every prompt submit and tool call.
+      expect(s.fileEvents).toHaveLength(0);
+
+      s.cleanup();
+    });
+
+    it('ignores statusline snapshots', async () => {
+      const s = setupStateWatcher();
+      fs.writeFileSync(
+        path.join(s.stateDir, 'session-1.statusline.json'),
+        JSON.stringify({ model: 'opus' }),
+        'utf8'
+      );
+
+      s.handleStateChange('change', 'session-1.statusline.json');
+      await settle();
+
+      // Would otherwise emit a bogus sessionId of "session-1.statusline".
+      expect(s.terminalEvents).toHaveLength(0);
+      expect(s.fileEvents).toHaveLength(0);
+
+      s.cleanup();
+    });
+
+    it('emits an undefined state when the file is removed', async () => {
+      const s = setupStateWatcher();
+
+      s.handleStateChange('rename', 'session-gone.json');
+      await settle();
+
+      expect(s.terminalEvents).toEqual([{ sessionId: 'session-gone', state: undefined }]);
+
+      s.cleanup();
+    });
+
+    // An unreadable file must not emit AT ALL. `state: undefined` on the wire means
+    // "removed", and the renderer clears the session's live state when it sees it —
+    // so emitting on a torn read would blank a working session's indicator mid-turn.
+    it('stays silent on malformed JSON rather than reporting a cleared state', async () => {
+      const s = setupStateWatcher();
+      // The hook writes non-atomically, so a read can land mid-write.
+      fs.writeFileSync(path.join(s.stateDir, 'session-1.json'), '{"state":"wor', 'utf8');
+
+      s.handleStateChange('change', 'session-1.json');
+      await settle();
+
+      expect(s.terminalEvents).toHaveLength(0);
+
+      s.cleanup();
+    });
+
+    it('stays silent when the payload has the wrong shape', async () => {
+      const s = setupStateWatcher();
+      // Valid JSON, but `ts` is an ISO string instead of unix seconds.
+      fs.writeFileSync(
+        path.join(s.stateDir, 'session-1.json'),
+        JSON.stringify({ state: 'working', ts: '2026-07-25T00:00:00Z' }),
+        'utf8'
+      );
+
+      s.handleStateChange('change', 'session-1.json');
+      await settle();
+
+      expect(s.terminalEvents).toHaveLength(0);
+
+      s.cleanup();
+    });
+
+    it('drops a non-string cwd instead of passing it through', async () => {
+      const s = setupStateWatcher();
+      fs.writeFileSync(
+        path.join(s.stateDir, 'session-1.json'),
+        JSON.stringify({ state: 'working', ts: 1_700_000_000, cwd: 42 }),
+        'utf8'
+      );
+
+      s.handleStateChange('change', 'session-1.json');
+      await settle();
+
+      expect(s.terminalEvents).toEqual([
+        { sessionId: 'session-1', state: { state: 'working', ts: 1_700_000_000, cwd: undefined } },
+      ]);
+
+      s.cleanup();
+    });
+  });
+
+  describe('session-file throttling', () => {
+    // A trailing debounce resets on every event, so a file appended faster than the
+    // window never fires until writes STOP — the "nothing updates until Claude is
+    // done" behaviour. The throttle bounds the delay instead.
+    it('fires within the window even under continuous writes', () => {
+      vi.useFakeTimers();
+      const watcher = new FileWatcher(new DataCache(50, 10, false), '/tmp/projects', '/tmp/todos');
+      const watcherAny = watcher as unknown as {
+        handleProjectsChange: (t: string, f: string) => void;
+        processProjectsChange: (t: string, f: string) => Promise<void>;
+      };
+
+      const process = vi
+        .spyOn(watcherAny, 'processProjectsChange')
+        .mockResolvedValue(undefined as never);
+
+      // Events arriving every 50ms, i.e. faster than the 100ms window.
+      for (let i = 0; i < 6; i++) {
+        watcherAny.handleProjectsChange('change', 'proj/session-1.jsonl');
+        vi.advanceTimersByTime(50);
+      }
+
+      // A resetting debounce would still have fired zero times here.
+      expect(process).toHaveBeenCalled();
+
+      watcher.stop();
+    });
+
+    it('coalesces a burst into a single call', () => {
+      vi.useFakeTimers();
+      const watcher = new FileWatcher(new DataCache(50, 10, false), '/tmp/projects', '/tmp/todos');
+      const watcherAny = watcher as unknown as {
+        handleProjectsChange: (t: string, f: string) => void;
+        processProjectsChange: (t: string, f: string) => Promise<void>;
+      };
+      const process = vi
+        .spyOn(watcherAny, 'processProjectsChange')
+        .mockResolvedValue(undefined as never);
+
+      for (let i = 0; i < 10; i++) {
+        watcherAny.handleProjectsChange('change', 'proj/session-1.jsonl');
+      }
+      vi.advanceTimersByTime(150);
+
+      expect(process).toHaveBeenCalledTimes(1);
+
+      watcher.stop();
+    });
+
+    // Throttling must not mean "first event wins". `changeType` only self-corrects
+    // for `rename`; a leading `change` hard-codes type 'change', so a delete
+    // arriving mid-window would be emitted as a modification — skipping the
+    // project-wide cache sweep and error-tracking cleanup, and never telling the
+    // renderer to drop the row.
+    it('runs the LAST callback of a burst, not the first', () => {
+      vi.useFakeTimers();
+      const watcher = new FileWatcher(new DataCache(50, 10, false), '/tmp/projects', '/tmp/todos');
+      const watcherAny = watcher as unknown as {
+        handleProjectsChange: (t: string, f: string) => void;
+        processProjectsChange: (t: string, f: string) => Promise<void>;
+      };
+      const process = vi
+        .spyOn(watcherAny, 'processProjectsChange')
+        .mockResolvedValue(undefined as never);
+
+      watcherAny.handleProjectsChange('change', 'proj/session-1.jsonl');
+      watcherAny.handleProjectsChange('rename', 'proj/session-1.jsonl');
+      vi.advanceTimersByTime(150);
+
+      expect(process).toHaveBeenCalledTimes(1);
+      expect(process).toHaveBeenCalledWith('rename', 'proj/session-1.jsonl');
+
+      watcher.stop();
+    });
+  });
 });

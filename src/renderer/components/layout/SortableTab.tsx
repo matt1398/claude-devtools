@@ -7,9 +7,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { getTerminalVisual, type TerminalStateInfo } from '@renderer/constants/sessionStatus';
 import { useStore } from '@renderer/store';
 import { Bell, BookOpen, FileText, LayoutDashboard, Pin, Search, Settings, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
+
+import { LiveStatusDot } from '../common/OngoingIndicator';
 
 import type { Tab } from '@renderer/types/tabs';
 
@@ -86,6 +89,18 @@ export const SortableTab = ({
     )
   );
 
+  // TRUE terminal state for the tab's session, sourced from the same `sessions`
+  // array the sidebar dot uses. Tabs without a live terminal state render no dot.
+  const terminalState = useStore(
+    useShallow((s) => {
+      if (tab.type !== 'session' || !tab.sessionId) return null;
+      const session = s.sessions.find((sess) => sess.id === tab.sessionId);
+      if (!session) return null;
+      return (session as { terminalState?: TerminalStateInfo }).terminalState ?? null;
+    })
+  );
+  const liveVisual = getTerminalVisual(terminalState);
+
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: tab.id,
     data: {
@@ -145,6 +160,7 @@ export const SortableTab = ({
       }}
     >
       <Icon className="size-4 shrink-0" />
+      {liveVisual && <LiveStatusDot visual={liveVisual} />}
       {tab.fromSearch && (
         <span title="Opened from search">
           <Search className="size-3 shrink-0 text-amber-400" />

@@ -13,7 +13,7 @@
  */
 
 import { type Session, type SessionMetrics } from './domain';
-import { type ToolUseResultData } from './jsonl';
+import { type ChatHistoryEntry, type ToolUseResultData } from './jsonl';
 import { type ParsedMessage, type ToolCall, type ToolResult } from './messages';
 
 // =============================================================================
@@ -137,10 +137,47 @@ export interface CompactChunk extends BaseChunk {
 }
 
 /**
- * A chunk can be either a user input, AI response, system output, or compact boundary.
+ * Notification chunk - an auto-injected background-task / agent-completion event
+ * (`<task-notification>`). Rendered as a muted, centered system divider, NOT a
+ * user bubble.
+ */
+export interface NotificationChunk extends BaseChunk {
+  chunkType: 'notification';
+  message: ParsedMessage;
+  /** Concise display label extracted from the notification payload. */
+  label: string;
+}
+
+/**
+ * Shell-command chunk - an interactive `!` shell command and its captured
+ * output. Merges the `<bash-input>` command entry with the immediately-following
+ * `<bash-stdout>`/`<bash-stderr>` output entries into a single terminal-style
+ * block, NOT a user bubble.
+ */
+export interface ShellCommandChunk extends BaseChunk {
+  chunkType: 'shell';
+  /** The `<bash-input>` command message (source of the chunk). */
+  message: ParsedMessage;
+  /** The command text (contents of `<bash-input>`, tags stripped, trimmed). */
+  command: string;
+  /** Captured stdout (concatenated `<bash-stdout>` blocks, trimmed). */
+  stdout: string;
+  /** Captured stderr (concatenated `<bash-stderr>` blocks, trimmed). */
+  stderr: string;
+}
+
+/**
+ * A chunk can be either a user input, AI response, system output, compact
+ * boundary, a background-task notification, or a shell command.
  * This discriminated union enables separate visualization and processing.
  */
-export type Chunk = UserChunk | AIChunk | SystemChunk | CompactChunk;
+export type Chunk =
+  | UserChunk
+  | AIChunk
+  | SystemChunk
+  | CompactChunk
+  | NotificationChunk
+  | ShellCommandChunk;
 
 /**
  * Tool execution with timing information.
@@ -375,13 +412,31 @@ export interface EnhancedCompactChunk extends CompactChunk {
 }
 
 /**
- * Enhanced chunk can be user, AI, system, or compact type.
+ * Enhanced notification chunk with additional metadata.
+ */
+export interface EnhancedNotificationChunk extends NotificationChunk {
+  /** Raw messages for debug sidebar */
+  rawMessages: ParsedMessage[];
+}
+
+/**
+ * Enhanced shell-command chunk with additional metadata.
+ */
+export interface EnhancedShellCommandChunk extends ShellCommandChunk {
+  /** Raw messages for debug sidebar (command + any merged output entries). */
+  rawMessages: ParsedMessage[];
+}
+
+/**
+ * Enhanced chunk can be user, AI, system, compact, notification, or shell type.
  */
 export type EnhancedChunk =
   | EnhancedUserChunk
   | EnhancedAIChunk
   | EnhancedSystemChunk
-  | EnhancedCompactChunk;
+  | EnhancedCompactChunk
+  | EnhancedNotificationChunk
+  | EnhancedShellCommandChunk;
 
 // =============================================================================
 // Session Detail (complete parsed session)
@@ -408,6 +463,13 @@ export interface SessionDetail {
    * underlying file hasn't changed since the last successful fetch.
    */
   fingerprint?: string;
+  /**
+   * Byte length of the session file read to build this payload. It is the baseline for
+   * incremental streaming: the renderer stores it and the SessionTailer emits
+   * `session-append` deltas starting from exactly this offset (no gap/overlap).
+   * Attached by the `getSessionDetail` HTTP route.
+   */
+  tailOffset?: number;
 }
 
 /**
@@ -462,6 +524,42 @@ export interface SubagentDetail {
 // =============================================================================
 
 /**
+ * Payload for the `session-append` event (SSE + Electron IPC).
+ *
+ * Emitted only for baselined (open) sessions on clean forward growth. Carries the
+ * newly-appended raw entries (for gap-detection/observability) AND the fully-rebuilt
+ * `chunks` array — the SAME shape `getSessionDetail` returns — so the renderer applies
+ * it identically to a full detail payload, with NO re-fetch and NO re-parse.
+ */
+export interface SessionAppendEvent {
+  sessionId: string;
+  /** Project id when known (state-file changes carry none — those are never tailed). */
+  projectId?: string;
+  /**
+   * Raw parsed JSONL line objects for this delta, in file order (the direct
+   * `JSON.parse` of each complete appended line). The renderer does not transform
+   * these — it consumes `chunks` — but they are kept for gap-detection/debugging.
+   */
+  entries: ChatHistoryEntry[];
+  /**
+   * FULL rebuilt chunk array (all messages seen so far), identical in shape to
+   * `SessionDetail.chunks`. Rebuilt in-memory by running the existing ChunkBuilder
+   * over the tailer's cached parsed-message list — no disk read, no re-JSON.parse of
+   * previously-seen entries. The renderer runs this through
+   * `incrementalUpdateConversation` exactly as it does a full refresh.
+   */
+  chunks: Chunk[];
+  /**
+   * Byte offset (complete-line boundary) this delta STARTS at. Equals the previous
+   * `tailOffset` (or the `getSessionDetail` baseline for the first delta). The renderer
+   * compares this against its stored baseline to detect a gap/overlap and refetch.
+   */
+  baseOffset: number;
+  /** Byte offset (complete-line boundary) AFTER this delta. The renderer's new baseline. */
+  tailOffset: number;
+}
+
+/**
  * File watching event.
  */
 export interface FileChangeEvent {
@@ -470,6 +568,32 @@ export interface FileChangeEvent {
   projectId?: string;
   sessionId?: string;
   isSubagent: boolean;
+}
+
+/**
+ * Live terminal-state change for a single session, from the wezterm hook's
+ * `${CLAUDE_ROOT}/devtools-state/<sessionId>.json`.
+ *
+ * Deliberately NOT emitted on the `file-change` channel: these fire on every
+ * prompt submit and every PreToolUse, and routing them through `file-change`
+ * made the renderer refetch the whole sidebar page on each one. They carry the
+ * state inline so the renderer can patch it in place with no IPC round-trip —
+ * which also fixes the chat pane, whose `getSessionDetail` refresh is
+ * short-circuited by an unchanged JSONL fingerprint.
+ *
+ * `state` is undefined ONLY when the file was removed (session ended / cleaned
+ * up); the renderer treats that as "clear this session's live state". An
+ * unreadable or malformed file must NOT be reported this way — the emitter
+ * stays silent so the last known state stands. See FileWatcher.processStateChange.
+ *
+ * Producer contract: the hook writes non-atomically and `ts` is unix SECONDS,
+ * not milliseconds (`getTerminalVisual` multiplies by 1000). `state` carries the
+ * wezterm vocabulary — ready | working | attention | done | default — typed as
+ * `string` because it crosses a process boundary unvalidated by the compiler.
+ */
+export interface TerminalStateChangeEvent {
+  sessionId: string;
+  state?: { state: string; ts: number; cwd?: string };
 }
 
 // =============================================================================
@@ -526,4 +650,18 @@ export function isSystemChunk(chunk: Chunk | EnhancedChunk): chunk is SystemChun
  */
 export function isCompactChunk(chunk: Chunk | EnhancedChunk): chunk is CompactChunk {
   return 'chunkType' in chunk && chunk.chunkType === 'compact';
+}
+
+/**
+ * Type guard to check if a chunk is a NotificationChunk.
+ */
+export function isNotificationChunk(chunk: Chunk | EnhancedChunk): chunk is NotificationChunk {
+  return 'chunkType' in chunk && chunk.chunkType === 'notification';
+}
+
+/**
+ * Type guard to check if a chunk is a ShellCommandChunk.
+ */
+export function isShellCommandChunk(chunk: Chunk | EnhancedChunk): chunk is ShellCommandChunk {
+  return 'chunkType' in chunk && chunk.chunkType === 'shell';
 }

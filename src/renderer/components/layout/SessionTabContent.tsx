@@ -10,6 +10,7 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import { MiddlePanel } from './MiddlePanel';
+import { StatusBar } from './StatusBar';
 
 import type { Tab } from '@renderer/types/tabs';
 
@@ -96,7 +97,10 @@ export const SessionTabContent = ({
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-claude-dark-surface">
-      <MiddlePanel tabId={tab.id} />
+      <div className="min-h-0 flex-1">
+        <MiddlePanel tabId={tab.id} />
+      </div>
+      <StatusBar tabId={tab.id} />
     </div>
   );
 };

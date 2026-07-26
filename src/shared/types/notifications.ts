@@ -74,6 +74,7 @@ export type TriggerContentType = 'tool_result' | 'tool_use' | 'thinking' | 'text
 export const KNOWN_TOOL_NAMES = [
   'Bash',
   'Task',
+  'Agent',
   'TodoWrite',
   'Read',
   'Write',
@@ -88,6 +89,7 @@ export const KNOWN_TOOL_NAMES = [
   'AskUserQuestion',
   'KillShell',
   'TaskOutput',
+  'AgentOutput',
 ] as const;
 
 /**

@@ -7,13 +7,13 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { getTerminalVisual, type TerminalStateInfo } from '@renderer/constants/sessionStatus';
 import { useStore } from '@renderer/store';
 import { formatTokensCompact } from '@shared/utils/tokenFormatting';
-import { formatDistanceToNowStrict } from 'date-fns';
 import { EyeOff, MessageSquare, Pin } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
-import { OngoingIndicator } from '../common/OngoingIndicator';
+import { LiveStatusDot } from '../common/OngoingIndicator';
 
 import { SessionContextMenu } from './SessionContextMenu';
 
@@ -30,25 +30,16 @@ interface SessionItemProps {
 }
 
 /**
- * Format time distance in short form (e.g., "4m", "2h", "1d")
+ * Format the first-message timestamp (createdAt) as a compact absolute local
+ * date + time, e.g. "Jul 21, 1:39 AM".
  */
-function formatShortTime(date: Date): string {
-  const distance = formatDistanceToNowStrict(date, { addSuffix: false });
-  return distance
-    .replace(' seconds', 's')
-    .replace(' second', 's')
-    .replace(' minutes', 'm')
-    .replace(' minute', 'm')
-    .replace(' hours', 'h')
-    .replace(' hour', 'h')
-    .replace(' days', 'd')
-    .replace(' day', 'd')
-    .replace(' weeks', 'w')
-    .replace(' week', 'w')
-    .replace(' months', 'mo')
-    .replace(' month', 'mo')
-    .replace(' years', 'y')
-    .replace(' year', 'y');
+function formatFirstMessageDateTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
 }
 
 /**
@@ -264,7 +255,11 @@ export const SessionItem = React.memo(function SessionItem({
               className="size-3.5 shrink-0 accent-blue-500"
             />
           )}
-          {session.isOngoing && <OngoingIndicator />}
+          <LiveStatusDot
+            visual={getTerminalVisual(
+              (session as { terminalState?: TerminalStateInfo }).terminalState
+            )}
+          />
           {isPinned && <Pin className="size-2.5 shrink-0 text-blue-400" />}
           {isHidden && <EyeOff className="size-2.5 shrink-0 text-zinc-500" />}
           <span
@@ -286,9 +281,9 @@ export const SessionItem = React.memo(function SessionItem({
           </span>
           <span style={{ opacity: 0.5 }}>·</span>
           <span className="tabular-nums">
-            {formatShortTime(
-              new Date(Math.max(session.updatedAt ?? session.createdAt, session.createdAt))
-            )}
+            {session.createdAt != null
+              ? formatFirstMessageDateTime(session.createdAt)
+              : '—'}
           </span>
           {session.contextConsumption != null && session.contextConsumption > 0 && (
             <>

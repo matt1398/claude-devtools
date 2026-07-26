@@ -104,6 +104,22 @@ export class HttpServer {
         root: rendererPath,
         prefix: '/',
         wildcard: false,
+        // Disable @fastify/static's own Cache-Control ("public, max-age=0"); we set
+        // it deterministically in the onSend hook below so it can't be overridden.
+        cacheControl: false,
+      });
+
+      // Deterministic cache headers (onSend runs after the handler, so it wins):
+      //  - hashed assets under /assets/* are content-addressed → cache hard
+      //  - HTML (index / SPA fallback) is never cached → a normal reload gets the newest bundle
+      this.app.addHook('onSend', async (request, reply) => {
+        const pathOnly = request.url.split('?')[0];
+        const contentType = String(reply.getHeader('content-type') ?? '');
+        if (pathOnly.startsWith('/assets/')) {
+          reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+        } else if (pathOnly === '/' || pathOnly.endsWith('.html') || contentType.includes('text/html')) {
+          reply.header('Cache-Control', 'no-store');
+        }
       });
 
       // Register all API routes BEFORE the not-found handler
@@ -114,7 +130,8 @@ export class HttpServer {
         if (request.url.startsWith('/api/')) {
           return reply.status(404).send({ error: 'Not found' });
         }
-        return reply.type('text/html').send(indexHtml);
+        // SPA fallback HTML must not be cached so reloads pick up the newest bundle.
+        return reply.type('text/html').header('Cache-Control', 'no-store').send(indexHtml);
       });
     } else {
       logger.warn('Renderer output directory not found (run `pnpm build` first), serving API only');

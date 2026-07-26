@@ -19,7 +19,11 @@ import { buildDisplayItemsFromMessages, buildSummary } from '@renderer/utils/aiG
 import { computeSubagentPhaseBreakdown } from '@renderer/utils/aiGroupHelpers';
 import { formatDuration, formatTokensCompact } from '@renderer/utils/formatters';
 import { getHighlightProps, type TriggerColor } from '@shared/constants/triggerColors';
-import { getModelColorClass, parseModelString } from '@shared/utils/modelParser';
+import {
+  friendlyModelLabel,
+  getModelColorClass,
+  parseModelString,
+} from '@shared/utils/modelParser';
 import {
   ArrowUpRight,
   Bot,
@@ -57,6 +61,27 @@ interface SubagentItemProps {
 }
 
 // =============================================================================
+// Helpers
+// =============================================================================
+
+/**
+ * Turn a raw subagent_type into a friendly Title-Case label:
+ *   "frontend-engineer"              → "Frontend Engineer"
+ *   "general-purpose"                → "General Purpose"
+ *   "pr-review-toolkit:code-reviewer" → "Code Reviewer" (plugin namespace stripped)
+ *   "Explore"                        → "Explore"
+ */
+function formatSubagentTypeLabel(type: string): string {
+  // Strip a plugin namespace prefix like "pr-review-toolkit:".
+  const base = type.includes(':') ? type.slice(type.indexOf(':') + 1) : type;
+  return base
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+// =============================================================================
 // Main Component - Linear-style DevTools Card
 // =============================================================================
 
@@ -72,7 +97,11 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
   registerToolRef,
 }) => {
   const description = subagent.description ?? step.content.subagentDescription ?? 'Subagent';
-  const subagentType = subagent.subagentType ?? 'Task';
+  // Raw subagent_type from the parent Task call (e.g. "frontend-engineer"); may be absent.
+  const rawSubagentType = subagent.subagentType;
+  const subagentType = rawSubagentType ?? 'Task';
+  // Friendly Title-Case label, only when a real type is known (avoids "Task" twice).
+  const typeLabel = rawSubagentType ? formatSubagentTypeLabel(rawSubagentType) : null;
   const truncatedDesc = description.length > 60 ? description.slice(0, 60) + '...' : description;
 
   // Agent configs from .claude/agents/ for color lookup
@@ -138,12 +167,15 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
     return buildSummary(displayItems);
   }, [isExpanded, containsHighlightedError, displayItems, subagent.messages]);
 
-  // Model info
+  // Model info — keep the raw string too so the 1M context marker (dropped by
+  // parseModelString) can be surfaced by friendlyModelLabel.
   const modelInfo = useMemo(() => {
     const msg = subagent.messages?.find(
       (m) => m.type === 'assistant' && m.model && m.model !== '<synthetic>'
     );
-    return msg?.model ? parseModelString(msg.model) : null;
+    const raw = msg?.model ?? null;
+    const info = raw ? parseModelString(raw) : null;
+    return info ? { info, label: friendlyModelLabel(raw, info), family: info.family } : null;
   }, [subagent.messages]);
 
   // Last usage
@@ -300,10 +332,12 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
           />
         )}
 
-        {/* Type badge - team member name or typed subagent */}
+        {/* Invocation identity — reads like a terminal subagent invocation:
+            [TASK] Frontend Engineer · Opus 4.8 — "<description>" */}
         {teamColors && subagent.team ? (
+          // Team member: keep the member-name badge (distinct concept from Task spawns)
           <span
-            className="rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide"
+            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tracking-wide"
             style={{
               backgroundColor: teamColors.badge,
               color: teamColors.text,
@@ -313,27 +347,46 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
             {subagent.team.memberName}
           </span>
         ) : (
-          <span
-            className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-            style={{
-              backgroundColor: typeColors!.badge,
-              color: typeColors!.text,
-              border: `1px solid ${typeColors!.border}40`,
-            }}
-          >
-            {subagentType}
-          </span>
+          <>
+            {/* TASK badge */}
+            <span
+              className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+              style={{
+                backgroundColor: typeColors!.badge,
+                color: typeColors!.text,
+                border: `1px solid ${typeColors!.border}40`,
+              }}
+            >
+              Task
+            </span>
+            {/* Friendly subagent type, in the per-type color */}
+            {typeLabel && (
+              <span
+                className="shrink-0 text-xs font-medium"
+                style={{ color: typeColors!.text }}
+              >
+                {typeLabel}
+              </span>
+            )}
+          </>
         )}
 
         {/* Model */}
         {modelInfo && (
-          <span className={`text-[11px] ${getModelColorClass(modelInfo.family)}`}>
-            {modelInfo.name}
+          <span
+            className={`shrink-0 text-[11px] tabular-nums ${getModelColorClass(modelInfo.family)}`}
+          >
+            <span style={{ color: CARD_SEPARATOR }}>·</span> {modelInfo.label}
           </span>
         )}
 
-        {/* Description */}
-        <span className="flex-1 truncate text-xs" style={{ color: CARD_TEXT_LIGHT }}>
+        {/* Description — what the subagent was asked to do (the main readable text) */}
+        <span
+          className="flex-1 truncate text-xs"
+          style={{ color: CARD_TEXT_LIGHT }}
+          title={description}
+        >
+          <span style={{ color: CARD_ICON_MUTED }}>— </span>
           {truncatedDesc}
         </span>
 
@@ -368,6 +421,13 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
       {/* ========== Level 1 Expanded: Dashboard Content ========== */}
       {isExpanded && (
         <div className="space-y-3 p-3">
+          {/* ========== Row 0: Full task description (untruncated) ========== */}
+          {description !== 'Subagent' && (
+            <div className="text-xs leading-relaxed" style={{ color: CARD_TEXT_LIGHT }}>
+              {description}
+            </div>
+          )}
+
           {/* ========== Row 1: Meta Info (Horizontal Flow) ========== */}
           <div
             className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]"
@@ -375,9 +435,14 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
           >
             <span>
               <span style={{ color: CARD_ICON_MUTED }}>Type</span>{' '}
-              <span className="font-mono" style={{ color: CARD_TEXT_LIGHT }}>
-                {subagentType}
+              <span style={{ color: CARD_TEXT_LIGHT }}>
+                {typeLabel ?? subagentType}
               </span>
+              {typeLabel && (
+                <span className="ml-1 font-mono text-[10px]" style={{ color: CARD_ICON_MUTED }}>
+                  ({subagentType})
+                </span>
+              )}
             </span>
             <span style={{ color: CARD_SEPARATOR }}>•</span>
             <span>
@@ -391,9 +456,7 @@ export const SubagentItem: React.FC<SubagentItemProps> = ({
                 <span style={{ color: CARD_SEPARATOR }}>•</span>
                 <span>
                   <span style={{ color: CARD_ICON_MUTED }}>Model</span>{' '}
-                  <span className={`font-mono ${getModelColorClass(modelInfo.family)}`}>
-                    {modelInfo.name}
-                  </span>
+                  <span className={getModelColorClass(modelInfo.family)}>{modelInfo.label}</span>
                 </span>
               </>
             )}

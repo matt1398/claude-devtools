@@ -327,3 +327,12 @@ export function getProjectsBasePath(): string {
 export function getTodosBasePath(): string {
   return path.join(getClaudeBasePath(), 'todos');
 }
+
+/**
+ * Get the devtools terminal-state directory path (~/.claude/devtools-state).
+ * A sibling of projects/; an external hook writes one <sessionId>.json per live
+ * session here. Derived from the same CLAUDE_ROOT base as projects/todos.
+ */
+export function getDevtoolsStateBasePath(): string {
+  return path.join(getClaudeBasePath(), 'devtools-state');
+}

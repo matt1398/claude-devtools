@@ -10,7 +10,11 @@
  * - Detect errors in changed session files and notify NotificationManager
  */
 
-import { type FileChangeEvent, type ParsedMessage } from '@main/types';
+import {
+  type FileChangeEvent,
+  type ParsedMessage,
+  type TerminalStateChangeEvent,
+} from '@main/types';
 import { parseJsonlFile, parseJsonlLine } from '@main/utils/jsonl';
 import { getProjectsBasePath, getTodosBasePath } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
@@ -39,6 +43,12 @@ const WATCHER_RETRY_MS = 2000;
 const CATCH_UP_INTERVAL_MS = 30_000;
 /** Only catch-up scan files modified within this window */
 const CATCH_UP_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+/**
+ * Consecutive unreadable terminal-state reads before we report a real problem.
+ * The hook writes non-atomically, so one or two torn reads are normal; a run of
+ * them means permissions or a format change, not a race.
+ */
+const STATE_READ_FAILURE_ALERT_THRESHOLD = 3;
 
 interface AppendedParseResult {
   messages: ParsedMessage[];
@@ -55,15 +65,24 @@ interface ActiveSessionFile {
 export class FileWatcher extends EventEmitter {
   private projectsWatcher: fs.FSWatcher | null = null;
   private todosWatcher: fs.FSWatcher | null = null;
+  private stateWatcher: fs.FSWatcher | null = null;
+  /** Consecutive failed terminal-state reads, keyed by file path. */
+  private readonly stateReadFailures = new Map<string, number>();
   private retryTimer: NodeJS.Timeout | null = null;
   private projectsPath: string;
   private todosPath: string;
+  /** devtools terminal-state dir (`${CLAUDE_ROOT}/devtools-state`), sibling of projects/ */
+  private statePath: string;
   private dataCache: DataCache;
   private fsProvider: FileSystemProvider;
   private notificationManager: NotificationManager | null = null;
   private projectScanner: ProjectScanner | null = null;
   private isWatching: boolean = false;
   private debounceTimers = new Map<string, NodeJS.Timeout>();
+  /** Pending throttled emits — kept separate from debounceTimers so the two
+   * scheduling policies can never collide on a shared key. */
+  private throttleTimers = new Map<string, NodeJS.Timeout>();
+  private throttlePending = new Map<string, () => void>();
   /** Track last processed line count per file for incremental error detection */
   private lastProcessedLineCount = new Map<string, number>();
   /** Track last processed file size in bytes for append-only parsing optimization */
@@ -98,6 +117,9 @@ export class FileWatcher extends EventEmitter {
     super();
     this.projectsPath = projectsPath ?? getProjectsBasePath();
     this.todosPath = todosPath ?? getTodosBasePath();
+    // Terminal-state dir is a sibling of projects/, derived from the same base so
+    // a constructor-injected projectsPath (tests) keeps them aligned.
+    this.statePath = path.join(path.dirname(this.projectsPath), 'devtools-state');
     this.dataCache = dataCache;
     this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
   }
@@ -175,11 +197,22 @@ export class FileWatcher extends EventEmitter {
       this.todosWatcher = null;
     }
 
-    // Clear any pending debounce timers
+    if (this.stateWatcher) {
+      this.stateWatcher.close();
+      this.stateWatcher = null;
+    }
+
+    // Clear any pending debounce/throttle timers
     for (const timer of this.debounceTimers.values()) {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
+    for (const timer of this.throttleTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.throttleTimers.clear();
+    this.throttlePending.clear();
+    this.stateReadFailures.clear();
 
     // Clear catch-up timer
     if (this.catchUpTimer) {
@@ -329,6 +362,38 @@ export class FileWatcher extends EventEmitter {
     }
   }
 
+  /**
+   * Starts the devtools terminal-state directory watcher.
+   * The dir may not exist yet (no session has written state) — tolerate that and
+   * let the retry timer pick it up once it appears.
+   */
+  private startStateWatcher(): void {
+    if (this.stateWatcher) {
+      return;
+    }
+
+    try {
+      if (!fs.existsSync(this.statePath)) {
+        // devtools-state dir may not exist yet - that's OK, retry later.
+        this.scheduleWatcherRetry();
+        return;
+      }
+
+      this.stateWatcher = fs.watch(this.statePath, (eventType, filename) => {
+        if (filename) {
+          this.handleStateChange(eventType, filename);
+        }
+      });
+      this.attachWatcherRecovery(this.stateWatcher, 'state');
+
+      logger.info(`FileWatcher: Started watching devtools-state at ${this.statePath}`);
+    } catch (error) {
+      logger.error('Error starting devtools-state watcher:', error);
+      this.stateWatcher = null;
+      this.scheduleWatcherRetry();
+    }
+  }
+
   private ensureWatchers(): void {
     if (!this.isWatching || this.fsProvider.type === 'ssh') {
       return;
@@ -336,8 +401,9 @@ export class FileWatcher extends EventEmitter {
 
     this.startProjectsWatcher();
     this.startTodosWatcher();
+    this.startStateWatcher();
 
-    if (!this.projectsWatcher || !this.todosWatcher) {
+    if (!this.projectsWatcher || !this.todosWatcher || !this.stateWatcher) {
       this.scheduleWatcherRetry();
     }
   }
@@ -353,14 +419,23 @@ export class FileWatcher extends EventEmitter {
     }, WATCHER_RETRY_MS);
   }
 
-  private attachWatcherRecovery(watcher: fs.FSWatcher, watcherType: 'projects' | 'todos'): void {
-    watcher.on('error', (error) => {
-      logger.error(`FileWatcher: ${watcherType} watcher error:`, error);
+  private attachWatcherRecovery(
+    watcher: fs.FSWatcher,
+    watcherType: 'projects' | 'todos' | 'state'
+  ): void {
+    const clearRef = (): void => {
       if (watcherType === 'projects') {
         this.projectsWatcher = null;
-      } else {
+      } else if (watcherType === 'todos') {
         this.todosWatcher = null;
+      } else {
+        this.stateWatcher = null;
       }
+    };
+
+    watcher.on('error', (error) => {
+      logger.error(`FileWatcher: ${watcherType} watcher error:`, error);
+      clearRef();
       this.scheduleWatcherRetry();
     });
 
@@ -368,11 +443,7 @@ export class FileWatcher extends EventEmitter {
       if (!this.isWatching) {
         return;
       }
-      if (watcherType === 'projects') {
-        this.projectsWatcher = null;
-      } else {
-        this.todosWatcher = null;
-      }
+      clearRef();
       this.scheduleWatcherRetry();
     });
   }
@@ -506,8 +577,10 @@ export class FileWatcher extends EventEmitter {
         return;
       }
 
-      // Debounce rapid changes to the same file
-      this.debounce(filename, () => this.processProjectsChange(eventType, filename));
+      // Throttle rather than debounce: a session being appended to continuously
+      // would otherwise keep resetting the timer and never emit until Claude
+      // stopped writing. See `throttle`.
+      this.throttle(filename, () => this.processProjectsChange(eventType, filename));
     } catch (error) {
       logger.error('Error handling projects change:', error);
     }
@@ -557,9 +630,17 @@ export class FileWatcher extends EventEmitter {
     }
 
     if (sessionId) {
-      // Invalidate cache
+      // Invalidate cache. A `change` only affects the one session, so scope the
+      // scanner invalidation to it — a streaming session fires these constantly
+      // and the project-wide sweep forced the sidebar's whole first page to be
+      // re-read from disk each time. add/unlink change the project's file listing
+      // itself, so those still need the project-wide sweep.
       this.dataCache.invalidateSession(projectId, sessionId);
-      this.projectScanner?.invalidateCachesForProject(projectId);
+      if (changeType === 'change') {
+        this.projectScanner?.invalidateCachesForSession(projectId, sessionId);
+      } else {
+        this.projectScanner?.invalidateCachesForProject(projectId);
+      }
       projectPathResolver.invalidateProject(projectId);
       if (changeType === 'unlink') {
         this.clearErrorTracking(fullPath);
@@ -788,6 +869,116 @@ export class FileWatcher extends EventEmitter {
   }
 
   /**
+   * Handles file change events in the devtools terminal-state directory.
+   * Each session has `<sessionId>.json` (the wezterm hook's live state) and may
+   * also have `<sessionId>.statusline.json` (a statusline snapshot). Only the
+   * former is a terminal-state signal.
+   */
+  private handleStateChange(_eventType: string, filename: string): void {
+    try {
+      // Only handle per-session JSON state files.
+      if (!filename.endsWith('.json')) {
+        return;
+      }
+
+      // Skip statusline snapshots: `<sessionId>.statusline.json` is a sibling of
+      // the state file, and treating it as one yields a bogus sessionId of
+      // "<sessionId>.statusline" that matches nothing in the renderer.
+      //
+      // No statusline event replaces this, and nothing observable is lost: these
+      // used to trigger a sidebar refetch that refreshed `Session.statusline` in
+      // the session LIST, but the only consumer (StatusBar) reads it from
+      // `sessionDetail` instead. That copy has always been gated by the JSONL
+      // fingerprint, so statusline-only writes never reached the UI either way.
+      // Pushing them properly would need its own channel — out of scope here.
+      if (filename.endsWith('.statusline.json')) {
+        return;
+      }
+
+      // Debounce rapid writes to the same state file.
+      // eventType is not consulted: file existence is the authority on
+      // removal, and it's re-checked when the debounced call actually runs.
+      this.debounce(`state/${filename}`, () => void this.processStateChange(filename));
+    } catch (error) {
+      logger.error('Error handling devtools-state change:', error);
+    }
+  }
+
+  /**
+   * Process a debounced devtools-state change by emitting `terminal-state-change`
+   * with the new state inline.
+   *
+   * This deliberately does NOT reuse the `file-change` channel. The hook writes on
+   * every prompt submit and every PreToolUse, and because state files carry no
+   * projectId the renderer treated each one as "something changed in the selected
+   * project" and refetched the whole sidebar page — the source of the sidebar
+   * thrash. Carrying the state inline lets the renderer patch it in place instead.
+   */
+  private async processStateChange(filename: string): Promise<void> {
+    const sessionId = path.basename(filename, '.json');
+    const fullPath = path.join(this.statePath, filename);
+    const fileExists = await this.fsProvider.exists(fullPath);
+
+    // Removal is the ONLY thing that legitimately clears a session's live state.
+    if (!fileExists) {
+      this.stateReadFailures.delete(fullPath);
+      this.emit('terminal-state-change', { sessionId } satisfies TerminalStateChangeEvent);
+      logger.info(`FileWatcher: terminal-state removed - ${filename}`);
+      return;
+    }
+
+    const state = await this.readTerminalState(fullPath);
+    if (!state) {
+      // Do NOT emit. `state: undefined` on the wire means "removed", and the
+      // renderer clears the session's live state when it sees it — so emitting on
+      // an unreadable read would blank a working session's indicator mid-turn.
+      // The hook writes non-atomically, so a torn read is expected and the next
+      // write re-fires; a persistent failure is a real problem and is reported.
+      const failures = (this.stateReadFailures.get(fullPath) ?? 0) + 1;
+      this.stateReadFailures.set(fullPath, failures);
+      if (failures === STATE_READ_FAILURE_ALERT_THRESHOLD) {
+        logger.error(
+          `FileWatcher: terminal-state unreadable ${failures}× in a row for ${filename} — ` +
+            `live status is stuck. Check permissions/format of ${fullPath}.`
+        );
+      }
+      return;
+    }
+
+    this.stateReadFailures.delete(fullPath);
+    this.emit('terminal-state-change', { sessionId, state } satisfies TerminalStateChangeEvent);
+    logger.info(`FileWatcher: terminal-state ${state.state} - ${filename}`);
+  }
+
+  /**
+   * Read and validate a terminal-state file, or undefined if it can't be read or
+   * doesn't match the expected shape. Callers must NOT translate undefined into a
+   * state change — see processStateChange.
+   */
+  private async readTerminalState(
+    fullPath: string
+  ): Promise<TerminalStateChangeEvent['state'] | undefined> {
+    try {
+      const raw = await this.fsProvider.readFile(fullPath);
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        typeof (parsed as { state?: unknown }).state === 'string' &&
+        typeof (parsed as { ts?: unknown }).ts === 'number'
+      ) {
+        const { state, ts, cwd } = parsed as { state: string; ts: number; cwd?: unknown };
+        // Narrow cwd rather than casting it through — ProjectScanner validates the
+        // same field when it reads this file, and the two readers should agree.
+        return { state, ts, cwd: typeof cwd === 'string' ? cwd : undefined };
+      }
+    } catch {
+      // Mid-write read or malformed JSON — the caller counts and reports these.
+    }
+    return undefined;
+  }
+
+  /**
    * Handles file change events in the todos directory.
    */
   private handleTodosChange(eventType: string, filename: string): void {
@@ -953,8 +1144,42 @@ export class FileWatcher extends EventEmitter {
   }
 
   // ===========================================================================
-  // Debouncing
+  // Debouncing / throttling
   // ===========================================================================
+
+  /**
+   * Throttle a function call for a specific key: fire at most once per
+   * DEBOUNCE_MS, scheduled from the FIRST event in a burst, running the LATEST
+   * callback supplied before it fires.
+   *
+   * Used for session JSONL writes. A trailing debounce resets its timer on every
+   * event, so a file being appended faster than the window never fires until the
+   * writes stop — which is exactly the "nothing updates until Claude is done"
+   * behaviour. Bounding the delay caps the latency at roughly DEBOUNCE_MS after
+   * the first event of a burst.
+   *
+   * Keeping the latest callback matters: it carries the event type, and a
+   * `change` followed by a delete must emit as the delete, not the change.
+   * Timers live in their own map so a key can never mean "debounce" here and
+   * "throttle" there.
+   */
+  private throttle(key: string, fn: () => void): void {
+    // Later events in a burst supersede earlier ones — last write wins.
+    this.throttlePending.set(key, fn);
+
+    if (this.throttleTimers.has(key)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.throttleTimers.delete(key);
+      const pending = this.throttlePending.get(key);
+      this.throttlePending.delete(key);
+      pending?.();
+    }, DEBOUNCE_MS);
+
+    this.throttleTimers.set(key, timer);
+  }
 
   /**
    * Debounce a function call for a specific key.

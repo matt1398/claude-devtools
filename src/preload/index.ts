@@ -65,6 +65,7 @@ import {
   CONFIG_UPDATE_TRIGGER,
 } from './constants/ipcChannels';
 
+import type { SessionAppendEvent, TerminalStateChangeEvent } from '@main/types';
 import type {
   AppConfig,
   ClaudeRootFolderSelection,
@@ -364,6 +365,16 @@ const electronAPI: ElectronAPI = {
     };
   },
 
+  // Incremental session-append deltas (open-session live updates, no re-fetch)
+  onSessionAppend: (callback: (event: SessionAppendEvent) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: SessionAppendEvent): void =>
+      callback(data);
+    ipcRenderer.on('session-append', listener);
+    return (): void => {
+      ipcRenderer.removeListener('session-append', listener);
+    };
+  },
+
   // Session refresh event (Ctrl+R / Cmd+R intercepted by main process)
   onSessionRefresh: (callback: () => void): (() => void) => {
     const listener = (): void => callback();
@@ -385,6 +396,17 @@ const electronAPI: ElectronAPI = {
     close: () => ipcRenderer.invoke(WINDOW_CLOSE),
     isMaximized: () => ipcRenderer.invoke(WINDOW_IS_MAXIMIZED) as Promise<boolean>,
     relaunch: () => ipcRenderer.invoke(APP_RELAUNCH),
+  },
+
+  // Live terminal state from the wezterm hook. Separate from file-change so the
+  // renderer can patch a session's state in place instead of refetching.
+  onTerminalStateChange: (callback: (event: TerminalStateChangeEvent) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, data: TerminalStateChangeEvent): void =>
+      callback(data);
+    ipcRenderer.on('terminal-state-change', listener);
+    return (): void => {
+      ipcRenderer.removeListener('terminal-state-change', listener);
+    };
   },
 
   onTodoChange: (callback: (event: IpcFileChangePayload) => void): (() => void) => {

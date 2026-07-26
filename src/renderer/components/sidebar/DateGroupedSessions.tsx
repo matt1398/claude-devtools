@@ -8,14 +8,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useStore } from '@renderer/store';
-import {
-  getNonEmptyCategories,
-  groupSessionsByDate,
-  separatePinnedSessions,
-} from '@renderer/utils/dateGrouping';
+import { separatePinnedSessions } from '@renderer/utils/dateGrouping';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { isToday, isYesterday } from 'date-fns';
 import {
   ArrowDownWideNarrow,
+  Bot,
   Calendar,
   CheckSquare,
   Eye,
@@ -27,14 +25,64 @@ import {
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
+import { shouldAutoLoadMore } from './autoLoadMore';
 import { SessionItem } from './SessionItem';
 
 import type { Session } from '@renderer/types/data';
-import type { DateCategory } from '@renderer/types/tabs';
+
+/**
+ * Timestamp basis for date grouping/sorting: the FIRST message (createdAt).
+ * Falls back to updatedAt (then 0) if createdAt is somehow missing.
+ */
+function firstMessageTimestamp(session: Session): number {
+  return session.createdAt ?? session.updatedAt ?? 0;
+}
+
+/** An ordered per-calendar-day group of sessions. */
+interface DayGroup {
+  /** Display label: "Today" / "Yesterday" / e.g. "Sat, Jul 19". */
+  label: string;
+  sessions: Session[];
+}
+
+/**
+ * Group sessions by the calendar day of their FIRST message (createdAt), local time,
+ * into a DYNAMIC ordered list of day-groups. Callers pre-sort by createdAt DESC, so the
+ * groups come out most-recent-day-first with newest-first ordering inside each day.
+ * Labels: today -> "Today", yesterday -> "Yesterday", otherwise a localized date.
+ */
+function groupSessionsByDay(sessions: Session[]): DayGroup[] {
+  const groups: DayGroup[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const session of sessions) {
+    const date = new Date(firstMessageTimestamp(session));
+    const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+
+    let idx = indexByKey.get(key);
+    if (idx === undefined) {
+      const label = isToday(date)
+        ? 'Today'
+        : isYesterday(date)
+          ? 'Yesterday'
+          : date.toLocaleDateString(undefined, {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+            });
+      idx = groups.length;
+      groups.push({ label, sessions: [] });
+      indexByKey.set(key, idx);
+    }
+    groups[idx].sessions.push(session);
+  }
+
+  return groups;
+}
 
 // Virtual list item types
 type VirtualItem =
-  | { type: 'header'; category: DateCategory; id: string }
+  | { type: 'header'; label: string; id: string }
   | { type: 'pinned-header'; id: string }
   | { type: 'session'; session: Session; isPinned: boolean; isHidden: boolean; id: string }
   | { type: 'loader'; id: string };
@@ -104,6 +152,10 @@ export const DateGroupedSessions = (): React.JSX.Element => {
   const parentRef = useRef<HTMLDivElement>(null);
   const countRef = useRef<HTMLSpanElement>(null);
   const [showCountTooltip, setShowCountTooltip] = useState(false);
+  // SDK-origin sessions (agents, review bots) are hidden by default. Local component state
+  // rather than a store flag: the store barrel (store/index.ts) is off-limits this session,
+  // and the preference is view-local. Sessions with origin undefined/'interactive' show always.
+  const [showSdkSessions, setShowSdkSessions] = useState(false);
 
   const hiddenSet = useMemo(() => new Set(hiddenSessionIds), [hiddenSessionIds]);
   const hasHiddenSessions = hiddenSessionIds.length > 0;
@@ -114,28 +166,49 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     return sessions.filter((s) => !hiddenSet.has(s.id));
   }, [sessions, hiddenSet, showHiddenSessions]);
 
-  // Separate pinned sessions from unpinned
-  const { pinned: pinnedSessions, unpinned: unpinnedSessions } = useMemo(
-    () => separatePinnedSessions(visibleSessions, pinnedSessionIds),
-    [visibleSessions, pinnedSessionIds]
+  // Count of SDK-origin sessions that are currently being hidden (for the toggle title).
+  const hiddenSdkCount = useMemo(
+    () => (showSdkSessions ? 0 : visibleSessions.filter((s) => s.origin === 'sdk').length),
+    [visibleSessions, showSdkSessions]
+  );
+  const hasSdkSessions = useMemo(
+    () => visibleSessions.some((s) => s.origin === 'sdk'),
+    [visibleSessions]
   );
 
-  // Group only unpinned sessions by date
-  const groupedSessions = useMemo(() => groupSessionsByDate(unpinnedSessions), [unpinnedSessions]);
+  // Apply the SDK-origin filter before pin-separation/grouping so counts and grouping stay
+  // consistent across both the grouped view and most-context. undefined origin is shown.
+  const displayedSessions = useMemo(() => {
+    if (showSdkSessions) return visibleSessions;
+    return visibleSessions.filter((s) => s.origin !== 'sdk');
+  }, [visibleSessions, showSdkSessions]);
 
-  // Get non-empty categories in display order
-  const nonEmptyCategories = useMemo(
-    () => getNonEmptyCategories(groupedSessions),
-    [groupedSessions]
+  // Separate pinned sessions from unpinned
+  const { pinned: pinnedSessions, unpinned: unpinnedSessions } = useMemo(
+    () => separatePinnedSessions(displayedSessions, pinnedSessionIds),
+    [displayedSessions, pinnedSessionIds]
+  );
+
+  // Order unpinned sessions by first message (createdAt) descending, then group by the
+  // calendar day of that first message. groupSessionsByDay preserves input order within
+  // each day, so this yields newest-first ordering inside every group.
+  const unpinnedByFirstMessage = useMemo(
+    () => [...unpinnedSessions].sort((a, b) => firstMessageTimestamp(b) - firstMessageTimestamp(a)),
+    [unpinnedSessions]
+  );
+
+  const dayGroups = useMemo(
+    () => groupSessionsByDay(unpinnedByFirstMessage),
+    [unpinnedByFirstMessage]
   );
 
   // Sessions sorted by context consumption (for most-context sort mode)
   const contextSortedSessions = useMemo(() => {
     if (sessionSortMode !== 'most-context') return [];
-    return [...visibleSessions].sort(
+    return [...displayedSessions].sort(
       (a, b) => (b.contextConsumption ?? 0) - (a.contextConsumption ?? 0)
     );
-  }, [visibleSessions, sessionSortMode]);
+  }, [displayedSessions, sessionSortMode]);
 
   // Flatten sessions with date headers into virtual list items
   const virtualItems = useMemo((): VirtualItem[] => {
@@ -171,14 +244,14 @@ export const DateGroupedSessions = (): React.JSX.Element => {
         }
       }
 
-      for (const category of nonEmptyCategories) {
+      for (const group of dayGroups) {
         items.push({
           type: 'header',
-          category,
-          id: `header-${category}`,
+          label: group.label,
+          id: `header-${group.label}`,
         });
 
-        for (const session of groupedSessions[category]) {
+        for (const session of group.sessions) {
           items.push({
             type: 'session',
             session,
@@ -205,8 +278,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     pinnedSessionIds,
     hiddenSet,
     pinnedSessions,
-    nonEmptyCategories,
-    groupedSessions,
+    dayGroups,
     sessionsHasMore,
   ]);
 
@@ -250,8 +322,13 @@ export const DateGroupedSessions = (): React.JSX.Element => {
     const lastItem = virtualRows[virtualRowsLength - 1];
     if (!lastItem) return;
 
-    // If we're within 3 items of the end and there's more to load, fetch more
+    // Gate on the SCROLL POSITION, not just the last rendered index — see
+    // shouldAutoLoadMore.
+    const scroller = parentRef.current;
+    const nearBottom = !scroller || shouldAutoLoadMore(scroller);
+
     if (
+      nearBottom &&
       lastItem.index >= virtualItems.length - 3 &&
       sessionsHasMore &&
       !sessionsLoadingMore &&
@@ -436,6 +513,23 @@ export const DateGroupedSessions = (): React.JSX.Element => {
               {showHiddenSessions ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
             </button>
           )}
+          {/* Show SDK/agent sessions toggle - only when SDK sessions exist (or are shown) */}
+          {(hasSdkSessions || showSdkSessions) && (
+            <button
+              onClick={() => setShowSdkSessions((v) => !v)}
+              className="rounded p-1 transition-colors hover:bg-white/5"
+              title={
+                showSdkSessions
+                  ? 'Hide SDK/agent sessions'
+                  : `Show SDK/agent sessions${hiddenSdkCount > 0 ? ` (${hiddenSdkCount} hidden)` : ''}`
+              }
+              style={{
+                color: showSdkSessions ? '#818cf8' : 'var(--color-text-muted)',
+              }}
+            >
+              <Bot className="size-3.5" />
+            </button>
+          )}
           {/* Sort mode toggle */}
           <button
             onClick={() =>
@@ -534,8 +628,7 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                   <div
                     className="sticky top-0 flex h-full items-center gap-1.5 border-t px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
                     style={{
-                      backgroundColor:
-                        'var(--color-surface-sidebar)',
+                      backgroundColor: 'var(--color-surface-sidebar)',
                       color: 'var(--color-text-muted)',
                       borderColor: 'var(--color-border-emphasis)',
                     }}
@@ -547,13 +640,12 @@ export const DateGroupedSessions = (): React.JSX.Element => {
                   <div
                     className="sticky top-0 flex h-full items-center border-t px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider"
                     style={{
-                      backgroundColor:
-                        'var(--color-surface-sidebar)',
+                      backgroundColor: 'var(--color-surface-sidebar)',
                       color: 'var(--color-text-muted)',
                       borderColor: 'var(--color-border-emphasis)',
                     }}
                   >
-                    {item.category}
+                    {item.label}
                   </div>
                 ) : item.type === 'loader' ? (
                   <div

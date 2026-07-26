@@ -7,12 +7,16 @@
  */
 
 import {
+  BASH_INPUT_TAG,
+  BASH_STDERR_TAG,
+  BASH_STDOUT_TAG,
   EMPTY_STDERR,
   EMPTY_STDOUT,
   HARD_NOISE_TAGS,
   LOCAL_COMMAND_STDERR_TAG,
   LOCAL_COMMAND_STDOUT_TAG,
   SYSTEM_OUTPUT_TAGS,
+  TASK_NOTIFICATION_TAG,
 } from '../constants/messageTags';
 
 import { type MessageType, type TokenUsage } from './domain';
@@ -166,6 +170,13 @@ export function isParsedUserChunkMessage(msg: ParsedMessage): boolean {
   if (msg.type !== 'user') return false;
   if (msg.isMeta === true) return false;
   if (isParsedTeammateMessage(msg)) return false;
+  // Auto-injected background-task notifications are NOT user input — they render
+  // as a muted system divider, not a "You" bubble. (Classified separately.)
+  if (isParsedTaskNotificationMessage(msg)) return false;
+  // Interactive `!` shell commands (`<bash-input>`) and their paired output
+  // (`<bash-stdout>`/`<bash-stderr>`) are NOT user input — they render as a
+  // terminal-style command block. (Classified separately as 'shell'.)
+  if (isParsedShellMessage(msg)) return false;
 
   const content = msg.content;
 
@@ -357,6 +368,141 @@ export function isParsedHardNoiseMessage(msg: ParsedMessage): boolean {
  */
 export function isParsedCompactMessage(msg: ParsedMessage): boolean {
   return msg.isCompactSummary === true;
+}
+
+/**
+ * Detect auto-injected background-task notification messages.
+ *
+ * Claude Code wraps background-task / subagent-completion events (and
+ * `Background command "..." completed (exit code N)` events) as `type: "user"`
+ * entries whose STRING content begins with `<task-notification>`. These are
+ * machine-generated events, NOT genuine user input, so they must not create a
+ * UserChunk / render as a "You" bubble.
+ *
+ * NOTE: this only matches STRING content (the wrapped notification form). It does
+ * NOT touch `type: "attachment"` queued-command entries, `isMeta: true`
+ * slash-command expansions (array content), or `<local-command-*>` output.
+ */
+export function isParsedTaskNotificationMessage(msg: ParsedMessage): boolean {
+  if (msg.type !== 'user') return false;
+  if (msg.isMeta === true) return false;
+  const content = msg.content;
+  if (typeof content !== 'string') return false;
+  return content.trimStart().startsWith(TASK_NOTIFICATION_TAG);
+}
+
+/**
+ * Extract a concise, human-readable label from a `<task-notification>` payload
+ * for the muted divider. Preference order:
+ *   1. `<summary>…</summary>` text (e.g. `Agent "X" finished`)
+ *   2. `Background command "X" completed (exit code N)`
+ *   3. generic `Background task completed`
+ */
+export function extractTaskNotificationLabel(content: string): string {
+  const summaryMatch = /<summary>([\s\S]*?)<\/summary>/.exec(content);
+  if (summaryMatch) {
+    const summary = summaryMatch[1].trim();
+    if (summary.length > 0) return summary;
+  }
+
+  const bgCommandMatch = /Background command "[^"]*" completed \(exit code \d+\)/.exec(content);
+  if (bgCommandMatch) {
+    return bgCommandMatch[0];
+  }
+
+  return 'Background task completed';
+}
+
+// =============================================================================
+// Shell command (`!`) detection
+// =============================================================================
+
+/**
+ * Matches a complete `<bash-input>`/`<bash-stdout>`/`<bash-stderr>` wrapper block.
+ * Non-greedy body, bounded by the recognized closing tags.
+ */
+const BASH_BLOCK_REGEX = /<bash-(?:input|stdout|stderr)>[\s\S]*?<\/bash-(?:input|stdout|stderr)>/g;
+
+/**
+ * True when `content` (after trimming) consists EXCLUSIVELY of one or more bash
+ * wrapper blocks (plus whitespace between them) — i.e. it is a genuine `!`
+ * shell-command record, not a user message that merely quotes/pastes such tags.
+ *
+ * This is the scope guard that separates real shell records (line contains ONLY
+ * the wrappers) from a typed user message that happens to start with a pasted
+ * `<bash-input>…` snippet followed by their own prose (which must stay a "You"
+ * bubble).
+ */
+function isBashWrapperOnly(content: string): boolean {
+  const trimmed = content.trim();
+  if (trimmed.length === 0) return false;
+  return trimmed.replace(BASH_BLOCK_REGEX, '').trim().length === 0;
+}
+
+/**
+ * Detect the COMMAND entry of an interactive `!` shell command.
+ *
+ * Format: `type: "user"`, `isMeta` absent, STRING content that starts with
+ * `<bash-input>` and consists solely of bash wrapper blocks (the command, and —
+ * in the combined form — its inline `<bash-stdout>`/`<bash-stderr>` output).
+ */
+export function isParsedShellInputMessage(msg: ParsedMessage): boolean {
+  if (msg.type !== 'user') return false;
+  if (msg.isMeta === true) return false;
+  const content = msg.content;
+  if (typeof content !== 'string') return false;
+  return content.trimStart().startsWith(BASH_INPUT_TAG) && isBashWrapperOnly(content);
+}
+
+/**
+ * Detect the OUTPUT entry of an interactive `!` shell command — the
+ * `type: "user"` entry (immediately following the command) whose STRING content
+ * is only `<bash-stdout>`/`<bash-stderr>` wrapper blocks.
+ */
+export function isParsedShellOutputMessage(msg: ParsedMessage): boolean {
+  if (msg.type !== 'user') return false;
+  if (msg.isMeta === true) return false;
+  const content = msg.content;
+  if (typeof content !== 'string') return false;
+  const start = content.trimStart();
+  if (!start.startsWith(BASH_STDOUT_TAG) && !start.startsWith(BASH_STDERR_TAG)) return false;
+  return isBashWrapperOnly(content);
+}
+
+/**
+ * Detect any interactive `!` shell-command entry (command OR its paired output).
+ * Used to keep these entries out of UserChunks and route them to the 'shell'
+ * category.
+ */
+export function isParsedShellMessage(msg: ParsedMessage): boolean {
+  return isParsedShellInputMessage(msg) || isParsedShellOutputMessage(msg);
+}
+
+/**
+ * Extract the command text, stdout, and stderr from a `!` shell-command entry's
+ * string content. `command` is the concatenation of `<bash-input>` blocks;
+ * `stdout`/`stderr` concatenate their respective blocks. All are trimmed.
+ */
+export function extractShellCommandParts(content: string): {
+  command: string;
+  stdout: string;
+  stderr: string;
+} {
+  const collect = (tag: 'input' | 'stdout' | 'stderr'): string => {
+    const re = new RegExp(`<bash-${tag}>([\\s\\S]*?)</bash-${tag}>`, 'g');
+    let out = '';
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(content)) !== null) {
+      out += match[1];
+    }
+    return out.trim();
+  };
+
+  return {
+    command: collect('input'),
+    stdout: collect('stdout'),
+    stderr: collect('stderr'),
+  };
 }
 
 /**

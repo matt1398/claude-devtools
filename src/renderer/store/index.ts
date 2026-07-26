@@ -3,12 +3,14 @@
  */
 
 import { api } from '@renderer/api';
+import { createLogger } from '@shared/utils/logger';
 import { create } from 'zustand';
 
 import { createConfigSlice } from './slices/configSlice';
 import { createConnectionSlice } from './slices/connectionSlice';
 import { createContextSlice } from './slices/contextSlice';
 import { createConversationSlice } from './slices/conversationSlice';
+import { createFilterSlice } from './slices/filterSlice';
 import { createMemorySlice } from './slices/memorySlice';
 import { createNotificationSlice } from './slices/notificationSlice';
 import { createPaneSlice } from './slices/paneSlice';
@@ -26,6 +28,8 @@ import type { DetectedError } from '../types/data';
 import type { AppState } from './types';
 import type { UpdaterStatus } from '@shared/types';
 
+const logger = createLogger('Store');
+
 // =============================================================================
 // Store Creation
 // =============================================================================
@@ -39,6 +43,7 @@ export const useStore = create<AppState>()((...args) => ({
   ...createConversationSlice(...args),
   ...createTabSlice(...args),
   ...createTabUISlice(...args),
+  ...createFilterSlice(...args),
   ...createPaneSlice(...args),
   ...createUISlice(...args),
   ...createNotificationSlice(...args),
@@ -63,10 +68,37 @@ export const useStore = create<AppState>()((...args) => ({
  */
 export function initializeNotificationListeners(): () => void {
   const cleanupFns: (() => void)[] = [];
+  // Diagnostic: how often the incremental append path gave up and fell back to a
+  // full re-parse. Deltas for sessions that aren't open are counted too, so this
+  // is only meaningful as a trend, not an absolute.
+  let appendFallbackCount = 0;
   const pendingSessionRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const pendingProjectRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const pendingProjectRefreshTimers = new Map<
+    string,
+    { timer: ReturnType<typeof setTimeout>; dueAt: number }
+  >();
   const SESSION_REFRESH_DEBOUNCE_MS = 150;
   const PROJECT_REFRESH_DEBOUNCE_MS = 300;
+  // A `change` to a session already in the sidebar only moves row metadata
+  // (timestamps, counts, and the transcript-derived status dot), so these coalesce
+  // on a slow window instead of refetching the page every ~300ms while a session
+  // streams. New/unknown sessions still use the fast window above. Trade-off: the
+  // sidebar dot can lag by up to this long — the chat pane stays current via
+  // `terminal-state-change`, but only when the wezterm hook is installed.
+  const KNOWN_SESSION_PROJECT_REFRESH_MS = 2000;
+  // The session the user is actively looking at (focused pane's active tab /
+  // selectedSessionId) gets a much shorter debounce than background sessions so
+  // its chat window feels near-instant. A small floor is kept for very long
+  // focused sessions to avoid thrashing the full-file re-parse in main.
+  const FOCUSED_SESSION_REFRESH_DEBOUNCE_MS = 75;
+  const FOCUSED_SESSION_REFRESH_DEBOUNCE_LARGE_MS = 200;
+  // When a session is being kept live by incremental `session-append` deltas, the
+  // parallel file-change-driven full refetch is redundant (and pays the very re-parse
+  // the append path exists to avoid). If an append was applied within this window, skip
+  // the scheduled full refresh; if deltas stop or a gap forces a fallback, the refresh
+  // resumes naturally on the next file-change.
+  const APPEND_REFRESH_GRACE_MS = 1500;
+  const lastAppendAppliedAt = new Map<string, number>();
   const getBaseProjectId = (projectId: string | null | undefined): string | null => {
     if (!projectId) return null;
     const separatorIndex = projectId.indexOf('::');
@@ -97,8 +129,21 @@ export function initializeNotificationListeners(): () => void {
     const aiGroupCount =
       tabData?.conversation?.totalAIGroups ??
       (state.conversation?.items ?? []).filter((i) => i.type === 'ai').length;
-    const debounceMs =
-      aiGroupCount > 500
+
+    // Is this the session the user is actively viewing? The focused pane's
+    // active tab (getActiveTab) or the global selectedSessionId both count, so
+    // the chat window in front of the user updates fastest while background
+    // sessions in other tabs/panes stay coalesced by the adaptive schedule.
+    const activeTab = state.getActiveTab();
+    const isFocusedSession =
+      state.selectedSessionId === sessionId ||
+      (activeTab?.type === 'session' && activeTab.sessionId === sessionId);
+
+    const debounceMs = isFocusedSession
+      ? aiGroupCount > 500
+        ? FOCUSED_SESSION_REFRESH_DEBOUNCE_LARGE_MS // 200ms floor for huge focused sessions
+        : FOCUSED_SESSION_REFRESH_DEBOUNCE_MS // 75ms — near-instant for the viewed session
+      : aiGroupCount > 500
         ? 1000 // 1s ceiling for very long sessions
         : aiGroupCount > 200
           ? 500 // 500ms for long sessions
@@ -108,23 +153,40 @@ export function initializeNotificationListeners(): () => void {
 
     const timer = setTimeout(() => {
       pendingSessionRefreshTimers.delete(key);
+      // Skip the full refetch if the live append path already keeps this session current.
+      if (Date.now() - (lastAppendAppliedAt.get(sessionId) ?? 0) < APPEND_REFRESH_GRACE_MS) {
+        return;
+      }
       const latestState = useStore.getState();
       void latestState.refreshSessionInPlace(projectId, sessionId);
     }, debounceMs);
     pendingSessionRefreshTimers.set(key, timer);
   };
 
-  const scheduleProjectRefresh = (projectId: string): void => {
-    const existingTimer = pendingProjectRefreshTimers.get(projectId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
+  const scheduleProjectRefresh = (
+    projectId: string,
+    delayMs: number = PROJECT_REFRESH_DEBOUNCE_MS
+  ): void => {
+    // Compare DEADLINES, not delays. What matters is when the refresh lands: a
+    // 300ms request arriving 1.9s into a pending 2s timer would, on a delay
+    // comparison, cancel it and reschedule 200ms LATER than doing nothing.
+    // Rescheduling is only ever right if it pulls the refresh earlier.
+    const dueAt = Date.now() + delayMs;
+    const existing = pendingProjectRefreshTimers.get(projectId);
+    if (existing) {
+      if (existing.dueAt <= dueAt) {
+        return;
+      }
+      clearTimeout(existing.timer);
     }
+    // Note: same-priority events do NOT extend the window — the deadline check
+    // above returns early — so this coalesces as a throttle, not a debounce.
     const timer = setTimeout(() => {
       pendingProjectRefreshTimers.delete(projectId);
       const state = useStore.getState();
       void state.refreshSessionsInPlace(projectId);
-    }, PROJECT_REFRESH_DEBOUNCE_MS);
-    pendingProjectRefreshTimers.set(projectId, timer);
+    }, delayMs);
+    pendingProjectRefreshTimers.set(projectId, { timer, dueAt });
   };
 
   // Listen for new notifications from main process
@@ -235,18 +297,29 @@ export function initializeNotificationListeners(): () => void {
   // Listen for file changes to auto-refresh current session and detect new sessions
   if (api.onFileChange) {
     const cleanup = api.onFileChange((event) => {
-      // Skip unlink events
-      if (event.type === 'unlink') {
-        return;
-      }
-
       const state = useStore.getState();
       const selectedProjectId = state.selectedProjectId;
       const selectedProjectBaseId = getBaseProjectId(selectedProjectId);
       const eventProjectBaseId = getBaseProjectId(event.projectId);
+
+      // A deleted session must leave the sidebar. This is the precise signal for
+      // it; the periodic page-1 refresh can only reconcile deletions inside the
+      // first page, so without this a removed session outside that window would
+      // linger for the life of the process.
+      if (event.type === 'unlink') {
+        if (!event.isSubagent && event.sessionId) {
+          useStore.getState().removeSessionFromList(event.sessionId);
+        }
+        return;
+      }
+      // A projectId-less event no longer counts as "the selected project changed".
+      // Terminal-state writes used to arrive here with no projectId and matched
+      // unconditionally, so every prompt submit and tool call refetched the sidebar
+      // page. Those now come over `terminal-state-change` instead, and the only
+      // remaining `file-change` emitter always sets projectId. Note this also
+      // disables the projectId-less fallback refresh further down.
       const matchesSelectedProject =
-        !!selectedProjectId &&
-        (eventProjectBaseId == null || selectedProjectBaseId === eventProjectBaseId);
+        !!selectedProjectId && selectedProjectBaseId === eventProjectBaseId;
       const isTopLevelSessionEvent = !event.isSubagent;
       const isUnknownSessionInSidebar =
         event.sessionId == null ||
@@ -259,7 +332,13 @@ export function initializeNotificationListeners(): () => void {
       // Refresh sidebar session list when a new session appears or an existing session updates.
       if (shouldRefreshSidebar) {
         if (matchesSelectedProject && selectedProjectId) {
-          scheduleProjectRefresh(selectedProjectId);
+          // A known session merely growing is cosmetic for the sidebar; coalesce it
+          // on the slow window so a streaming session doesn't drive the list.
+          const isKnownSessionUpdate = !isUnknownSessionInSidebar && event.type === 'change';
+          scheduleProjectRefresh(
+            selectedProjectId,
+            isKnownSessionUpdate ? KNOWN_SESSION_PROJECT_REFRESH_MS : PROJECT_REFRESH_DEBOUNCE_MS
+          );
         }
       }
 
@@ -287,6 +366,65 @@ export function initializeNotificationListeners(): () => void {
           // Use refreshSessionInPlace to avoid flickering and preserve UI state
           scheduleSessionRefresh(refreshProjectId, sessionIdToRefresh);
         }
+      }
+    });
+    if (typeof cleanup === 'function') {
+      cleanupFns.push(cleanup);
+    }
+  }
+
+  // Listen for live terminal-state changes (wezterm hook). Patched straight into
+  // state — no refetch, no fingerprint check. This is what makes the chat pane's
+  // "Thinking…" indicator appear the moment a prompt is submitted, before Claude
+  // has written anything to the JSONL.
+  if (api.onTerminalStateChange) {
+    const cleanup = api.onTerminalStateChange((event) => {
+      if (!event?.sessionId) {
+        return;
+      }
+      useStore.getState().applyTerminalStateChange(event);
+    });
+    if (typeof cleanup === 'function') {
+      cleanupFns.push(cleanup);
+    }
+  }
+
+  // Listen for incremental session-append deltas (open-session live updates).
+  // Applied in place with no getSessionDetail re-fetch; on any inconsistency we fall
+  // back to the existing full-refresh path.
+  if (api.onSessionAppend) {
+    const cleanup = api.onSessionAppend((event) => {
+      if (!event?.sessionId) {
+        return;
+      }
+      const handled = useStore.getState().applySessionAppend(event);
+      if (handled) {
+        lastAppendAppliedAt.set(event.sessionId, Date.now());
+        return;
+      }
+      // Fallback: the session isn't open in any pane, the delta didn't line up with
+      // our baseline (gap/overlap, typically after the tailer re-anchored), or the
+      // payload was malformed. Falls back to the debounced full refetch, which
+      // no-ops if the session isn't being viewed.
+      //
+      // A steady stream of these means the live path has quietly degraded to full
+      // re-parses — the exact cost the append path exists to avoid. Reported at
+      // `error` because `warn` is suppressed in production builds, and only on
+      // threshold crossings because the failure mode is itself a burst.
+      appendFallbackCount += 1;
+      if (appendFallbackCount === 5 || appendFallbackCount % 50 === 0) {
+        logger.error(
+          `session-append degraded: ${appendFallbackCount} fallbacks to full refetch ` +
+            `(latest ${event.sessionId}). Check SessionTailer baseline retention.`
+        );
+      }
+      const state = useStore.getState();
+      const sessionTab = state
+        .getAllPaneTabs()
+        .find((t) => t.type === 'session' && t.sessionId === event.sessionId);
+      const projectId = sessionTab?.projectId ?? event.projectId ?? state.selectedProjectId;
+      if (projectId) {
+        scheduleSessionRefresh(projectId, event.sessionId);
       }
     });
     if (typeof cleanup === 'function') {
@@ -417,7 +555,7 @@ export function initializeNotificationListeners(): () => void {
       clearTimeout(timer);
     }
     pendingSessionRefreshTimers.clear();
-    for (const timer of pendingProjectRefreshTimers.values()) {
+    for (const { timer } of pendingProjectRefreshTimers.values()) {
       clearTimeout(timer);
     }
     pendingProjectRefreshTimers.clear();

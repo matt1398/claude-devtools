@@ -17,6 +17,7 @@ import { registerSessionRoutes } from './sessions';
 import { registerSshRoutes } from './ssh';
 import { registerSubagentRoutes } from './subagents';
 import { registerUpdaterRoutes } from './updater';
+import { registerUsageRoutes } from './usage';
 import { registerUtilityRoutes } from './utility';
 import { registerValidationRoutes } from './validation';
 
@@ -30,6 +31,7 @@ import type {
   UpdaterService,
 } from '../services';
 import type { SshConnectionManager } from '../services/infrastructure/SshConnectionManager';
+import type { SessionTailer } from '../services/streaming/SessionTailer';
 import type { FastifyInstance } from 'fastify';
 
 const logger = createLogger('HTTP:routes');
@@ -43,6 +45,12 @@ export interface HttpServices {
   memoryReader: MemoryReader;
   updaterService: UpdaterService;
   sshConnectionManager: SshConnectionManager;
+  /**
+   * Streams appended session content as `session-append` deltas. The session-detail
+   * route registers a baseline offset here so streaming starts where the load ended.
+   * Optional so alternate service assemblies (tests) can omit it.
+   */
+  sessionTailer?: SessionTailer;
 }
 
 export function registerHttpRoutes(
@@ -58,6 +66,7 @@ export function registerHttpRoutes(
   registerConfigRoutes(app);
   registerValidationRoutes(app);
   registerUtilityRoutes(app);
+  registerUsageRoutes(app);
   registerSshRoutes(app, services.sshConnectionManager, sshModeSwitchCallback);
   registerUpdaterRoutes(app, services);
   registerMemoryRoutes(app, services);

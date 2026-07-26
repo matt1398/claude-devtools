@@ -4,6 +4,7 @@
  * Creates a flat chronological list of display items for the AI Group UI.
  */
 
+import { isSubagentDispatchTool } from '@shared/constants';
 import { parseAllTeammateMessages } from '@shared/utils/teammateMessageParser';
 
 import { estimateTokens, formatToolInput, formatToolResult, toDate } from './aiGroupHelpers';
@@ -164,7 +165,7 @@ export function buildDisplayItems(
           // Skip Task tool calls that have associated subagents
           // The subagent will be shown separately, so showing the Task call is redundant
           const isTaskWithSubagent =
-            linkedTool.name === 'Task' && taskIdsWithSubagents.has(step.id);
+            isSubagentDispatchTool(linkedTool.name) && taskIdsWithSubagents.has(step.id);
           if (!isTaskWithSubagent) {
             displayItems.push({
               type: 'tool',
@@ -515,7 +516,7 @@ export function buildDisplayItemsFromMessages(
 
     // Skip Task tool calls that have associated subagents
     // The subagent will be shown separately, so showing the Task call is redundant
-    const isTaskWithSubagent = call.name === 'Task' && taskIdsWithSubagents.has(toolId);
+    const isTaskWithSubagent = isSubagentDispatchTool(call.name) && taskIdsWithSubagents.has(toolId);
     if (isTaskWithSubagent) {
       continue;
     }

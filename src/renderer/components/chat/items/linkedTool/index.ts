@@ -4,6 +4,7 @@
  * Exports all specialized tool viewer components.
  */
 
+export { AskUserQuestionToolViewer } from './AskUserQuestionToolViewer';
 export { CollapsibleOutputSection } from './CollapsibleOutputSection';
 export { DefaultToolViewer } from './DefaultToolViewer';
 export { EditToolViewer } from './EditToolViewer';

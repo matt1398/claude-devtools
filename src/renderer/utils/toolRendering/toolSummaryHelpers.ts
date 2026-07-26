@@ -124,7 +124,8 @@ export function getToolSummary(toolName: string, input: Record<string, unknown>)
       return patternStr;
     }
 
-    case 'Task': {
+    case 'Task':
+    case 'Agent': {
       const prompt = input.prompt as string | undefined;
       const subagentType = input.subagentType as string | undefined;
       const description = input.description as string | undefined;

@@ -1,0 +1,24 @@
+# leak-check allowlist — see scripts/leak-check.mjs
+#
+#   allow <text>   ignore any finding whose matched text contains <text>
+#   path  <glob>   skip a file entirely (use sparingly — it disables every rule)
+#
+# Keep entries narrow and explain why. Anything added here is content that will
+# be published, so it must be safe for every contributor, not just yours.
+
+# SshConnectionManager detects key files by their PEM header; these are marker
+# constants compared against file contents, not key material.
+allow -----BEGIN ENCRYPTED PRIVATE KEY-----
+allow -----BEGIN OPENSSH PRIVATE KEY-----
+allow -----BEGIN RSA PRIVATE KEY-----
+allow -----BEGIN PRIVATE KEY-----
+
+# Worktree-layout documentation uses /Users/... as an ellipsis for any account.
+allow /Users/...
+
+# Example UUID fragment in a test fixture.
+allow A716-446655440000
+
+# ACME is the conventional placeholder org; used in CONTRIBUTING.md to show
+# what an issue key looks like.
+allow ACME-123

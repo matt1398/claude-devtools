@@ -13,6 +13,8 @@ import {
   isAssistantMessage,
   isEnhancedAIChunk,
   isEnhancedCompactChunk,
+  isEnhancedNotificationChunk,
+  isEnhancedShellCommandChunk,
   isEnhancedSystemChunk,
   isEnhancedUserChunk,
 } from '@renderer/types/data';
@@ -24,6 +26,8 @@ import type {
   EnhancedAIChunk,
   EnhancedChunk,
   EnhancedCompactChunk,
+  EnhancedNotificationChunk,
+  EnhancedShellCommandChunk,
   EnhancedSystemChunk,
   EnhancedUserChunk,
   ParsedMessage,
@@ -40,7 +44,9 @@ import type {
   CompactGroup,
   FileReference,
   ImageData,
+  NotificationGroup,
   SessionConversation,
+  ShellGroup,
   SystemGroup,
   UserGroup,
   UserGroupContent,
@@ -126,6 +132,16 @@ export function transformChunksToConversation(
         group: createCompactGroup(chunk),
       });
       compactCount++;
+    } else if (isEnhancedNotificationChunk(chunk)) {
+      items.push({
+        type: 'notification',
+        group: createNotificationGroup(chunk),
+      });
+    } else if (isEnhancedShellCommandChunk(chunk)) {
+      items.push({
+        type: 'shell',
+        group: createShellGroup(chunk),
+      });
     } else {
       const unhandledChunkType =
         'chunkType' in chunk ? (chunk as EnhancedChunk).chunkType : 'unknown';
@@ -287,6 +303,16 @@ export function incrementalUpdateConversation(
         group: createCompactGroup(chunk),
       });
       compactCount++;
+    } else if (isEnhancedNotificationChunk(chunk)) {
+      items.push({
+        type: 'notification',
+        group: createNotificationGroup(chunk),
+      });
+    } else if (isEnhancedShellCommandChunk(chunk)) {
+      items.push({
+        type: 'shell',
+        group: createShellGroup(chunk),
+      });
     }
   }
 
@@ -607,6 +633,44 @@ function createCompactGroup(chunk: EnhancedCompactChunk): CompactGroup {
     id: chunk.id, // Use stable chunk ID instead of array index
     timestamp: chunk.startTime,
     message: chunk.message, // Pass through the compact summary message
+  };
+}
+
+// =============================================================================
+// NotificationGroup Creation
+// =============================================================================
+
+/**
+ * Creates a NotificationGroup from an EnhancedNotificationChunk.
+ *
+ * @param chunk - The notification chunk to transform
+ * @returns NotificationGroup for the muted background-task divider
+ */
+function createNotificationGroup(chunk: EnhancedNotificationChunk): NotificationGroup {
+  return {
+    id: chunk.id, // Use stable chunk ID instead of array index
+    timestamp: chunk.startTime,
+    label: chunk.label,
+  };
+}
+
+// =============================================================================
+// ShellGroup Creation
+// =============================================================================
+
+/**
+ * Creates a ShellGroup from an EnhancedShellCommandChunk.
+ *
+ * @param chunk - The shell-command chunk to transform
+ * @returns ShellGroup for the terminal-style command block
+ */
+function createShellGroup(chunk: EnhancedShellCommandChunk): ShellGroup {
+  return {
+    id: chunk.id, // Use stable chunk ID instead of array index
+    timestamp: chunk.startTime,
+    command: chunk.command,
+    stdout: chunk.stdout,
+    stderr: chunk.stderr,
   };
 }
 

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Blocks environment-specific data and secrets from entering the history.
+# Installed by `pnpm hooks:install` (sets core.hooksPath to .githooks).
+# Bypass in an emergency with: git commit --no-verify
+exec node "$(git rev-parse --show-toplevel)/scripts/leak-check.mjs"
