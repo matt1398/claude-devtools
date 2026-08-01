@@ -1,6 +1,6 @@
 /**
- * Claude model string parser utility.
- * Parses model identifiers into friendly display names and metadata.
+ * Model string parser utility.
+ * Parses supported model identifiers into friendly display names and metadata.
  */
 
 /** Known model families with specific styling */
@@ -12,7 +12,7 @@ export type ModelFamily = KnownModelFamily | (string & Record<never, never>);
 export interface ModelInfo {
   /** Friendly name like "sonnet4.5" */
   name: string;
-  /** Model family: sonnet, opus, haiku, or any other string for unknown families */
+  /** Model family used for display grouping and styling */
   family: ModelFamily;
   /** Major version like 4 or 3 */
   majorVersion: number;
@@ -22,11 +22,27 @@ export interface ModelInfo {
 
 const KNOWN_FAMILIES: KnownModelFamily[] = ['sonnet', 'opus', 'haiku'];
 
+const MINIMAX_MODELS: Record<string, ModelInfo> = {
+  'minimax-m3': {
+    name: 'MiniMax-M3',
+    family: 'minimax',
+    majorVersion: 3,
+    minorVersion: null,
+  },
+  'minimax-m2.7': {
+    name: 'MiniMax-M2.7',
+    family: 'minimax',
+    majorVersion: 2,
+    minorVersion: 7,
+  },
+};
+
 /**
- * Parses a Claude model string into friendly display info.
+ * Parses a supported model string into friendly display info.
  * Returns null if model string is invalid, synthetic, or empty.
  *
  * Supported formats:
+ * - MiniMax format: MiniMax-M{major}[.{minor}]
  * - New format: claude-{family}-{major}-{minor}-{date} (e.g., "claude-sonnet-4-5-20250929")
  * - Old format: claude-{major}-{family}-{date} (e.g., "claude-3-opus-20240229")
  * - Old format with minor: claude-{major}-{minor}-{family}-{date} (e.g., "claude-3-5-sonnet-20241022")
@@ -38,6 +54,11 @@ export function parseModelString(model: string | undefined): ModelInfo | null {
   }
 
   const normalized = model.toLowerCase().trim();
+
+  const miniMaxModel = MINIMAX_MODELS[normalized];
+  if (miniMaxModel) {
+    return { ...miniMaxModel };
+  }
 
   // Must start with "claude"
   if (!normalized.startsWith('claude')) {
