@@ -245,6 +245,8 @@ export interface SearchResult {
   matchStartOffset?: number;
   /** Source message UUID for diagnostics/fallback mapping */
   messageUuid?: string;
+  /** Fuse score when fuzzy search is enabled */
+  matchScore?: number;
 }
 
 /**

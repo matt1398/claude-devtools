@@ -1096,9 +1096,10 @@ export class ProjectScanner {
   async searchSessions(
     projectId: string,
     query: string,
-    maxResults: number = 50
+    maxResults: number = 50,
+    fuzzy: boolean = false
   ): Promise<SearchSessionsResult> {
-    return this.sessionSearcher.searchSessions(projectId, query, maxResults);
+    return this.sessionSearcher.searchSessions(projectId, query, maxResults, fuzzy);
   }
 
   /**
@@ -1108,7 +1109,11 @@ export class ProjectScanner {
    * @param query - Search query string
    * @param maxResults - Maximum number of results to return (default 50)
    */
-  async searchAllProjects(query: string, maxResults: number = 50): Promise<SearchSessionsResult> {
+  async searchAllProjects(
+    query: string,
+    maxResults: number = 50,
+    fuzzy: boolean = false
+  ): Promise<SearchSessionsResult> {
     const startedAt = Date.now();
     try {
       if (!query || query.trim().length === 0) {
@@ -1138,7 +1143,9 @@ export class ProjectScanner {
       for (let i = 0; i < projects.length; i += searchBatchSize) {
         const batch = projects.slice(i, i + searchBatchSize);
         const batchResults = await Promise.allSettled(
-          batch.map((project) => this.sessionSearcher.searchSessions(project.id, query, maxResults))
+          batch.map((project) =>
+            this.sessionSearcher.searchSessions(project.id, query, maxResults, fuzzy)
+          )
         );
 
         for (const result of batchResults) {
@@ -1147,9 +1154,7 @@ export class ProjectScanner {
           }
         }
 
-        // Check if we have enough results already
-        const totalMatches = allResults.reduce((sum, r) => sum + r.totalMatches, 0);
-        if (totalMatches >= maxResults) {
+        if (!fuzzy && allResults.reduce((sum, r) => sum + r.totalMatches, 0) >= maxResults) {
           break;
         }
       }
@@ -1158,8 +1163,11 @@ export class ProjectScanner {
       const mergedResults = allResults.flatMap((r) => r.results);
       const totalSessionsSearched = allResults.reduce((sum, r) => sum + r.sessionsSearched, 0);
 
-      // Sort by timestamp (most recent first) and limit to maxResults
-      mergedResults.sort((a, b) => b.timestamp - a.timestamp);
+      mergedResults.sort((a, b) =>
+        fuzzy
+          ? (a.matchScore ?? 1) - (b.matchScore ?? 1) || b.timestamp - a.timestamp
+          : b.timestamp - a.timestamp
+      );
       const limitedResults = mergedResults.slice(0, maxResults);
 
       logger.debug(

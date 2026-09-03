@@ -213,18 +213,25 @@ export class HttpAPIClient implements ElectronAPI {
   searchSessions = (
     projectId: string,
     query: string,
-    maxResults?: number
+    maxResults?: number,
+    fuzzy?: boolean
   ): Promise<SearchSessionsResult> => {
     const params = new URLSearchParams({ q: query });
     if (maxResults) params.set('maxResults', String(maxResults));
+    if (fuzzy) params.set('fuzzy', '1');
     return this.get<SearchSessionsResult>(
       `/api/projects/${encodeURIComponent(projectId)}/search?${params}`
     );
   };
 
-  searchAllProjects = (query: string, maxResults?: number): Promise<SearchSessionsResult> => {
+  searchAllProjects = (
+    query: string,
+    maxResults?: number,
+    fuzzy?: boolean
+  ): Promise<SearchSessionsResult> => {
     const params = new URLSearchParams({ q: query });
     if (maxResults) params.set('maxResults', String(maxResults));
+    if (fuzzy) params.set('fuzzy', '1');
     return this.get<SearchSessionsResult>(`/api/search?${params}`);
   };
 
