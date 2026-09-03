@@ -333,6 +333,7 @@ export const CommandPalette = (): React.JSX.Element | null => {
       setTotalMatches(0);
       setSearchIsPartial(false);
       setGlobalSearchEnabled(false);
+      setFuzzyEnabled(false);
       setSessionIdMatch(null);
       setPartialIdMatches([]);
     }

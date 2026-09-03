@@ -179,4 +179,54 @@ describe('SessionSearcher', () => {
     expect(fuzzy.totalMatches).toBeGreaterThan(0);
     expect(fuzzy.results[0].matchedText.toLowerCase()).toContain('gateway');
   });
+
+  it('ranks stronger fuzzy matches across sessions before limiting', async () => {
+    const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-searcher-ranked-'));
+    tempDirs.push(projectsDir);
+
+    const projectId = 'project-ranked';
+    const projectPath = path.join(projectsDir, projectId);
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    const olderPath = path.join(projectPath, 'older.jsonl');
+    fs.writeFileSync(
+      olderPath,
+      `${JSON.stringify({
+        uuid: 'older',
+        type: 'user',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        message: { role: 'user', content: 'How does the authentication middleware work?' },
+        isMeta: false,
+      })}\n`,
+      'utf8'
+    );
+
+    const newerPath = path.join(projectPath, 'newer.jsonl');
+    fs.writeFileSync(
+      newerPath,
+      `${JSON.stringify({
+        uuid: 'newer',
+        type: 'user',
+        timestamp: '2026-01-02T00:00:00.000Z',
+        message: { role: 'user', content: 'How does the authentcation middleware work?' },
+        isMeta: false,
+      })}\n`,
+      'utf8'
+    );
+
+    const now = Date.now();
+    fs.utimesSync(olderPath, new Date(now - 60_000), new Date(now - 60_000));
+    fs.utimesSync(newerPath, new Date(now), new Date(now));
+
+    const result = await new SessionSearcher(projectsDir).searchSessions(
+      projectId,
+      'authentication',
+      1,
+      true
+    );
+
+    expect(result.sessionsSearched).toBe(2);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].sessionId).toBe('older');
+  });
 });
