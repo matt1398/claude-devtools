@@ -133,8 +133,8 @@ describe('Global Search - ProjectScanner.searchAllProjects', () => {
 
       expect(mockScan).toHaveBeenCalledOnce();
       expect(mockSearchSessions).toHaveBeenCalledTimes(2);
-      expect(mockSearchSessions).toHaveBeenCalledWith('project1', 'test', 50);
-      expect(mockSearchSessions).toHaveBeenCalledWith('project2', 'test', 50);
+      expect(mockSearchSessions).toHaveBeenCalledWith('project1', 'test', 50, false);
+      expect(mockSearchSessions).toHaveBeenCalledWith('project2', 'test', 50, false);
 
       expect(result.results).toHaveLength(2);
       expect(result.totalMatches).toBe(2);
@@ -143,6 +143,45 @@ describe('Global Search - ProjectScanner.searchAllProjects', () => {
       // Verify results from different projects
       expect(result.results[0].projectId).toBe('project1');
       expect(result.results[1].projectId).toBe('project2');
+    });
+
+    it('should rank fuzzy results across every project before limiting', async () => {
+      const now = Date.now();
+      const mockProjects: Project[] = Array.from({ length: 9 }, (_, i) => ({
+        id: `project${i}`,
+        path: `/path/to/project${i}`,
+        name: `Project ${i}`,
+        sessions: [`session${i}`],
+        createdAt: now - i,
+      }));
+      mockScan.mockResolvedValue(mockProjects);
+      mockSearchSessions.mockImplementation((projectId: string) => {
+        const isBestMatch = projectId === 'project8';
+        return Promise.resolve({
+          results: [
+            {
+              projectId,
+              sessionId: projectId,
+              sessionTitle: projectId,
+              context: 'authentication',
+              matchedText: 'authentication',
+              messageType: 'user' as const,
+              timestamp: isBestMatch ? now - 10_000 : now,
+              matchScore: isBestMatch ? 0.01 : 0.5,
+            },
+          ],
+          totalMatches: 1,
+          sessionsSearched: 1,
+          query: 'authentication',
+        } satisfies SearchSessionsResult);
+      });
+
+      const result = await projectScanner.searchAllProjects('authentication', 1, true);
+
+      expect(mockSearchSessions).toHaveBeenCalledTimes(9);
+      expect(mockSearchSessions).toHaveBeenCalledWith('project8', 'authentication', 1, true);
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].projectId).toBe('project8');
     });
 
     it('should sort results by timestamp (most recent first)', async () => {
@@ -260,7 +299,7 @@ describe('Global Search - ProjectScanner.searchAllProjects', () => {
       const result = await projectScanner.searchAllProjects('test', 25);
 
       expect(result.results.length).toBe(25); // Limited to maxResults
-      expect(mockSearchSessions).toHaveBeenCalledWith('project1', 'test', 25);
+      expect(mockSearchSessions).toHaveBeenCalledWith('project1', 'test', 25, false);
     });
 
     it('should handle search errors gracefully', async () => {

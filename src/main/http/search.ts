@@ -23,7 +23,7 @@ const logger = createLogger('HTTP:search');
 export function registerSearchRoutes(app: FastifyInstance, services: HttpServices): void {
   app.get<{
     Params: { projectId: string };
-    Querystring: { q?: string; maxResults?: string };
+    Querystring: { q?: string; maxResults?: string; fuzzy?: string };
   }>('/api/projects/:projectId/search', async (request) => {
     const query = request.query.q ?? '';
 
@@ -45,7 +45,8 @@ export function registerSearchRoutes(app: FastifyInstance, services: HttpService
       const result = await services.projectScanner.searchSessions(
         validatedProject.value!,
         validatedQuery.value!,
-        maxResults
+        maxResults,
+        request.query.fuzzy === '1' || request.query.fuzzy === 'true'
       );
       return result;
     } catch (error) {
@@ -55,7 +56,7 @@ export function registerSearchRoutes(app: FastifyInstance, services: HttpService
   });
 
   app.get<{
-    Querystring: { q?: string; maxResults?: string };
+    Querystring: { q?: string; maxResults?: string; fuzzy?: string };
   }>('/api/search', async (request) => {
     const query = request.query.q ?? '';
 
@@ -73,7 +74,8 @@ export function registerSearchRoutes(app: FastifyInstance, services: HttpService
 
       const result = await services.projectScanner.searchAllProjects(
         validatedQuery.value!,
-        maxResults
+        maxResults,
+        request.query.fuzzy === '1' || request.query.fuzzy === 'true'
       );
       return result;
     } catch (error) {

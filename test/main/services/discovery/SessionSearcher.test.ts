@@ -117,4 +117,116 @@ describe('SessionSearcher', () => {
     expect(userResults).toHaveLength(1);
     expect(aiResults).toHaveLength(1);
   });
+
+  it('matches approximate (typo) queries only when fuzzy is enabled', async () => {
+    const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-searcher-fuzzy-'));
+    tempDirs.push(projectsDir);
+
+    const projectId = 'project-fuzzy';
+    const sessionId = 'session-fuzzy';
+    const projectPath = path.join(projectsDir, projectId);
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    const sessionPath = path.join(projectPath, `${sessionId}.jsonl`);
+    const lines = [
+      JSON.stringify({
+        uuid: 'user-fuzzy-1',
+        type: 'user',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        message: { role: 'user', content: 'How does the authentication middleware work?' },
+        isMeta: false,
+      }),
+    ];
+    fs.writeFileSync(sessionPath, `${lines.join('\n')}\n`, 'utf8');
+
+    const searcher = new SessionSearcher(projectsDir);
+
+    // Exact search (default) does not tolerate the dropped letter in "authentcation".
+    const exact = await searcher.searchSessions(projectId, 'authentcation', 50);
+    expect(exact.totalMatches).toBe(0);
+
+    // Fuzzy search tolerates the typo and surfaces the session.
+    const fuzzy = await searcher.searchSessions(projectId, 'authentcation', 50, true);
+    expect(fuzzy.totalMatches).toBeGreaterThan(0);
+    expect(fuzzy.results[0].sessionId).toBe(sessionId);
+    expect(fuzzy.results[0].matchedText.toLowerCase()).toContain('authent');
+  });
+
+  it('keeps exact substring results intact when fuzzy is enabled', async () => {
+    const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-searcher-fuzzy-exact-'));
+    tempDirs.push(projectsDir);
+
+    const projectId = 'project-fuzzy-exact';
+    const sessionId = 'session-fuzzy-exact';
+    const projectPath = path.join(projectsDir, projectId);
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    const sessionPath = path.join(projectPath, `${sessionId}.jsonl`);
+    const lines = [
+      JSON.stringify({
+        uuid: 'user-fe-1',
+        type: 'user',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        message: { role: 'user', content: 'deploy the gateway service' },
+        isMeta: false,
+      }),
+    ];
+    fs.writeFileSync(sessionPath, `${lines.join('\n')}\n`, 'utf8');
+
+    const searcher = new SessionSearcher(projectsDir);
+    const fuzzy = await searcher.searchSessions(projectId, 'gateway', 50, true);
+
+    expect(fuzzy.totalMatches).toBeGreaterThan(0);
+    expect(fuzzy.results[0].matchedText.toLowerCase()).toContain('gateway');
+  });
+
+  it('ranks stronger fuzzy matches across sessions before limiting', async () => {
+    const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-searcher-ranked-'));
+    tempDirs.push(projectsDir);
+
+    const projectId = 'project-ranked';
+    const projectPath = path.join(projectsDir, projectId);
+    fs.mkdirSync(projectPath, { recursive: true });
+
+    const olderPath = path.join(projectPath, 'older.jsonl');
+    fs.writeFileSync(
+      olderPath,
+      `${JSON.stringify({
+        uuid: 'older',
+        type: 'user',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        message: { role: 'user', content: 'How does the authentication middleware work?' },
+        isMeta: false,
+      })}\n`,
+      'utf8'
+    );
+
+    const newerPath = path.join(projectPath, 'newer.jsonl');
+    fs.writeFileSync(
+      newerPath,
+      `${JSON.stringify({
+        uuid: 'newer',
+        type: 'user',
+        timestamp: '2026-01-02T00:00:00.000Z',
+        message: { role: 'user', content: 'How does the authentcation middleware work?' },
+        isMeta: false,
+      })}\n`,
+      'utf8'
+    );
+
+    const now = Date.now();
+    fs.utimesSync(olderPath, new Date(now - 60_000), new Date(now - 60_000));
+    fs.utimesSync(newerPath, new Date(now), new Date(now));
+
+    const result = await new SessionSearcher(projectsDir).searchSessions(
+      projectId,
+      'authentication',
+      1,
+      true
+    );
+
+    expect(result.sessionsSearched).toBe(2);
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].sessionId).toBe('older');
+  });
 });

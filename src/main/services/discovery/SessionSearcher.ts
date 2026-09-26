@@ -15,6 +15,7 @@ import { LocalFileSystemProvider } from '@main/services/infrastructure/LocalFile
 import { parseJsonlFile } from '@main/utils/jsonl';
 import { extractBaseDir, extractSessionId } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
+import Fuse from 'fuse.js';
 import * as path from 'path';
 
 import { SearchTextCache } from './SearchTextCache';
@@ -30,6 +31,10 @@ const SSH_FAST_SEARCH_STAGE_LIMITS = [40, 140, 320] as const;
 const SSH_FAST_SEARCH_MIN_RESULTS = 8;
 const SSH_FAST_SEARCH_TIME_BUDGET_MS = 4500;
 
+// Fuzzy search tuning (opt-in). Fuse threshold: 0 = exact, 1 = match anything.
+const FUZZY_THRESHOLD = 0.4;
+const FUZZY_MIN_MATCH_CHAR_LENGTH = 2;
+
 /**
  * SessionSearcher provides methods for searching sessions.
  */
@@ -37,6 +42,7 @@ export class SessionSearcher {
   private readonly projectsDir: string;
   private readonly fsProvider: FileSystemProvider;
   private readonly searchCache: SearchTextCache;
+  private readonly fuzzyIndexes = new WeakMap<SearchableEntry[], Fuse<SearchableEntry>>();
 
   constructor(projectsDir: string, fsProvider?: FileSystemProvider) {
     this.projectsDir = projectsDir;
@@ -56,7 +62,8 @@ export class SessionSearcher {
   async searchSessions(
     projectId: string,
     query: string,
-    maxResults: number = 50
+    maxResults: number = 50,
+    fuzzy: boolean = false
   ): Promise<SearchSessionsResult> {
     const startedAt = Date.now();
     const results: SearchResult[] = [];
@@ -115,7 +122,7 @@ export class SessionSearcher {
       for (const stageBoundary of stageBoundaries) {
         for (
           let i = searchedUntil;
-          i < stageBoundary && results.length < maxResults;
+          i < stageBoundary && (fuzzy || results.length < maxResults);
           i += searchBatchSize
         ) {
           if (fastMode && Date.now() - startedAt >= SSH_FAST_SEARCH_TIME_BUDGET_MS) {
@@ -136,27 +143,32 @@ export class SessionSearcher {
                 file.filePath,
                 normalizedQuery,
                 maxResults,
-                file.mtimeMs
+                file.mtimeMs,
+                fuzzy
               );
             })
           );
 
           for (const result of settled) {
-            if (results.length >= maxResults) {
+            if (!fuzzy && results.length >= maxResults) {
               break;
             }
             if (result.status !== 'fulfilled' || result.value.length === 0) {
               continue;
             }
 
-            const remaining = maxResults - results.length;
-            results.push(...result.value.slice(0, remaining));
+            if (fuzzy) {
+              results.push(...result.value);
+            } else {
+              const remaining = maxResults - results.length;
+              results.push(...result.value.slice(0, remaining));
+            }
           }
         }
 
         searchedUntil = stageBoundary;
 
-        if (shouldStop || !fastMode || results.length >= maxResults) {
+        if (shouldStop || !fastMode || (!fuzzy && results.length >= maxResults)) {
           break;
         }
 
@@ -166,19 +178,30 @@ export class SessionSearcher {
         }
       }
 
-      if (fastMode && results.length < maxResults && sessionsSearched < sessionFiles.length) {
+      if (
+        fastMode &&
+        sessionsSearched < sessionFiles.length &&
+        (fuzzy || results.length < maxResults)
+      ) {
         isPartial = true;
       }
 
+      if (fuzzy) {
+        results.sort(
+          (a, b) => (a.matchScore ?? 1) - (b.matchScore ?? 1) || b.timestamp - a.timestamp
+        );
+      }
+      const limitedResults = fuzzy ? results.slice(0, maxResults) : results;
+
       if (fastMode) {
         logger.debug(
-          `SSH fast search scanned ${sessionsSearched}/${sessionFiles.length} sessions in ${Date.now() - startedAt}ms (results=${results.length}, partial=${isPartial})`
+          `SSH fast search scanned ${sessionsSearched}/${sessionFiles.length} sessions in ${Date.now() - startedAt}ms (results=${limitedResults.length}, partial=${isPartial})`
         );
       }
 
       return {
-        results,
-        totalMatches: results.length,
+        results: limitedResults,
+        totalMatches: limitedResults.length,
         sessionsSearched,
         query,
         isPartial: fastMode ? isPartial : undefined,
@@ -209,7 +232,8 @@ export class SessionSearcher {
     filePath: string,
     query: string,
     maxResults: number,
-    mtimeMs: number
+    mtimeMs: number,
+    fuzzy: boolean = false
   ): Promise<SearchResult[]> {
     const results: SearchResult[] = [];
 
@@ -224,6 +248,17 @@ export class SessionSearcher {
     }
 
     const { entries, sessionTitle } = cached;
+
+    if (fuzzy) {
+      return this.collectFuzzyMatches(
+        entries,
+        query,
+        maxResults,
+        projectId,
+        sessionId,
+        sessionTitle
+      );
+    }
 
     // Fast pre-filter: skip sessions where no entry contains the query in raw text
     const hasAnyMatch = entries.some((entry) => entry.text.toLowerCase().includes(query));
@@ -291,6 +326,68 @@ export class SessionSearcher {
     }
   }
 
+  /**
+   * Fuzzy variant of entry matching. Builds a Fuse index over the session's
+   * searchable entries so an approximate (typo-tolerant) query still surfaces
+   * the session, ranked by Fuse score. Snippets are derived from the matched
+   * character ranges Fuse reports.
+   */
+  private collectFuzzyMatches(
+    entries: SearchableEntry[],
+    query: string,
+    maxResults: number,
+    projectId: string,
+    sessionId: string,
+    sessionTitle?: string
+  ): SearchResult[] {
+    if (entries.length === 0) return [];
+
+    let fuse = this.fuzzyIndexes.get(entries);
+    if (!fuse) {
+      fuse = new Fuse(entries, {
+        keys: ['text'],
+        includeMatches: true,
+        includeScore: true,
+        ignoreLocation: true,
+        threshold: FUZZY_THRESHOLD,
+        minMatchCharLength: FUZZY_MIN_MATCH_CHAR_LENGTH,
+      });
+      this.fuzzyIndexes.set(entries, fuse);
+    }
+
+    const results: SearchResult[] = [];
+    for (const hit of fuse.search(query, { limit: maxResults })) {
+      if (results.length >= maxResults) break;
+
+      const entry = hit.item;
+      const textMatch = hit.matches?.find((match) => match.key === 'text');
+      const { start, end } = resolveFuzzyMatchSpan(textMatch?.indices, query, entry.text.length);
+
+      const contextStart = Math.max(0, start - 50);
+      const contextEnd = Math.min(entry.text.length, end + 50);
+      const context = entry.text.slice(contextStart, contextEnd);
+
+      results.push({
+        sessionId,
+        projectId,
+        sessionTitle: sessionTitle ?? 'Untitled Session',
+        matchedText: entry.text.slice(start, end),
+        context:
+          (contextStart > 0 ? '...' : '') + context + (contextEnd < entry.text.length ? '...' : ''),
+        messageType: entry.messageType,
+        timestamp: entry.timestamp,
+        groupId: entry.groupId,
+        itemType: entry.itemType,
+        matchIndexInItem: 0,
+        matchStartOffset: start,
+        messageUuid: entry.messageUuid,
+        matchScore: hit.score ?? 1,
+      });
+    }
+
+    return results;
+  }
+
   private async collectFulfilledInBatches<T, R>(
     items: T[],
     batchSize: number,
@@ -331,4 +428,20 @@ export class SessionSearcher {
 
     return boundaries;
   }
+}
+
+/**
+ * Returns the first Fuse match as a [start, end) span.
+ */
+function resolveFuzzyMatchSpan(
+  indices: readonly (readonly [number, number])[] | undefined,
+  query: string,
+  textLength: number
+): { start: number; end: number } {
+  if (!indices || indices.length === 0) {
+    return { start: 0, end: Math.min(query.length, textLength) };
+  }
+
+  const [start, end] = indices[0];
+  return { start: Math.max(0, start), end: Math.min(textLength, end + 1) };
 }

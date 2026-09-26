@@ -57,6 +57,7 @@
     "date-fns": "^3.6.0",
     "electron-updater": "^6.7.3",
     "fastify": "^5.7.4",
+    "fuse.js": "^7.4.2",
     "idb-keyval": "^6.2.2",
     "lucide-react": "^0.562.0",
     "mdast-util-to-hast": "^13.2.1",

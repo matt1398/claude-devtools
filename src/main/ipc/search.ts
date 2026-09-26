@@ -72,7 +72,8 @@ async function handleSearchSessions(
   _event: IpcMainInvokeEvent,
   projectId: string,
   query: string,
-  maxResults?: number
+  maxResults?: number,
+  fuzzy?: boolean
 ): Promise<SearchSessionsResult> {
   try {
     const validatedProject = validateProjectId(projectId);
@@ -89,7 +90,8 @@ async function handleSearchSessions(
     const result = await projectScanner.searchSessions(
       validatedProject.value!,
       validatedQuery.value!,
-      safeMaxResults
+      safeMaxResults,
+      fuzzy === true
     );
     return result;
   } catch (error) {
@@ -105,7 +107,8 @@ async function handleSearchSessions(
 async function handleSearchAllProjects(
   _event: IpcMainInvokeEvent,
   query: string,
-  maxResults?: number
+  maxResults?: number,
+  fuzzy?: boolean
 ): Promise<SearchSessionsResult> {
   try {
     const validatedQuery = validateSearchQuery(query);
@@ -116,7 +119,11 @@ async function handleSearchAllProjects(
 
     const { projectScanner } = registry.getActive();
     const safeMaxResults = coerceSearchMaxResults(maxResults, 50);
-    const result = await projectScanner.searchAllProjects(validatedQuery.value!, safeMaxResults);
+    const result = await projectScanner.searchAllProjects(
+      validatedQuery.value!,
+      safeMaxResults,
+      fuzzy === true
+    );
     return result;
   } catch (error) {
     logger.error('Error in search-all-projects:', error);

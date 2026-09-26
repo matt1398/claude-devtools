@@ -362,9 +362,14 @@ export interface ElectronAPI {
   searchSessions: (
     projectId: string,
     query: string,
-    maxResults?: number
+    maxResults?: number,
+    fuzzy?: boolean
   ) => Promise<SearchSessionsResult>;
-  searchAllProjects: (query: string, maxResults?: number) => Promise<SearchSessionsResult>;
+  searchAllProjects: (
+    query: string,
+    maxResults?: number,
+    fuzzy?: boolean
+  ) => Promise<SearchSessionsResult>;
   findSessionById: (sessionId: string) => Promise<FindSessionByIdResult>;
   findSessionsByPartialId: (fragment: string) => Promise<FindSessionsByPartialIdResult>;
   /**

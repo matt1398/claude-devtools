@@ -149,10 +149,10 @@ const electronAPI: ElectronAPI = {
     limit?: number,
     options?: SessionsPaginationOptions
   ) => ipcRenderer.invoke('get-sessions-paginated', projectId, cursor, limit, options),
-  searchSessions: (projectId: string, query: string, maxResults?: number) =>
-    ipcRenderer.invoke('search-sessions', projectId, query, maxResults),
-  searchAllProjects: (query: string, maxResults?: number) =>
-    ipcRenderer.invoke('search-all-projects', query, maxResults),
+  searchSessions: (projectId: string, query: string, maxResults?: number, fuzzy?: boolean) =>
+    ipcRenderer.invoke('search-sessions', projectId, query, maxResults, fuzzy),
+  searchAllProjects: (query: string, maxResults?: number, fuzzy?: boolean) =>
+    ipcRenderer.invoke('search-all-projects', query, maxResults, fuzzy),
   findSessionById: (sessionId: string) => ipcRenderer.invoke(FIND_SESSION_BY_ID, sessionId),
   findSessionsByPartialId: (fragment: string) =>
     ipcRenderer.invoke(FIND_SESSIONS_BY_PARTIAL_ID, fragment),
