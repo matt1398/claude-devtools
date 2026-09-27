@@ -16,8 +16,26 @@ describe('modelParser', () => {
       expect(parseModelString('<synthetic>')).toBeNull();
     });
 
-    it('should return null for non-claude model', () => {
-      expect(parseModelString('gpt-4')).toBeNull();
+    it('should return null for an unsupported model', () => {
+      expect(parseModelString('unsupported-model')).toBeNull();
+    });
+
+    it('should parse MiniMax-M3', () => {
+      expect(parseModelString('MiniMax-M3')).toEqual({
+        name: 'MiniMax-M3',
+        family: 'minimax',
+        majorVersion: 3,
+        minorVersion: null,
+      });
+    });
+
+    it('should parse MiniMax-M2.7', () => {
+      expect(parseModelString('MiniMax-M2.7')).toEqual({
+        name: 'MiniMax-M2.7',
+        family: 'minimax',
+        majorVersion: 2,
+        minorVersion: 7,
+      });
     });
 
     // New format tests: claude-{family}-{major}-{minor}-{date}
