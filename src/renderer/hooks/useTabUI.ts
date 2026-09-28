@@ -46,7 +46,8 @@ interface UseTabUIReturn {
   selectedContextPhase: number | null;
   setSelectedContextPhase: (phase: number | null) => void;
   savedScrollTop: number | undefined;
-  saveScrollPosition: (scrollTop: number) => void;
+  savedAtBottom: boolean | undefined;
+  saveScrollPosition: (scrollTop: number, isAtBottom?: boolean) => void;
   initializeTabUI: () => void;
 }
 
@@ -200,11 +201,12 @@ export function useTabUI(): UseTabUIReturn {
 
   // Scroll position - derive from tabState
   const savedScrollTop = tabState?.savedScrollTop;
+  const savedAtBottom = tabState?.savedAtBottom;
 
   const saveScrollPosition = useCallback(
-    (scrollTop: number): void => {
+    (scrollTop: number, isAtBottom?: boolean): void => {
       if (!tabId) return;
-      saveScrollPositionForTab(tabId, scrollTop);
+      saveScrollPositionForTab(tabId, scrollTop, isAtBottom);
     },
     [tabId, saveScrollPositionForTab]
   );
@@ -244,6 +246,7 @@ export function useTabUI(): UseTabUIReturn {
 
     // Scroll position
     savedScrollTop,
+    savedAtBottom,
     saveScrollPosition,
 
     // Initialization
