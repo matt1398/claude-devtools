@@ -32,6 +32,25 @@ const totalMB = Math.floor(totalmem() / (1024 * 1024));
 const heapMB = Math.min(4096, Math.max(2048, Math.floor(totalMB * 0.5)));
 app.commandLine.appendSwitch('js-flags', `--max-old-space-size=${heapMB}`);
 
+// Single instance: a dockless (UIElement) app gives no way to discover zombie
+// duplicates — a second launch must summon the existing window instead.
+const appReady = false;
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      app.focus({ steal: true });
+    } else if (appReady) {
+      // last window was closed (macOS keeps the app alive) — recreate it
+      createWindow();
+    }
+    // while initialization is still pending, startup's own createWindow() covers us
+  });
+}
+
 // Window icon path for non-mac platforms.
 const getWindowIconPath = (): string | undefined => {
   const isDev = process.env.NODE_ENV === 'development';
@@ -461,6 +480,11 @@ function createWindow(): void {
     title: 'claude-devtools',
   });
 
+  // Dockless apps (showDockIcon: false → app.dock.hide()) never take front on
+  // their own: summon the window on every creation.
+  mainWindow.show();
+  app.focus({ steal: true });
+
   // Load the renderer
   if (process.env.NODE_ENV === 'development') {
     void mainWindow.loadURL(`http://localhost:${DEV_SERVER_PORT}`);
@@ -604,6 +628,7 @@ void app.whenReady().then(async () => {
 
     // Then create window
     createWindow();
+    appReady = true;
 
     // Listen for notification click events
     notificationManager.on('notification-clicked', (_error) => {
@@ -618,10 +643,15 @@ void app.whenReady().then(async () => {
       createWindow();
     }
   }
+  appReady = true;
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+    } else if (mainWindow && !mainWindow.isDestroyed()) {
+      // reopen (open -a, notification click) with a live window: summon it
+      mainWindow.show();
+      app.focus({ steal: true });
     }
   });
 });
