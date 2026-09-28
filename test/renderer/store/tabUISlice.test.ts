@@ -268,6 +268,20 @@ describe('tabUISlice', () => {
       expect(store.getState().getScrollPositionForTab('tab-1')).toBe(100);
       expect(store.getState().getScrollPositionForTab('tab-2')).toBe(200);
     });
+
+    it('should save and retrieve at-bottom status alongside scroll position', () => {
+      store.getState().initTabUIState('tab-1');
+
+      expect(store.getState().getIsAtBottomForTab('tab-1')).toBeUndefined();
+
+      store.getState().saveScrollPositionForTab('tab-1', 1500, true);
+      expect(store.getState().getScrollPositionForTab('tab-1')).toBe(1500);
+      expect(store.getState().getIsAtBottomForTab('tab-1')).toBe(true);
+
+      store.getState().saveScrollPositionForTab('tab-1', 300, false);
+      expect(store.getState().getScrollPositionForTab('tab-1')).toBe(300);
+      expect(store.getState().getIsAtBottomForTab('tab-1')).toBe(false);
+    });
   });
 
   describe('Integration with tab lifecycle', () => {
