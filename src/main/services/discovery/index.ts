@@ -13,6 +13,7 @@
 export * from './MemoryReader';
 export * from './ProjectPathResolver';
 export * from './ProjectScanner';
+export * from './ScratchpadReader';
 export * from './SearchTextCache';
 export * from './SearchTextExtractor';
 export * from './SessionContentFilter';

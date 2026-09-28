@@ -11,7 +11,15 @@ import { api } from '@renderer/api';
 import { useStore } from '@renderer/store';
 import { triggerDownload } from '@renderer/utils/sessionExporter';
 import { formatShortcut } from '@renderer/utils/stringUtils';
-import { Braces, FileText, MoreHorizontal, Search, Settings, Type } from 'lucide-react';
+import {
+  Braces,
+  FileText,
+  MoreHorizontal,
+  NotebookPen,
+  Search,
+  Settings,
+  Type,
+} from 'lucide-react';
 
 import type { Tab } from '@renderer/types/tabs';
 import type { ExportFormat } from '@renderer/utils/sessionExporter';
@@ -42,6 +50,7 @@ export const MoreMenu = ({
 
   const openCommandPalette = useStore((s) => s.openCommandPalette);
   const openSettingsTab = useStore((s) => s.openSettingsTab);
+  const openScratchpadTab = useStore((s) => s.openScratchpadTab);
 
   // Close on outside click
   useEffect(() => {
@@ -110,7 +119,30 @@ export const MoreMenu = ({
     },
   ];
 
-  const sessionItems: MenuItem[] = isSessionWithData
+  const scratchpadTarget =
+    activeTab?.type === 'session' && activeTab.projectId && activeTab.sessionId
+      ? { projectId: activeTab.projectId, sessionId: activeTab.sessionId, label: activeTab.label }
+      : null;
+
+  const scratchpadItems: MenuItem[] = scratchpadTarget
+    ? [
+        {
+          id: 'scratchpad',
+          label: 'Open Scratchpad',
+          icon: NotebookPen,
+          onClick: () => {
+            openScratchpadTab(
+              scratchpadTarget.projectId,
+              scratchpadTarget.sessionId,
+              scratchpadTarget.label
+            );
+            setIsOpen(false);
+          },
+        },
+      ]
+    : [];
+
+  const exportItems: MenuItem[] = isSessionWithData
     ? [
         {
           id: 'export-md',
@@ -135,6 +167,8 @@ export const MoreMenu = ({
         },
       ]
     : [];
+
+  const sessionItems = [...scratchpadItems, ...exportItems];
 
   const bottomItems: MenuItem[] = [
     {

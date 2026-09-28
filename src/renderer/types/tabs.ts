@@ -78,12 +78,12 @@ export interface Tab {
   id: string;
 
   /** Type of content displayed in this tab */
-  type: 'session' | 'dashboard' | 'notifications' | 'settings' | 'memory';
+  type: 'session' | 'dashboard' | 'notifications' | 'settings' | 'memory' | 'scratchpad';
 
-  /** Session ID (required when type === 'session') */
+  /** Session ID (required when type === 'session' or 'scratchpad') */
   sessionId?: string;
 
-  /** Project ID (required when type === 'session', or when type === 'memory') */
+  /** Project ID (required when type === 'session', 'memory' or 'scratchpad') */
   projectId?: string;
 
   /** Display name for the tab (max 50 chars) */

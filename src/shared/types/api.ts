@@ -478,6 +478,9 @@ export interface ElectronAPI {
 
   // Memory API — per-project Claude memory viewer
   memory: MemoryAPI;
+
+  // Scratchpad API — per-session Claude Code scratchpad directory viewer
+  scratchpad: ScratchpadAPI;
 }
 
 // =============================================================================
@@ -536,6 +539,58 @@ export interface MemoryAPI {
   ) => Promise<MemoryOpenResult>;
   copyPath: (projectId: string, fileName: string | null) => Promise<MemoryOpenResult>;
   onChanged: (callback: (event: { projectId: string }) => void) => () => void;
+}
+
+// =============================================================================
+// Scratchpad API types
+// =============================================================================
+
+export interface ScratchpadEntry {
+  name: string;
+  /** Path relative to the scratchpad root, using `/` separators */
+  relativePath: string;
+  isDirectory: boolean;
+  size: number;
+  mtimeMs: number;
+}
+
+export type ScratchpadListResult =
+  | {
+      success: true;
+      rootPath: string;
+      exists: boolean;
+      entries: ScratchpadEntry[];
+      truncated: boolean;
+    }
+  | { success: false; error: string };
+
+export type ScratchpadFileContent =
+  | { kind: 'text'; content: string; size: number; mtimeMs: number; truncated: boolean }
+  | { kind: 'image'; dataUrl: string; size: number; mtimeMs: number }
+  | { kind: 'binary'; size: number; mtimeMs: number };
+
+export type ScratchpadReadFileResult =
+  | { success: true; path: string; file: ScratchpadFileContent }
+  | { success: false; error: string };
+
+export type ScratchpadOpenResult = { success: true } | { success: false; error: string };
+
+export interface ScratchpadAPI {
+  list: (
+    projectId: string,
+    sessionId: string,
+    relativeDir: string
+  ) => Promise<ScratchpadListResult>;
+  readFile: (
+    projectId: string,
+    sessionId: string,
+    relativePath: string
+  ) => Promise<ScratchpadReadFileResult>;
+  openPath: (
+    projectId: string,
+    sessionId: string,
+    relativePath: string
+  ) => Promise<ScratchpadOpenResult>;
 }
 
 // =============================================================================

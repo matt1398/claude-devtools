@@ -146,3 +146,35 @@ export function coerceSearchMaxResults(value: unknown, defaultValue: number = 50
 export function coercePageLimit(value: unknown, defaultValue: number = 20): number {
   return coerceLimit(value, defaultValue, MAX_PAGE_LIMIT);
 }
+
+type ScratchpadArgsResult =
+  | { valid: true; projectId: string; sessionId: string; relativePath: string }
+  | { valid: false; error: string };
+
+/**
+ * Validate the (projectId, sessionId, relativePath) triple shared by every
+ * scratchpad call. A missing relativePath means the scratchpad root.
+ */
+export function validateScratchpadArgs(
+  projectId: unknown,
+  sessionId: unknown,
+  relativePath: unknown
+): ScratchpadArgsResult {
+  const projectIdResult = validateProjectId(projectId);
+  if (!projectIdResult.valid || !projectIdResult.value) {
+    return { valid: false, error: projectIdResult.error ?? 'Invalid projectId' };
+  }
+  const sessionIdResult = validateSessionId(sessionId);
+  if (!sessionIdResult.valid || !sessionIdResult.value) {
+    return { valid: false, error: sessionIdResult.error ?? 'Invalid sessionId' };
+  }
+  if (relativePath !== undefined && relativePath !== null && typeof relativePath !== 'string') {
+    return { valid: false, error: 'relativePath must be a string' };
+  }
+  return {
+    valid: true,
+    projectId: projectIdResult.value,
+    sessionId: sessionIdResult.value,
+    relativePath: relativePath ?? '',
+  };
+}

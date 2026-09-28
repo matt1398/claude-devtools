@@ -31,6 +31,11 @@ import {
   registerProjectHandlers,
   removeProjectHandlers,
 } from './projects';
+import {
+  initializeScratchpadHandlers,
+  registerScratchpadHandlers,
+  removeScratchpadHandlers,
+} from './scratchpad';
 import { initializeSearchHandlers, registerSearchHandlers, removeSearchHandlers } from './search';
 import {
   initializeSessionHandlers,
@@ -81,6 +86,7 @@ export function initializeIpcHandlers(
   initializeSshHandlers(sshManager, registry, contextCallbacks.rewire);
   initializeContextHandlers(registry, contextCallbacks.rewire);
   initializeMemoryHandlers(registry);
+  initializeScratchpadHandlers(registry);
   initializeConfigHandlers({
     onClaudeRootPathUpdated: contextCallbacks.onClaudeRootPathUpdated,
   });
@@ -98,6 +104,7 @@ export function initializeIpcHandlers(
   registerSshHandlers(ipcMain);
   registerContextHandlers(ipcMain);
   registerMemoryHandlers(ipcMain);
+  registerScratchpadHandlers(ipcMain);
   registerWindowHandlers(ipcMain);
 
   logger.info('All handlers registered');
@@ -120,6 +127,7 @@ export function removeIpcHandlers(): void {
   removeSshHandlers(ipcMain);
   removeContextHandlers(ipcMain);
   removeMemoryHandlers(ipcMain);
+  removeScratchpadHandlers(ipcMain);
   removeWindowHandlers(ipcMain);
 
   logger.info('All handlers removed');

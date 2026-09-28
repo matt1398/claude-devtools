@@ -12,6 +12,7 @@ import { registerEventRoutes } from './events';
 import { registerMemoryRoutes } from './memory';
 import { registerNotificationRoutes } from './notifications';
 import { registerProjectRoutes } from './projects';
+import { registerScratchpadRoutes } from './scratchpad';
 import { registerSearchRoutes } from './search';
 import { registerSessionRoutes } from './sessions';
 import { registerSshRoutes } from './ssh';
@@ -61,6 +62,7 @@ export function registerHttpRoutes(
   registerSshRoutes(app, services.sshConnectionManager, sshModeSwitchCallback);
   registerUpdaterRoutes(app, services);
   registerMemoryRoutes(app, services);
+  registerScratchpadRoutes(app);
   registerEventRoutes(app);
 
   logger.info('All HTTP routes registered');

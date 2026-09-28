@@ -19,6 +19,9 @@ import {
   MEMORY_LIST_OPENERS,
   MEMORY_OPEN_IN,
   MEMORY_READ_FILE,
+  SCRATCHPAD_LIST,
+  SCRATCHPAD_OPEN_PATH,
+  SCRATCHPAD_READ_FILE,
   SESSION_REFRESH,
   SSH_CONNECT,
   SSH_DISCONNECT,
@@ -78,6 +81,9 @@ import type {
   NotificationTrigger,
   OpenTarget,
   OpenTargetId,
+  ScratchpadListResult,
+  ScratchpadOpenResult,
+  ScratchpadReadFileResult,
   SessionsByIdsOptions,
   SessionsPaginationOptions,
   SshConfigHostEntry,
@@ -524,6 +530,43 @@ const electronAPI: ElectronAPI = {
         ipcRenderer.removeListener(MEMORY_CHANGED, listener);
       };
     },
+  },
+
+  // Scratchpad API
+  scratchpad: {
+    list: (
+      projectId: string,
+      sessionId: string,
+      relativeDir: string
+    ): Promise<ScratchpadListResult> =>
+      ipcRenderer.invoke(
+        SCRATCHPAD_LIST,
+        projectId,
+        sessionId,
+        relativeDir
+      ) as Promise<ScratchpadListResult>,
+    readFile: (
+      projectId: string,
+      sessionId: string,
+      relativePath: string
+    ): Promise<ScratchpadReadFileResult> =>
+      ipcRenderer.invoke(
+        SCRATCHPAD_READ_FILE,
+        projectId,
+        sessionId,
+        relativePath
+      ) as Promise<ScratchpadReadFileResult>,
+    openPath: (
+      projectId: string,
+      sessionId: string,
+      relativePath: string
+    ): Promise<ScratchpadOpenResult> =>
+      ipcRenderer.invoke(
+        SCRATCHPAD_OPEN_PATH,
+        projectId,
+        sessionId,
+        relativePath
+      ) as Promise<ScratchpadOpenResult>,
   },
 };
 

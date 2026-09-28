@@ -8,7 +8,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useStore } from '@renderer/store';
-import { Bell, BookOpen, FileText, LayoutDashboard, Pin, Search, Settings, X } from 'lucide-react';
+import {
+  Bell,
+  BookOpen,
+  FileText,
+  LayoutDashboard,
+  NotebookPen,
+  Pin,
+  Search,
+  Settings,
+  X,
+} from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 import type { Tab } from '@renderer/types/tabs';
@@ -34,6 +44,7 @@ const TAB_ICONS = {
   settings: Settings,
   session: FileText,
   memory: BookOpen,
+  scratchpad: NotebookPen,
 } as const;
 
 export const SortableTab = ({

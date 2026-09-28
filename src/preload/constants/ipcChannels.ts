@@ -210,5 +210,18 @@ export const MEMORY_COPY_PATH = 'memory:copyPath';
 /** Memory file change event (main → renderer) */
 export const MEMORY_CHANGED = 'memory:changed';
 
+// =============================================================================
+// Scratchpad API Channels
+// =============================================================================
+
+/** List one directory level of a session's scratchpad */
+export const SCRATCHPAD_LIST = 'scratchpad:list';
+
+/** Read a single scratchpad file (text, image or binary stub) */
+export const SCRATCHPAD_READ_FILE = 'scratchpad:readFile';
+
+/** Reveal a scratchpad file, or open a scratchpad directory, in the OS file manager */
+export const SCRATCHPAD_OPEN_PATH = 'scratchpad:openPath';
+
 /** Find sessions whose IDs contain a given hex fragment */
 export const FIND_SESSIONS_BY_PARTIAL_ID = 'find-sessions-by-partial-id';

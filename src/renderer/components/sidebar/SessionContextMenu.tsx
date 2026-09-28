@@ -8,7 +8,16 @@ import { useEffect, useRef, useState } from 'react';
 
 import { MAX_PANES } from '@renderer/types/panes';
 import { formatShortcut } from '@renderer/utils/stringUtils';
-import { Check, ClipboardCopy, Eye, EyeOff, Pin, PinOff, Terminal } from 'lucide-react';
+import {
+  Check,
+  ClipboardCopy,
+  Eye,
+  EyeOff,
+  NotebookPen,
+  Pin,
+  PinOff,
+  Terminal,
+} from 'lucide-react';
 
 interface SessionContextMenuProps {
   x: number;
@@ -23,6 +32,7 @@ interface SessionContextMenuProps {
   onOpenInCurrentPane: () => void;
   onOpenInNewTab: () => void;
   onSplitRightAndOpen: () => void;
+  onOpenScratchpad: () => void;
   onTogglePin: () => void;
   onToggleHide: () => void;
 }
@@ -38,6 +48,7 @@ export const SessionContextMenu = ({
   onOpenInCurrentPane,
   onOpenInNewTab,
   onSplitRightAndOpen,
+  onOpenScratchpad,
   onTogglePin,
   onToggleHide,
 }: SessionContextMenuProps): React.JSX.Element => {
@@ -62,7 +73,7 @@ export const SessionContextMenu = ({
   }, [onClose]);
 
   const menuWidth = 240;
-  const menuHeight = 290;
+  const menuHeight = 330;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
@@ -105,6 +116,11 @@ export const SessionContextMenu = ({
         label="Split Right and Open"
         onClick={handleClick(onSplitRightAndOpen)}
         disabled={atMaxPanes}
+      />
+      <MenuItem
+        label="Open Scratchpad"
+        icon={<NotebookPen className="size-4" />}
+        onClick={handleClick(onOpenScratchpad)}
       />
       <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
       <MenuItem

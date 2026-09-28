@@ -82,6 +82,7 @@ The only workaround is `--verbose`, which dumps raw JSON, internal system prompt
 | Nothing about thinking | Extended thinking content, fully visible |
 | `--verbose` JSON dump | Structured, filterable, navigable interface — no noise |
 | Per-project Claude memory hidden in `~/.claude/projects/.../memory/` | `MEMORY.md` rendered as a clickable index of layers; open any layer in your editor |
+| Session scratch files buried in `/tmp/claude-<uid>/...` | Each session's scratchpad as a live file tree, with code, Markdown and images previewed inline |
 | Copy from terminal = wrapped lines, ANSI codes, broken Markdown | Real selectable text, one-click copy on every message and code block |
 
 **Zero configuration. No API keys. No wrappers. Works with every session you've ever run.**
@@ -130,6 +131,10 @@ Copying Claude Code output from the terminal mangles it — selection wraps at t
 <img width="100%" alt="Project memory viewer with layer list, frontmatter card, and Open-in launcher" src="public/memory.png" />
 
 Claude Code stores per-project memory at `~/.claude/projects/<project>/memory/` — a `MEMORY.md` index plus one `.md` file per layer (working style, architecture notes, etc.). claude-devtools surfaces this as a sidebar entry that opens a dedicated pane: layer list on the left, full markdown rendering on the right with frontmatter shown as a metadata card, Obsidian-style `[[wikilinks]]` for cross-layer navigation, and an icon-driven "Open in…" launcher that hands any layer (or the whole memory folder) off to Finder/Explorer, Cursor, VS Code, Zed, Xcode, iTerm, Ghostty, Terminal — or copies the absolute path.
+
+### Session Scratchpad
+
+Claude Code gives every session a private scratch directory at `/tmp/claude-<uid>/<project>/<session-id>/scratchpad/` (or under `CLAUDE_CODE_TMPDIR`), where it drops drafts, downloaded data, screenshots and throwaway scripts. Right-click a session in the sidebar, or use the `⋯` menu of an open session, and choose **Open Scratchpad** to browse it: a lazily-expanded file tree on the left, and the selected file on the right — syntax-highlighted code, Markdown with a code/preview toggle, or an inline image. The view refreshes while it is open, so files a live session writes appear as they land. Local sessions only.
 
 ### [Team & Subagent Trees](https://claude-dev.tools/docs/subagents)
 

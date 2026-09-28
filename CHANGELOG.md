@@ -9,6 +9,7 @@ For the full list of merged PRs per release, see [GitHub Releases](https://githu
 ## [Unreleased]
 
 ### Added
+- Session scratchpad viewer: open a session's Claude Code scratchpad directory (`/tmp/claude-<uid>/<project>/<session-id>/scratchpad/`) in its own tab from the session context menu or the `⋯` menu, with a lazily-loaded file tree, text / Markdown / image preview, and live refresh.
 - `general.autoExpandAIGroups` setting: automatically expands all AI response groups when opening a transcript or when new AI responses arrive in a live session. Defaults to off. Persists across restarts.
 - Strict IPC input validation guards for project / session / subagent / search limits.
 - `get-waterfall-data` IPC endpoint implementation.

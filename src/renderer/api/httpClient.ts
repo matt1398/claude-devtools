@@ -30,6 +30,9 @@ import type {
   PaginatedSessionsResult,
   Project,
   RepositoryGroup,
+  ScratchpadListResult,
+  ScratchpadOpenResult,
+  ScratchpadReadFileResult,
   SearchSessionsResult,
   Session,
   SessionAPI,
@@ -642,6 +645,27 @@ export class HttpAPIClient implements ElectronAPI {
       (_callback: (event: { projectId: string }) => void): (() => void) =>
       // No file-watching push from HTTP server in v1 — return a no-op unsubscribe.
       (): void => {},
+  };
+
+  scratchpad: ElectronAPI['scratchpad'] = {
+    list: (
+      projectId: string,
+      sessionId: string,
+      relativeDir: string
+    ): Promise<ScratchpadListResult> =>
+      this.get<ScratchpadListResult>(
+        `/api/scratchpad/list?${new URLSearchParams({ projectId, sessionId, path: relativeDir }).toString()}`
+      ),
+    readFile: (
+      projectId: string,
+      sessionId: string,
+      relativePath: string
+    ): Promise<ScratchpadReadFileResult> =>
+      this.get<ScratchpadReadFileResult>(
+        `/api/scratchpad/file?${new URLSearchParams({ projectId, sessionId, path: relativePath }).toString()}`
+      ),
+    openPath: (): Promise<ScratchpadOpenResult> =>
+      Promise.resolve({ success: false, error: 'Opening files is unsupported in standalone mode' }),
   };
 
   // HTTP Server API — in browser mode, server is already running (we're using it)

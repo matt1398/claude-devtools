@@ -47,6 +47,7 @@ export interface TabSlice {
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   openDashboard: () => void;
+  openScratchpadTab: (projectId: string, sessionId: string, sessionLabel?: string) => void;
   getActiveTab: () => Tab | null;
   isSessionOpen: (sessionId: string) => boolean;
   enqueueTabNavigation: (tabId: string, request: TabNavigationRequest) => void;
@@ -379,6 +380,25 @@ export const createTabSlice: StateCreator<AppState, [], [], TabSlice> = (set, ge
     };
     const newLayout = updatePane(paneLayout, updatedPane);
     set(syncFromLayout(newLayout));
+  },
+
+  openScratchpadTab: (projectId: string, sessionId: string, sessionLabel?: string) => {
+    if (!projectId || !sessionId) return;
+    const state = get();
+    const existing = getAllTabs(state.paneLayout).find(
+      (t) => t.type === 'scratchpad' && t.sessionId === sessionId && t.projectId === projectId
+    );
+    if (existing) {
+      state.setActiveTab(existing.id);
+      return;
+    }
+    const label = `Scratchpad · ${sessionLabel ?? sessionId.slice(0, 8)}`;
+    state.openTab({
+      type: 'scratchpad',
+      projectId,
+      sessionId,
+      label: label.length > 50 ? `${label.slice(0, 49)}…` : label,
+    });
   },
 
   // Get the currently active tab (from the focused pane)
