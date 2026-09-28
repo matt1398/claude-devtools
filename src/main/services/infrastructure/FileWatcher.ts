@@ -88,6 +88,8 @@ export class FileWatcher extends EventEmitter {
   private pendingReprocess = new Set<string>();
   /** Flag to prevent reuse after disposal */
   private disposed = false;
+  /** Start time of the watcher in milliseconds to guard against historical error alerts */
+  private watcherStartTime = Date.now();
 
   constructor(
     dataCache: DataCache,
@@ -124,6 +126,20 @@ export class FileWatcher extends EventEmitter {
     this.fsProvider = provider;
   }
 
+  /**
+   * Sets the watcher start time (useful for testing).
+   */
+  setWatcherStartTime(time: number): void {
+    this.watcherStartTime = time;
+  }
+
+  /**
+   * Gets the watcher start time.
+   */
+  getWatcherStartTime(): number {
+    return this.watcherStartTime;
+  }
+
   // ===========================================================================
   // Watcher Control
   // ===========================================================================
@@ -143,6 +159,7 @@ export class FileWatcher extends EventEmitter {
     }
 
     this.isWatching = true;
+    this.watcherStartTime = Date.now();
     if (this.fsProvider.type === 'ssh') {
       this.startPollingMode();
     } else {
@@ -631,6 +648,7 @@ export class FileWatcher extends EventEmitter {
     this.processingInProgress.add(filePath);
     try {
       // Get the last processed line count for this file
+      const isFirstObservation = !this.lastProcessedLineCount.has(filePath);
       const lastLineCount = this.lastProcessedLineCount.get(filePath) ?? 0;
       const lastSize = this.lastProcessedSize.get(filePath) ?? 0;
       const fileStats = await this.fsProvider.stat(filePath);
@@ -653,12 +671,20 @@ export class FileWatcher extends EventEmitter {
         processedSize = lastSize + appended.consumedBytes;
       } else {
         // Fallback for first-read, truncation, or rewrite scenarios
-        const messages = await parseJsonlFile(filePath);
+        const messages = await parseJsonlFile(filePath, this.fsProvider);
         currentLineCount = messages.length;
         newMessages = messages.slice(lastLineCount);
         // Re-stat after full parse to capture bytes written during the parse
         const postParseStats = await this.fsProvider.stat(filePath);
         processedSize = postParseStats.size;
+
+        if (isFirstObservation) {
+          // If first time observing an existing session file that was not seeded,
+          // ignore historical messages that occurred before the watcher started.
+          newMessages = newMessages.filter(
+            (msg) => msg.timestamp && msg.timestamp.getTime() >= this.watcherStartTime
+          );
+        }
       }
 
       // If no new lines, skip processing
@@ -862,20 +888,54 @@ export class FileWatcher extends EventEmitter {
         }
 
         for (const entry of entries) {
-          if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
-
-          const fullPath = path.join(projectPath, entry.name);
-          try {
-            const stats = await this.fsProvider.stat(fullPath);
-            if (now - stats.mtimeMs <= CATCH_UP_MAX_AGE_MS) {
-              const sessionId = path.basename(entry.name, '.jsonl');
-              this.activeSessionFiles.set(fullPath, {
-                projectId: dir.name,
-                sessionId,
-              });
+          if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+            const fullPath = path.join(projectPath, entry.name);
+            try {
+              const stats = await this.fsProvider.stat(fullPath);
+              if (now - stats.mtimeMs <= CATCH_UP_MAX_AGE_MS) {
+                const sessionId = path.basename(entry.name, '.jsonl');
+                this.activeSessionFiles.set(fullPath, {
+                  projectId: dir.name,
+                  sessionId,
+                });
+                this.lastProcessedSize.set(fullPath, stats.size);
+                const messages = await parseJsonlFile(fullPath, this.fsProvider);
+                this.lastProcessedLineCount.set(fullPath, messages.length);
+              }
+            } catch {
+              continue;
             }
-          } catch {
-            continue;
+          } else if (entry.isDirectory()) {
+            // Check for subagents in session directory: <sessionId>/subagents/*.jsonl
+            const subagentsDir = path.join(projectPath, entry.name, 'subagents');
+            try {
+              if (await this.fsProvider.exists(subagentsDir)) {
+                const subagentEntries = await this.fsProvider.readdir(subagentsDir);
+                for (const subEntry of subagentEntries) {
+                  if (!subEntry.isFile() || !subEntry.name.endsWith('.jsonl')) continue;
+
+                  const subFullPath = path.join(subagentsDir, subEntry.name);
+                  try {
+                    const subStats = await this.fsProvider.stat(subFullPath);
+                    if (now - subStats.mtimeMs <= CATCH_UP_MAX_AGE_MS) {
+                      const subagentId = path.basename(subEntry.name, '.jsonl').replace(/^agent-/, '');
+                      this.activeSessionFiles.set(subFullPath, {
+                        projectId: dir.name,
+                        sessionId: entry.name,
+                        subagentId,
+                      });
+                      this.lastProcessedSize.set(subFullPath, subStats.size);
+                      const subMessages = await parseJsonlFile(subFullPath, this.fsProvider);
+                      this.lastProcessedLineCount.set(subFullPath, subMessages.length);
+                    }
+                  } catch {
+                    continue;
+                  }
+                }
+              }
+            } catch {
+              continue;
+            }
           }
         }
       }
