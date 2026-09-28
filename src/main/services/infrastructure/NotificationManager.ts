@@ -90,10 +90,26 @@ export class NotificationManager extends EventEmitter {
   private mainWindow: BrowserWindow | null = null;
   private throttleMap = new Map<string, number>();
   private isInitialized: boolean = false;
+  /** Manager start time in ms to ignore historical errors from before launch */
+  private startTime: number = Date.now();
 
   constructor(configManager?: ConfigManager) {
     super();
     this.configManager = configManager ?? ConfigManager.getInstance();
+  }
+
+  /**
+   * Sets the manager start time (useful for testing).
+   */
+  setStartTime(time: number): void {
+    this.startTime = time;
+  }
+
+  /**
+   * Gets the manager start time.
+   */
+  getStartTime(): number {
+    return this.startTime;
   }
 
   // ===========================================================================
@@ -347,6 +363,11 @@ export class NotificationManager extends EventEmitter {
       return false;
     }
 
+    // Do not notify for historical errors that occurred before manager started
+    if (error.timestamp && error.timestamp < this.startTime) {
+      return false;
+    }
+
     // Check if error is from an ignored repository
     if (await this.isFromIgnoredRepository(error)) {
       return false;
@@ -451,6 +472,11 @@ export class NotificationManager extends EventEmitter {
    * @returns The stored notification, or null if filtered/throttled
    */
   async addError(error: DetectedError): Promise<StoredNotification | null> {
+    // Drop historical errors from before this notification manager was started
+    if (error.timestamp && error.timestamp < this.startTime) {
+      return null;
+    }
+
     // Deduplicate by toolUseId: the same tool call can appear in both the
     // subagent JSONL file and the parent session JSONL (as a progress event).
     // Keep the subagent-annotated version (with subagentId) when possible.
