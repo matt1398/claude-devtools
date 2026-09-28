@@ -17,7 +17,9 @@ export function extractToolCalls(content: ContentBlock[] | string): ToolCall[] {
   for (const block of content) {
     if (block.type === 'tool_use' && block.id && block.name) {
       const input = block.input ?? {};
-      const isTask = block.name === 'Task';
+      // Claude Code 2.1.63 renamed the Task tool to Agent (same input schema;
+      // docs: code.claude.com/docs/en/sub-agents.md)
+      const isTask = block.name === 'Task' || block.name === 'Agent';
 
       const toolCall: ToolCall = {
         id: block.id,
