@@ -45,7 +45,9 @@
     "test:coverage:critical": "vitest run --coverage --config vitest.critical.config.ts",
     "standalone": "tsx src/main/standalone.ts",
     "standalone:build": "electron-vite build && vite build --config vite.standalone.config.ts",
-    "standalone:start": "node dist-standalone/index.cjs"
+    "standalone:start": "node dist-standalone/index.cjs",
+    "standalone:kill": "PIDS=$(lsof -ti :3456); [ -n \"$PIDS\" ] && kill -9 $PIDS || true",
+    "standalone:restart": "pnpm standalone:kill && pnpm standalone:build && pnpm standalone:start"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

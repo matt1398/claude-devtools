@@ -117,6 +117,7 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
   let role: string | undefined;
   let usage: TokenUsage | undefined;
   let model: string | undefined;
+  let advisorModel: string | undefined;
   let requestId: string | undefined;
   let cwd: string | undefined;
   let gitBranch: string | undefined;
@@ -155,6 +156,7 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
       role = entry.message.role;
       usage = entry.message.usage;
       model = entry.message.model;
+      advisorModel = entry.advisorModel;
       agentId = entry.agentId;
       requestId = entry.requestId;
     } else if (entry.type === 'system') {
@@ -175,6 +177,7 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
     content,
     usage,
     model,
+    advisorModel,
     // Metadata
     cwd,
     gitBranch,

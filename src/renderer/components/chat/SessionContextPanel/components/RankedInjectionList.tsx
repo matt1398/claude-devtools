@@ -10,6 +10,7 @@ import React, { useMemo, useState } from 'react';
 
 import { CopyButton } from '@renderer/components/common/CopyButton';
 import { COLOR_TEXT_MUTED, COLOR_TEXT_SECONDARY } from '@renderer/constants/cssVariables';
+import { capitalize } from '@renderer/utils/stringUtils';
 import { ChevronRight } from 'lucide-react';
 
 import { formatTokens } from '../utils/formatting';
@@ -165,7 +166,7 @@ const ToolOutputRankedItem = ({
                 className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium"
                 style={{ backgroundColor: categoryInfo.bg, color: categoryInfo.text }}
               >
-                {tool.toolName}
+                {capitalize(tool.toolName)}
               </span>
               <span className="flex-1" />
               <span

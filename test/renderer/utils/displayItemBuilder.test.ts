@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { buildDisplayItemsFromMessages } from '../../../src/renderer/utils/displayItemBuilder';
 import type { ParsedMessage } from '../../../src/main/types/messages';
+import {
+  ADVISOR_CALL_ID,
+  ADVISOR_MODEL,
+  ADVISOR_TEXT,
+  advisorCallMessage,
+  advisorResultMessage,
+} from '../../mocks/advisorBlocks.fixture';
 
 /**
  * Helper to create a minimal ParsedMessage for testing.
  */
-function makeMessage(overrides: Partial<ParsedMessage> & Pick<ParsedMessage, 'type' | 'content'>): ParsedMessage {
+function makeMessage(
+  overrides: Partial<ParsedMessage> & Pick<ParsedMessage, 'type' | 'content'>
+): ParsedMessage {
   return {
     uuid: `msg-${Math.random().toString(36).slice(2, 8)}`,
     parentUuid: null,
@@ -94,6 +103,41 @@ describe('buildDisplayItemsFromMessages', () => {
       expect(inputItems).toHaveLength(1);
       if (inputItems[0].type !== 'subagent_input') throw new Error('Expected subagent_input');
       expect(inputItems[0].content).toBe('Please run the tests');
+    });
+  });
+
+  describe('advisor blocks (server_tool_use + advisor_tool_result)', () => {
+    it('produces a tool display item for the advisor call+result pair', () => {
+      const items = buildDisplayItemsFromMessages([advisorCallMessage, advisorResultMessage], []);
+
+      const toolItems = items.filter((item) => item.type === 'tool');
+      expect(toolItems).toHaveLength(1);
+
+      const item = toolItems[0];
+      if (item.type !== 'tool') throw new Error('Expected tool item');
+      expect(item.tool.name).toBe('advisor');
+      expect(item.tool.isOrphaned).toBe(false);
+    });
+
+    it('sets the result content from advisor_tool_result text', () => {
+      const items = buildDisplayItemsFromMessages([advisorCallMessage, advisorResultMessage], []);
+      const toolItem = items.find((i) => i.type === 'tool' && i.tool.name === 'advisor');
+      if (toolItem?.type !== 'tool') throw new Error('Expected tool item');
+      expect(toolItem.tool.result?.content).toBe(ADVISOR_TEXT);
+    });
+
+    it('carries sourceModel on the tool item', () => {
+      const items = buildDisplayItemsFromMessages([advisorCallMessage, advisorResultMessage], []);
+      const toolItem = items.find((i) => i.type === 'tool' && i.tool.name === 'advisor');
+      if (toolItem?.type !== 'tool') throw new Error('Expected tool item');
+      expect(toolItem.tool.sourceModel).toBe(ADVISOR_MODEL);
+    });
+
+    it('uses ADVISOR_CALL_ID as the tool id', () => {
+      const items = buildDisplayItemsFromMessages([advisorCallMessage, advisorResultMessage], []);
+      const toolItem = items.find((i) => i.type === 'tool' && i.tool.name === 'advisor');
+      if (toolItem?.type !== 'tool') throw new Error('Expected tool item');
+      expect(toolItem.tool.id).toBe(ADVISOR_CALL_ID);
     });
   });
 });

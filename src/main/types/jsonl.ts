@@ -20,7 +20,14 @@ type EntryType =
   | 'file-history-snapshot'
   | 'queue-operation';
 
-type ContentType = 'text' | 'thinking' | 'tool_use' | 'tool_result' | 'image';
+type ContentType =
+  | 'text'
+  | 'thinking'
+  | 'tool_use'
+  | 'tool_result'
+  | 'image'
+  | 'server_tool_use'
+  | 'advisor_tool_result';
 
 type StopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'stop_sequence' | null;
 
@@ -66,12 +73,27 @@ export interface ImageContent extends BaseContent {
   };
 }
 
+export interface ServerToolUseContent extends BaseContent {
+  type: 'server_tool_use';
+  id: string;
+  name: string;
+  input?: Record<string, unknown>;
+}
+
+export interface AdvisorToolResultContent extends BaseContent {
+  type: 'advisor_tool_result';
+  tool_use_id: string;
+  content: { type: 'advisor_result'; text: string };
+}
+
 export type ContentBlock =
   | TextContent
   | ThinkingContent
   | ToolUseContent
   | ToolResultContent
-  | ImageContent;
+  | ImageContent
+  | ServerToolUseContent
+  | AdvisorToolResultContent;
 
 // =============================================================================
 // Usage Metadata
@@ -178,6 +200,7 @@ export interface AssistantEntry extends ConversationalEntry {
   message: AssistantMessage;
   requestId: string;
   agentId?: string;
+  advisorModel?: string;
 }
 
 export interface SystemEntry extends ConversationalEntry {
