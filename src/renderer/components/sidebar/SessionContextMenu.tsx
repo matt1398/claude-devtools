@@ -8,7 +8,17 @@ import { useEffect, useRef, useState } from 'react';
 
 import { MAX_PANES } from '@renderer/types/panes';
 import { formatShortcut } from '@renderer/utils/stringUtils';
-import { Check, ClipboardCopy, Eye, EyeOff, Pin, PinOff, Terminal } from 'lucide-react';
+import {
+  Check,
+  ClipboardCopy,
+  Eye,
+  EyeOff,
+  FolderOpen,
+  Pin,
+  PinOff,
+  Terminal,
+  Trash2,
+} from 'lucide-react';
 
 interface SessionContextMenuProps {
   x: number;
@@ -25,6 +35,9 @@ interface SessionContextMenuProps {
   onSplitRightAndOpen: () => void;
   onTogglePin: () => void;
   onToggleHide: () => void;
+  onOpenSessionPath: () => void;
+  onResolveSessionPath: () => Promise<string | null>;
+  onDeleteSession: () => void;
 }
 
 export const SessionContextMenu = ({
@@ -40,9 +53,12 @@ export const SessionContextMenu = ({
   onSplitRightAndOpen,
   onTogglePin,
   onToggleHide,
+  onOpenSessionPath,
+  onResolveSessionPath,
+  onDeleteSession,
 }: SessionContextMenuProps): React.JSX.Element => {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [copiedField, setCopiedField] = useState<'id' | 'command' | null>(null);
+  const [copiedField, setCopiedField] = useState<'id' | 'command' | 'path' | null>(null);
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent): void => {
@@ -62,7 +78,7 @@ export const SessionContextMenu = ({
   }, [onClose]);
 
   const menuWidth = 240;
-  const menuHeight = 290;
+  const menuHeight = 400;
   const clampedX = Math.min(x, window.innerWidth - menuWidth - 8);
   const clampedY = Math.min(y, window.innerHeight - menuHeight - 8);
 
@@ -81,6 +97,24 @@ export const SessionContextMenu = ({
       }, 600);
     } catch {
       // Silently fail
+    }
+  };
+
+  const handleCopyPath = async (): Promise<void> => {
+    const path = await onResolveSessionPath();
+    if (!path) {
+      onClose();
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopiedField('path');
+      setTimeout(() => {
+        setCopiedField(null);
+        onClose();
+      }, 600);
+    } catch {
+      onClose();
     }
   };
 
@@ -140,6 +174,30 @@ export const SessionContextMenu = ({
         }
         onClick={handleCopy(`claude --resume ${sessionId}`, 'command')}
       />
+      <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
+      <MenuItem
+        label="Open Session Path"
+        icon={<FolderOpen className="size-4" />}
+        onClick={handleClick(onOpenSessionPath)}
+      />
+      <MenuItem
+        label={copiedField === 'path' ? 'Copied!' : 'Copy Full Session Path'}
+        icon={
+          copiedField === 'path' ? (
+            <Check className="size-4 text-green-400" />
+          ) : (
+            <ClipboardCopy className="size-4" />
+          )
+        }
+        onClick={() => void handleCopyPath()}
+      />
+      <div className="mx-2 my-1 border-t" style={{ borderColor: 'var(--color-border)' }} />
+      <MenuItem
+        label="Delete Session"
+        icon={<Trash2 className="size-4" />}
+        onClick={handleClick(onDeleteSession)}
+        danger
+      />
     </div>
   );
 };
@@ -150,19 +208,21 @@ const MenuItem = ({
   icon,
   onClick,
   disabled,
+  danger,
 }: {
   label: string;
   shortcut?: string;
   icon?: React.ReactNode;
   onClick: () => void;
   disabled?: boolean;
+  danger?: boolean;
 }): React.JSX.Element => {
   return (
     <button
       className="flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition-colors hover:bg-[var(--color-surface-raised)]"
       onClick={onClick}
       disabled={disabled}
-      style={{ opacity: disabled ? 0.4 : 1 }}
+      style={{ opacity: disabled ? 0.4 : 1, color: danger ? 'rgb(248, 113, 113)' : undefined }}
     >
       <span className="flex items-center gap-2">
         {icon}
