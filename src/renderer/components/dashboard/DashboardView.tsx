@@ -13,13 +13,15 @@ import { api } from '@renderer/api';
 import { useStore } from '@renderer/store';
 import { formatShortcut } from '@renderer/utils/stringUtils';
 import { createLogger } from '@shared/utils/logger';
+import { formatDistanceToNow } from 'date-fns';
+import { Command, FolderGit2, FolderOpen, GitBranch, Search, Settings } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
 const logger = createLogger('Component:DashboardView');
-import { formatDistanceToNow } from 'date-fns';
-import { Command, FolderGit2, FolderOpen, GitBranch, Search, Settings } from 'lucide-react';
 
 import type { RepositoryGroup } from '@renderer/types/data';
+
+import { RoiBlock } from './RoiBlock';
 
 // =============================================================================
 // Command Search Input
@@ -408,8 +410,13 @@ export const DashboardView = (): React.JSX.Element => {
       {/* Content */}
       <div className="relative mx-auto max-w-5xl px-8 py-12">
         {/* Command Search */}
-        <div className="mb-12">
+        <div className="mb-8">
           <CommandSearch value={searchQuery} onChange={setSearchQuery} />
+        </div>
+
+        {/* Subscription ROI block */}
+        <div className="mb-8">
+          <RoiBlock />
         </div>
 
         {/* Section header */}

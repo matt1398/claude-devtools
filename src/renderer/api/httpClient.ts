@@ -45,6 +45,7 @@ import type {
   SubagentDetail,
   TriggerTestResult,
   UpdaterAPI,
+  UsageStats,
   WaterfallData,
   WslClaudeRootCandidate,
 } from '@shared/types';
@@ -284,6 +285,9 @@ export class HttpAPIClient implements ElectronAPI {
 
   getWorktreeSessions = (worktreeId: string): Promise<Session[]> =>
     this.get<Session[]>(`/api/worktrees/${encodeURIComponent(worktreeId)}/sessions`);
+
+  getUsageStats = (year: number, month: number): Promise<UsageStats> =>
+    this.get(`/api/usage-stats?year=${year}&month=${month}`);
 
   // ---------------------------------------------------------------------------
   // Validation

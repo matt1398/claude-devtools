@@ -132,4 +132,92 @@ describe('configValidation', () => {
       });
     }
   });
+
+  describe('subscriptions section', () => {
+    const validEntry = {
+      id: 'entry-1',
+      date: '2026-03-05',
+      plan: 'Pro',
+      amountUsd: 20,
+    };
+
+    it('accepts valid subscriptions update with empty entries', () => {
+      const result = validateConfigUpdatePayload('subscriptions', { entries: [] });
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.section).toBe('subscriptions');
+        expect(result.data).toEqual({ entries: [] });
+      }
+    });
+
+    it('accepts valid subscriptions update with one entry', () => {
+      const result = validateConfigUpdatePayload('subscriptions', { entries: [validEntry] });
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.data.entries).toHaveLength(1);
+        expect(result.data.entries?.[0]).toMatchObject(validEntry);
+      }
+    });
+
+    it('accepts entry with optional note field', () => {
+      const entryWithNote = { ...validEntry, note: 'annual plan charge' };
+      const result = validateConfigUpdatePayload('subscriptions', { entries: [entryWithNote] });
+      expect(result.valid).toBe(true);
+    });
+
+    it('accepts multiple entries in the same month', () => {
+      const entries = [
+        validEntry,
+        { id: 'entry-2', date: '2026-03-27', plan: 'Max', amountUsd: 100 },
+      ];
+      const result = validateConfigUpdatePayload('subscriptions', { entries });
+      expect(result.valid).toBe(true);
+      if (result.valid) {
+        expect(result.data.entries).toHaveLength(2);
+      }
+    });
+
+    it('rejects subscriptions update that is not an object', () => {
+      const result = validateConfigUpdatePayload('subscriptions', 'bad');
+      expect(result.valid).toBe(false);
+    });
+
+    it('rejects subscriptions update without entries field', () => {
+      const result = validateConfigUpdatePayload('subscriptions', { something: [] });
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.error).toContain('entries');
+      }
+    });
+
+    it('rejects entry with missing id', () => {
+      const bad = { date: '2026-03-05', plan: 'Pro', amountUsd: 20 };
+      const result = validateConfigUpdatePayload('subscriptions', { entries: [bad] });
+      expect(result.valid).toBe(false);
+    });
+
+    it('rejects entry with invalid date format', () => {
+      const bad = { ...validEntry, date: '03-05-2026' };
+      const result = validateConfigUpdatePayload('subscriptions', { entries: [bad] });
+      expect(result.valid).toBe(false);
+    });
+
+    it('rejects entry with zero amount', () => {
+      const bad = { ...validEntry, amountUsd: 0 };
+      const result = validateConfigUpdatePayload('subscriptions', { entries: [bad] });
+      expect(result.valid).toBe(false);
+    });
+
+    it('rejects entry with negative amount', () => {
+      const bad = { ...validEntry, amountUsd: -5 };
+      const result = validateConfigUpdatePayload('subscriptions', { entries: [bad] });
+      expect(result.valid).toBe(false);
+    });
+
+    it('rejects entry with non-string note', () => {
+      const bad = { ...validEntry, note: 123 };
+      const result = validateConfigUpdatePayload('subscriptions', { entries: [bad] });
+      expect(result.valid).toBe(false);
+    });
+  });
 });
