@@ -4,6 +4,7 @@
  * Exports all specialized tool viewer components.
  */
 
+export { BashToolViewer } from './BashToolViewer';
 export { CollapsibleOutputSection } from './CollapsibleOutputSection';
 export { DefaultToolViewer } from './DefaultToolViewer';
 export { EditToolViewer } from './EditToolViewer';
