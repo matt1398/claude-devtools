@@ -13,10 +13,8 @@ pnpm test                 # Run all vitest tests
 pnpm test:watch           # Watch mode
 pnpm test:coverage        # Coverage report
 pnpm test:coverage:critical # Critical path coverage
-pnpm test:chunks          # Chunk building tests
-pnpm test:semantic        # Semantic step extraction
-pnpm test:noise           # Noise filtering tests
-pnpm test:task-filtering  # Task tool filtering
+pnpm test:chunks          # Chunk building tests (ChunkBuilder)
+pnpm test:noise           # Noise filtering tests (MessageClassifier)
 ```
 
 ## Test Structure

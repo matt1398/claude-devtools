@@ -18,10 +18,8 @@ Always use pnpm (not npm/yarn) for this project.
 - `pnpm test:watch` - Watch mode
 - `pnpm test:coverage` - Coverage report
 - `pnpm test:coverage:critical` - Critical path coverage
-- `pnpm test:chunks` - Chunk building tests
-- `pnpm test:semantic` - Semantic step extraction tests
-- `pnpm test:noise` - Noise filtering tests
-- `pnpm test:task-filtering` - Task tool filtering tests
+- `pnpm test:chunks` - Chunk building tests (ChunkBuilder)
+- `pnpm test:noise` - Noise filtering tests (MessageClassifier)
 
 ## Path Aliases
 Use path aliases for imports:
