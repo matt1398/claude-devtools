@@ -6,11 +6,18 @@ import { ChevronRight } from 'lucide-react';
 
 import { formatDuration, formatTokens, getStatusDotColor } from './baseItemHelpers';
 
+import type { ToolFieldKey } from '@renderer/utils/conversationExtractor';
+
 // =============================================================================
 // Types
 // =============================================================================
 
 export type ItemStatus = 'ok' | 'error' | 'pending' | 'orphaned';
+
+export interface BaseItemExportSelection {
+  getField: (f: ToolFieldKey) => boolean;
+  toggleField: (f: ToolFieldKey) => void;
+}
 
 interface BaseItemProps {
   /** Icon component to display */
@@ -41,6 +48,8 @@ interface BaseItemProps {
   notificationDotColor?: TriggerColor;
   /** Children rendered when expanded */
   children?: React.ReactNode;
+  /** When set, renders inline field checkboxes for export selection mode */
+  exportSelection?: BaseItemExportSelection;
 }
 
 // =============================================================================
@@ -58,6 +67,28 @@ export const StatusDot: React.FC<{ status: ItemStatus }> = ({ status }) => {
     />
   );
 };
+
+// Checkbox that stops click propagation so it doesn't expand/collapse the item.
+const FieldCheckbox: React.FC<{ checked: boolean; onChange: () => void; title: string }> = ({
+  checked,
+  onChange,
+  title,
+}) => (
+  <span
+    className="shrink-0"
+    onClick={(e) => e.stopPropagation()}
+    onKeyDown={(e) => e.stopPropagation()}
+  >
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      title={title}
+      aria-label={title}
+      className="cursor-pointer accent-indigo-500"
+    />
+  </span>
+);
 
 // =============================================================================
 // Main Component
@@ -87,6 +118,7 @@ export const BaseItem: React.FC<BaseItemProps> = ({
   highlightStyle,
   notificationDotColor,
   children,
+  exportSelection,
 }) => {
   return (
     <div
@@ -118,6 +150,15 @@ export const BaseItem: React.FC<BaseItemProps> = ({
           {icon}
         </span>
 
+        {/* Name field checkbox — before the label */}
+        {exportSelection && (
+          <FieldCheckbox
+            checked={exportSelection.getField('name')}
+            onChange={() => exportSelection.toggleField('name')}
+            title="Include tool name in copy"
+          />
+        )}
+
         {/* Label */}
         <span className="text-sm font-medium" style={{ color: 'var(--tool-item-name)' }}>
           {label}
@@ -129,6 +170,14 @@ export const BaseItem: React.FC<BaseItemProps> = ({
             <span className="text-sm" style={{ color: TOOL_ITEM_MUTED }}>
               -
             </span>
+            {/* Intent/summary field checkbox — before the summary text */}
+            {exportSelection && (
+              <FieldCheckbox
+                checked={exportSelection.getField('summary')}
+                onChange={() => exportSelection.toggleField('summary')}
+                title="Include intent in copy"
+              />
+            )}
             <span className="flex-1 truncate text-sm" style={{ color: 'var(--tool-item-summary)' }}>
               {summary}
             </span>

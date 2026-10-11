@@ -11,7 +11,15 @@ import { api } from '@renderer/api';
 import { useStore } from '@renderer/store';
 import { triggerDownload } from '@renderer/utils/sessionExporter';
 import { formatShortcut } from '@renderer/utils/stringUtils';
-import { Braces, FileText, MoreHorizontal, Search, Settings, Type } from 'lucide-react';
+import {
+  Braces,
+  ClipboardList,
+  FileText,
+  MoreHorizontal,
+  Search,
+  Settings,
+  Type,
+} from 'lucide-react';
 
 import type { Tab } from '@renderer/types/tabs';
 import type { ExportFormat } from '@renderer/utils/sessionExporter';
@@ -42,6 +50,7 @@ export const MoreMenu = ({
 
   const openCommandPalette = useStore((s) => s.openCommandPalette);
   const openSettingsTab = useStore((s) => s.openSettingsTab);
+  const openExportSelectionMode = useStore((s) => s.openExportSelectionMode);
 
   // Close on outside click
   useEffect(() => {
@@ -112,6 +121,15 @@ export const MoreMenu = ({
 
   const sessionItems: MenuItem[] = isSessionWithData
     ? [
+        {
+          id: 'selective-copy',
+          label: 'Select & Copy…',
+          icon: ClipboardList,
+          onClick: () => {
+            openExportSelectionMode();
+            setIsOpen(false);
+          },
+        },
         {
           id: 'export-md',
           label: exportLoading ? 'Exporting…' : 'Export as Markdown',

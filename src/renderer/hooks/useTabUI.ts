@@ -35,9 +35,13 @@ interface UseTabUIReturn {
   isAIGroupExpanded: (aiGroupId: string) => boolean;
   toggleAIGroupExpansion: (aiGroupId: string) => void;
   expandAIGroup: (aiGroupId: string) => void;
+  expandAllAIGroups: (aiGroupIds: string[]) => void;
+  expandAllSignal: number;
+  triggerExpandAll: () => void;
   getExpandedDisplayItemIds: (aiGroupId: string) => Set<string>;
   toggleDisplayItemExpansion: (aiGroupId: string, itemId: string) => void;
   expandDisplayItem: (aiGroupId: string, itemId: string) => void;
+  expandMany: (aiGroupId: string, itemIds: string[], subagentIds: string[]) => void;
   isSubagentTraceExpanded: (subagentId: string) => boolean;
   toggleSubagentTraceExpansion: (subagentId: string) => void;
   expandSubagentTrace: (subagentId: string) => void;
@@ -77,8 +81,11 @@ export function useTabUI(): UseTabUIReturn {
   const {
     toggleAIGroupExpansionForTab,
     expandAIGroupForTab,
+    expandAllAIGroupsForTab,
+    triggerExpandAllForTab,
     toggleDisplayItemExpansionForTab,
     expandDisplayItemForTab,
+    expandManyForTab,
     toggleSubagentTraceExpansionForTab,
     expandSubagentTraceForTab,
     setContextPanelVisibleForTab,
@@ -89,8 +96,11 @@ export function useTabUI(): UseTabUIReturn {
     useShallow((s) => ({
       toggleAIGroupExpansionForTab: s.toggleAIGroupExpansionForTab,
       expandAIGroupForTab: s.expandAIGroupForTab,
+      expandAllAIGroupsForTab: s.expandAllAIGroupsForTab,
+      triggerExpandAllForTab: s.triggerExpandAllForTab,
       toggleDisplayItemExpansionForTab: s.toggleDisplayItemExpansionForTab,
       expandDisplayItemForTab: s.expandDisplayItemForTab,
+      expandManyForTab: s.expandManyForTab,
       toggleSubagentTraceExpansionForTab: s.toggleSubagentTraceExpansionForTab,
       expandSubagentTraceForTab: s.expandSubagentTraceForTab,
       setContextPanelVisibleForTab: s.setContextPanelVisibleForTab,
@@ -128,6 +138,21 @@ export function useTabUI(): UseTabUIReturn {
     [tabId, expandAIGroupForTab]
   );
 
+  const expandAllAIGroups = useCallback(
+    (aiGroupIds: string[]): void => {
+      if (!tabId) return;
+      expandAllAIGroupsForTab(tabId, aiGroupIds);
+    },
+    [tabId, expandAllAIGroupsForTab]
+  );
+
+  const expandAllSignal = tabState?.expandAllSignal ?? 0;
+
+  const triggerExpandAll = useCallback((): void => {
+    if (!tabId) return;
+    triggerExpandAllForTab(tabId);
+  }, [tabId, triggerExpandAllForTab]);
+
   // Display item expansion - derive from tabState
   const getExpandedDisplayItemIds = useCallback(
     (aiGroupId: string): Set<string> => {
@@ -150,6 +175,14 @@ export function useTabUI(): UseTabUIReturn {
       expandDisplayItemForTab(tabId, aiGroupId, itemId);
     },
     [tabId, expandDisplayItemForTab]
+  );
+
+  const expandMany = useCallback(
+    (aiGroupId: string, itemIds: string[], subagentIds: string[]): void => {
+      if (!tabId) return;
+      expandManyForTab(tabId, aiGroupId, itemIds, subagentIds);
+    },
+    [tabId, expandManyForTab]
   );
 
   // Subagent trace expansion - derive from tabState
@@ -223,11 +256,15 @@ export function useTabUI(): UseTabUIReturn {
     isAIGroupExpanded,
     toggleAIGroupExpansion,
     expandAIGroup,
+    expandAllAIGroups,
+    expandAllSignal,
+    triggerExpandAll,
 
     // Display item expansion
     getExpandedDisplayItemIds,
     toggleDisplayItemExpansion,
     expandDisplayItem,
+    expandMany,
 
     // Subagent trace expansion
     isSubagentTraceExpanded,
