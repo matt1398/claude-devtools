@@ -12,7 +12,7 @@
 
 import { type FileChangeEvent, type ParsedMessage } from '@main/types';
 import { parseJsonlFile, parseJsonlLine } from '@main/utils/jsonl';
-import { getProjectsBasePath, getTodosBasePath } from '@main/utils/pathDecoder';
+import { getClaudeBasePath, getProjectsBasePath, getTodosBasePath } from '@main/utils/pathDecoder';
 import { createLogger } from '@shared/utils/logger';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
@@ -39,6 +39,8 @@ const WATCHER_RETRY_MS = 2000;
 const CATCH_UP_INTERVAL_MS = 30_000;
 /** Only catch-up scan files modified within this window */
 const CATCH_UP_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+/** Throttle for catch-up cursor writes (crash gap bounded to this window) */
+const CATCHUP_CURSOR_WRITE_MS = 120_000;
 
 interface AppendedParseResult {
   messages: ParsedMessage[];
@@ -72,6 +74,10 @@ export class FileWatcher extends EventEmitter {
   private activeSessionFiles = new Map<string, ActiveSessionFile>();
   /** Timer for periodic catch-up scan */
   private catchUpTimer: NodeJS.Timeout | null = null;
+  /** Catch-up cursor file path (injectable for tests) */
+  private catchupCursorPath: string;
+  /** Timestamp of the last cursor write — throttles runtime cursor advance */
+  private lastCursorWriteAt = 0;
   /** Timer for SSH polling mode (replaces fs.watch) */
   private pollingTimer: NodeJS.Timeout | null = null;
   /** Polling interval for SSH mode */
@@ -100,6 +106,14 @@ export class FileWatcher extends EventEmitter {
     this.todosPath = todosPath ?? getTodosBasePath();
     this.dataCache = dataCache;
     this.fsProvider = fsProvider ?? new LocalFileSystemProvider();
+    this.catchupCursorPath = path.join(getClaudeBasePath(), 'claude-devtools-catchup.json');
+  }
+
+  /**
+   * Overrides the catch-up cursor location (used by tests).
+   */
+  setCatchupCursorPath(catchupCursorPath: string): void {
+    this.catchupCursorPath = catchupCursorPath;
   }
 
   /**
@@ -903,9 +917,13 @@ export class FileWatcher extends EventEmitter {
     }
 
     this.catchUpTimer = setInterval(() => {
-      this.runCatchUpScan().catch((err) => {
-        logger.error('Error during catch-up scan:', err);
-      });
+      // Advance the cursor only after the scan certifies the window —
+      // advancing first would mark unprocessed growth as processed on a kill
+      this.runCatchUpScan()
+        .then(() => this.advanceCatchupCursorThrottled())
+        .catch((err) => {
+          logger.error('Error during catch-up scan:', err);
+        });
     }, CATCH_UP_INTERVAL_MS);
   }
 
@@ -950,6 +968,158 @@ export class FileWatcher extends EventEmitter {
         }
       }
     }
+  }
+
+  // ===========================================================================
+  // Startup Catch-Up Scan
+  // ===========================================================================
+
+  /**
+   * Reads the catch-up cursor (epoch ms): everything at or before it was
+   * processed by a previous startup scan or by live watching. Missing or
+   * corrupt cursor file = no cursor yet.
+   */
+  private readCatchupCursor(): number | null {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(this.catchupCursorPath, 'utf8')) as {
+        scannedUntil?: number;
+      };
+      return typeof parsed.scannedUntil === 'number' ? parsed.scannedUntil : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeCatchupCursor(epochMs: number): void {
+    try {
+      // Atomic tmp+rename: a torn write must not read as "no cursor" and
+      // silently re-baseline away the crash gap.
+      const tmp = `${this.catchupCursorPath}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({ scannedUntil: epochMs }), 'utf8');
+      fs.renameSync(tmp, this.catchupCursorPath);
+      this.lastCursorWriteAt = Date.now();
+    } catch (err) {
+      logger.error('FileWatcher: Error writing catch-up cursor:', err);
+    }
+  }
+
+  /**
+   * Advances the cursor during live operation so the next startup's scan
+   * window only covers the app-closed gap, not the whole uptime.
+   */
+  private advanceCatchupCursorThrottled(): void {
+    // The cursor file describes the local ~/.claude tree; advancing it from
+    // a remote (SSH) context would certify local files nobody has processed.
+    if (this.fsProvider.type !== 'local') {
+      return;
+    }
+    if (Date.now() - this.lastCursorWriteAt < CATCHUP_CURSOR_WRITE_MS) {
+      return;
+    }
+    this.writeCatchupCursor(Date.now());
+  }
+
+  /**
+   * Backfills notifications for incidents that happened while the app was
+   * closed: session files modified since the previous run are replayed
+   * through the same trigger evaluation as live watching, and matching
+   * errors are added to the bell silently (stored + IPC, no native toasts).
+   * First run (no cursor) baselines silently — nothing counts as "new" yet.
+   *
+   * Invoked once per app launch from index.ts, AFTER setNotificationManager —
+   * deliberately not from start(): start() re-enters on SSH connects and
+   * context switches, and this cursor is app-global.
+   */
+  async runStartupCatchUpScan(): Promise<void> {
+    const scannedUntil = this.readCatchupCursor();
+    if (scannedUntil === null) {
+      // First run: baseline silently, the window starts now.
+      this.writeCatchupCursor(Date.now());
+      return;
+    }
+
+    const scanStartedAt = Date.now();
+
+    if (!this.notificationManager) {
+      // Nothing can be notified; still certify the window so a later
+      // manager-less run doesn't replay an ever-growing gap.
+      this.writeCatchupCursor(scanStartedAt);
+      return;
+    }
+
+    // Walk the projects tree for top-level session files (projectDir/<id>.jsonl)
+    // modified since the cursor. Subagent transcripts live one level deeper and
+    // are owned by the live path, same as the seeding/catch-up loops.
+    let projectDirs: FsDirent[];
+    try {
+      projectDirs = await this.fsProvider.readdir(this.projectsPath);
+    } catch (err) {
+      // The tree is unreadable — the window is not certified, keep the cursor
+      // behind so the next launch retries it.
+      logger.error('FileWatcher: Startup catch-up skipped, projects directory unreadable:', err);
+      return;
+    }
+
+    let backfilled = 0;
+    for (const dir of projectDirs) {
+      if (!dir.isDirectory()) continue;
+
+      let entries: FsDirent[];
+      try {
+        entries = await this.fsProvider.readdir(path.join(this.projectsPath, dir.name));
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+
+        const fullPath = path.join(this.projectsPath, dir.name, entry.name);
+        try {
+          const stats = await this.fsProvider.stat(fullPath);
+          if (stats.mtimeMs <= scannedUntil) continue;
+
+          const appended = await this.parseAppendedMessages(fullPath, 0);
+          // Window: messages written after the cursor and no later than this
+          // scan's start (appends after launch belong to the live watcher).
+          const startIdx = appended.messages.findIndex((m) => m.timestamp.getTime() > scannedUntil);
+          if (startIdx === -1) continue;
+          let endIdx = appended.messages.length;
+          for (let i = startIdx; i < appended.messages.length; i++) {
+            if (appended.messages[i].timestamp.getTime() > scanStartedAt) {
+              endIdx = i;
+              break;
+            }
+          }
+          if (endIdx <= startIdx) continue;
+
+          const window = appended.messages.slice(startIdx, endIdx);
+          const sessionId = path.basename(entry.name, '.jsonl');
+          // Same trigger evaluation as detectErrorsInSessionFile; line numbers
+          // are window-relative and need the same offset fix-up.
+          const errors = await errorDetector.detectErrors(window, sessionId, dir.name, fullPath);
+          for (const error of errors) {
+            if (error.lineNumber !== undefined) {
+              error.lineNumber = error.lineNumber + startIdx;
+            }
+            await this.notificationManager.addError(error, { silent: true });
+            backfilled++;
+          }
+        } catch (err) {
+          // One unreadable file must not abort the replay for the others.
+          logger.error(`FileWatcher: Startup catch-up failed to replay ${fullPath}:`, err);
+        }
+      }
+    }
+
+    if (backfilled > 0) {
+      logger.info(
+        `FileWatcher: Startup catch-up scan backfilled ${backfilled} notification(s) since ` +
+          new Date(scannedUntil).toISOString()
+      );
+    }
+    // Never regress a newer value the 30s tick wrote while this scan ran.
+    this.writeCatchupCursor(Math.max(scanStartedAt, this.lastCursorWriteAt));
   }
 
   // ===========================================================================

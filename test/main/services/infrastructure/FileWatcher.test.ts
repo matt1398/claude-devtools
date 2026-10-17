@@ -568,4 +568,197 @@ describe('FileWatcher', () => {
       expect(watcherAny.pendingReprocess.size).toBe(0);
     });
   });
+
+  // ===========================================================================
+  // Startup Catch-Up Scan Tests
+  // ===========================================================================
+
+  describe('startup catch-up scan', () => {
+    /** Assistant JSONL line with an explicit timestamp */
+    const jsonlLineAt = (uuid: string, text: string, timestamp: string): string =>
+      JSON.stringify({
+        type: 'assistant',
+        uuid,
+        timestamp,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text }],
+        },
+      }) + '\n';
+
+    /** DetectedError fixture returned by the mocked errorDetector */
+    const detectedError = (id: string): Record<string, unknown> => ({
+      id,
+      sessionId: 'session-1',
+      projectId: 'proj',
+      filePath: '/x/session-1.jsonl',
+      message: `boom-${id}`,
+      severity: 'error',
+      source: 'tool_result',
+      timestamp: new Date(),
+      lineNumber: 1,
+      context: { projectName: 'proj' },
+    });
+
+    /** Writes a cursor file marking everything up to `epochMs` as processed */
+    const writeCursor = (cursorPath: string, epochMs: number): void => {
+      fs.writeFileSync(cursorPath, JSON.stringify({ scannedUntil: epochMs }), 'utf8');
+    };
+
+    it('first run without cursor: baselines silently and writes cursor', async () => {
+      vi.useRealTimers();
+      useRealExistsSync();
+      vi.mocked(errorDetector.detectErrors).mockResolvedValue([]);
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filewatcher-startup-'));
+      const projectsDir = path.join(tempDir, 'projects');
+      const projectDir = path.join(projectsDir, 'proj');
+      fs.mkdirSync(projectDir, { recursive: true });
+
+      // even a trigger-matching history must stay silent on first run
+      const filePath = path.join(projectDir, 'session-1.jsonl');
+      fs.writeFileSync(filePath, jsonlLineAt('a1', 'hi', new Date().toISOString()), 'utf8');
+
+      const dataCache = new DataCache(50, 10, false);
+      const notificationManager = createMockNotificationManager();
+      const cursorPath = path.join(tempDir, 'cursor.json');
+      const watcher = new FileWatcher(dataCache, projectsDir, path.join(tempDir, 'todos'));
+      watcher.setCatchupCursorPath(cursorPath);
+      watcher.setNotificationManager(notificationManager);
+
+      await (
+        watcher as unknown as { runStartupCatchUpScan: () => Promise<void> }
+      ).runStartupCatchUpScan();
+
+      expect(notificationManager.addError).not.toHaveBeenCalled();
+      expect(errorDetector.detectErrors).not.toHaveBeenCalled();
+      expect(JSON.parse(fs.readFileSync(cursorPath, 'utf8')).scannedUntil).toBeGreaterThan(0);
+
+      watcher.stop();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('backfills a trigger match from the offline window silently and advances the cursor', async () => {
+      vi.useRealTimers();
+      useRealExistsSync();
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filewatcher-startup-'));
+      const projectsDir = path.join(tempDir, 'projects');
+      const projectDir = path.join(projectsDir, 'proj');
+      fs.mkdirSync(projectDir, { recursive: true });
+      const cursorPath = path.join(tempDir, 'cursor.json');
+
+      // Previous run: cursor is 60s in the past
+      const scannedBefore = Date.now() - 60_000;
+      writeCursor(cursorPath, scannedBefore);
+
+      // App closed; a session got two lines — one before the cursor, one after
+      const filePath = path.join(projectDir, 'session-1.jsonl');
+      fs.writeFileSync(
+        filePath,
+        jsonlLineAt('a1', 'old', new Date(scannedBefore - 1000).toISOString()) +
+          jsonlLineAt('a2', 'fresh', new Date().toISOString()),
+        'utf8'
+      );
+
+      const err = detectedError('e1');
+      vi.mocked(errorDetector.detectErrors).mockResolvedValue([err] as never);
+
+      const dataCache = new DataCache(50, 10, false);
+      const notificationManager = createMockNotificationManager();
+      const watcher = new FileWatcher(dataCache, projectsDir, path.join(tempDir, 'todos'));
+      watcher.setCatchupCursorPath(cursorPath);
+      watcher.setNotificationManager(notificationManager);
+
+      await (
+        watcher as unknown as { runStartupCatchUpScan: () => Promise<void> }
+      ).runStartupCatchUpScan();
+
+      // The detector saw only the in-window message
+      expect(errorDetector.detectErrors).toHaveBeenCalledTimes(1);
+      const calls = vi.mocked(errorDetector.detectErrors).mock.calls;
+      const window = calls[0][0] as unknown[];
+      expect(window).toHaveLength(1);
+      expect((window[0] as { uuid: string }).uuid).toBe('a2');
+      expect(calls[0][1]).toBe('session-1');
+      expect(calls[0][2]).toBe('proj');
+
+      // Silent backfill: stored via addError, flagged silent (no native toast)
+      expect(notificationManager.addError).toHaveBeenCalledTimes(1);
+      expect(notificationManager.addError).toHaveBeenCalledWith(err, { silent: true });
+      // Line number is offset from window-relative to file-absolute
+      expect((err as { lineNumber?: number }).lineNumber).toBe(2);
+
+      // Cursor advanced past the window
+      const cursorAfter = JSON.parse(fs.readFileSync(cursorPath, 'utf8')).scannedUntil;
+      expect(cursorAfter).toBeGreaterThan(scannedBefore);
+
+      watcher.stop();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('re-running the scan does not duplicate backfilled notifications', async () => {
+      vi.useRealTimers();
+      useRealExistsSync();
+      vi.mocked(errorDetector.detectErrors).mockResolvedValue([]);
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filewatcher-startup-'));
+      const projectsDir = path.join(tempDir, 'projects');
+      const projectDir = path.join(projectsDir, 'proj');
+      fs.mkdirSync(projectDir, { recursive: true });
+      const cursorPath = path.join(tempDir, 'cursor.json');
+
+      writeCursor(cursorPath, Date.now() - 60_000);
+      const filePath = path.join(projectDir, 'session-1.jsonl');
+      fs.writeFileSync(filePath, jsonlLineAt('a1', 'fresh', new Date().toISOString()), 'utf8');
+
+      const dataCache = new DataCache(50, 10, false);
+      const notificationManager = createMockNotificationManager();
+      const watcher = new FileWatcher(dataCache, projectsDir, path.join(tempDir, 'todos'));
+      watcher.setCatchupCursorPath(cursorPath);
+      watcher.setNotificationManager(notificationManager);
+
+      const runScan = (): Promise<void> =>
+        (
+          watcher as unknown as { runStartupCatchUpScan: () => Promise<void> }
+        ).runStartupCatchUpScan();
+
+      await runScan();
+      await runScan();
+
+      // The second scan's window is empty (cursor advanced past the message),
+      // so the detector runs only for the first scan
+      expect(errorDetector.detectErrors).toHaveBeenCalledTimes(1);
+
+      watcher.stop();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('keeps the cursor behind when the projects tree is unreadable', async () => {
+      vi.useRealTimers();
+      useRealExistsSync();
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filewatcher-startup-'));
+      const cursorPath = path.join(tempDir, 'cursor.json');
+      const scannedBefore = Date.now() - 60_000;
+      writeCursor(cursorPath, scannedBefore);
+
+      const dataCache = new DataCache(50, 10, false);
+      const notificationManager = createMockNotificationManager();
+      const missingDir = path.join(tempDir, 'missing');
+      const watcher = new FileWatcher(dataCache, missingDir, path.join(tempDir, 'todos'));
+      watcher.setCatchupCursorPath(cursorPath);
+      watcher.setNotificationManager(notificationManager);
+
+      await (
+        watcher as unknown as { runStartupCatchUpScan: () => Promise<void> }
+      ).runStartupCatchUpScan();
+
+      // Window not certified: the cursor must not have moved
+      expect(JSON.parse(fs.readFileSync(cursorPath, 'utf8')).scannedUntil).toBe(scannedBefore);
+
+      watcher.stop();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+  });
 });

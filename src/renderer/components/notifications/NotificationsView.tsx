@@ -33,7 +33,10 @@ export const NotificationsView = (): React.JSX.Element => {
   const {
     notifications,
     unreadCount,
+    notificationsTotal,
+    notificationsHasMore,
     fetchNotifications,
+    fetchMoreNotifications,
     markNotificationRead,
     markAllNotificationsRead,
     deleteNotification,
@@ -43,7 +46,10 @@ export const NotificationsView = (): React.JSX.Element => {
     useShallow((s) => ({
       notifications: s.notifications,
       unreadCount: s.unreadCount,
+      notificationsTotal: s.notificationsTotal,
+      notificationsHasMore: s.notificationsHasMore,
       fetchNotifications: s.fetchNotifications,
+      fetchMoreNotifications: s.fetchMoreNotifications,
       markNotificationRead: s.markNotificationRead,
       markAllNotificationsRead: s.markAllNotificationsRead,
       deleteNotification: s.deleteNotification,
@@ -122,6 +128,16 @@ export const NotificationsView = (): React.JSX.Element => {
     estimateSize,
     overscan: OVERSCAN,
   });
+
+  // Infinite scroll: near the end of the loaded pages, fetch the next one.
+  // Rides on the virtualizer's re-render per scroll (last rendered index),
+  // no separate scroll listener needed.
+  const lastRowIndex = rowVirtualizer.getVirtualItems().at(-1)?.index ?? -1;
+  useEffect(() => {
+    if (notificationsHasMore && lastRowIndex >= sortedNotifications.length - 10) {
+      void fetchMoreNotifications();
+    }
+  }, [notificationsHasMore, lastRowIndex, sortedNotifications.length, fetchMoreNotifications]);
 
   // Scroll to top when filter changes
   useEffect(() => {
@@ -217,7 +233,7 @@ export const NotificationsView = (): React.JSX.Element => {
                     : `${filteredNotifications.length} in filter`
                   : unreadCount > 0
                     ? `${unreadCount} unread`
-                    : `${notifications.length} total`}
+                    : `${notificationsTotal || notifications.length} total`}
               </span>
             )}
           </div>

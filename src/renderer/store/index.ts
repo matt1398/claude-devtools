@@ -138,7 +138,7 @@ export function initializeNotificationListeners(): () => void {
           if (state.notifications.some((n) => n.id === notification.id)) {
             return {};
           }
-          return { notifications: [notification, ...state.notifications].slice(0, 200) };
+          return { notifications: [notification, ...state.notifications].slice(0, 1000) };
         });
       }
     });
@@ -155,7 +155,20 @@ export function initializeNotificationListeners(): () => void {
           typeof payload.unreadCount === 'number' && Number.isFinite(payload.unreadCount)
             ? Math.max(0, Math.floor(payload.unreadCount))
             : 0;
-        useStore.setState({ unreadCount });
+        // total is authoritative on every mutation (add/mark/delete/clear) —
+        // keep the paginated header and hasMore fresh instead of letting them
+        // drift until the next panel remount
+        const total =
+          typeof payload.total === 'number' && Number.isFinite(payload.total)
+            ? Math.max(0, Math.floor(payload.total))
+            : null;
+        useStore.setState((state) => ({
+          unreadCount,
+          ...(total !== null && {
+            notificationsTotal: total,
+            notificationsHasMore: state.notificationsCursor < total,
+          }),
+        }));
       }
     );
     if (typeof cleanup === 'function') {

@@ -277,6 +277,13 @@ function initializeServices(): void {
   // Set notification manager on local context's file watcher
   localContext.fileWatcher.setNotificationManager(notificationManager);
 
+  // Startup replay of notifications that fired while the app was closed.
+  // Launch-time concern, run once here — NOT from FileWatcher.start(), which
+  // re-enters on SSH connects and context switches; the cursor is app-global.
+  localContext.fileWatcher.runStartupCatchUpScan().catch((err: unknown) => {
+    logger.error('Error during startup catch-up scan:', err);
+  });
+
   // Wire file watcher events for local context
   wireFileWatcherEvents(localContext);
 
