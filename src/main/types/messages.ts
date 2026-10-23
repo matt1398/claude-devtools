@@ -69,6 +69,8 @@ export interface ParsedMessage {
   type: MessageType;
   /** Message timestamp */
   timestamp: Date;
+  /** Whether the raw JSONL entry contained an explicit timestamp */
+  hasRawTimestamp?: boolean;
   /** Message role if present */
   role?: string;
   /** Message content (string or content blocks) */

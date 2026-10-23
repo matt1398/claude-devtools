@@ -122,11 +122,12 @@ async function start(): Promise<void> {
     projectsDir,
     todosDir,
   });
-  localContext.start();
 
-  // Initialize notification manager
+  // Initialize notification manager before starting watcher
   notificationManager = NotificationManager.getInstance();
   localContext.fileWatcher.setNotificationManager(notificationManager);
+
+  localContext.start();
 
   // Create HTTP server
   httpServer = new HttpServer();

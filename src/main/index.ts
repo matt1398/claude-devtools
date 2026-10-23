@@ -265,17 +265,17 @@ function initializeServices(): void {
     todosDir: localTodosDir,
   });
 
-  // Register and start local context
+  // Register local context
   contextRegistry.registerContext(localContext);
+
+  // Initialize notification manager (singleton, not context-scoped) before starting watcher
+  notificationManager = NotificationManager.getInstance();
+  localContext.fileWatcher.setNotificationManager(notificationManager);
+
+  // Start local context
   localContext.start();
 
   logger.info(`Projects directory: ${localContext.projectScanner.getProjectsDir()}`);
-
-  // Initialize notification manager (singleton, not context-scoped)
-  notificationManager = NotificationManager.getInstance();
-
-  // Set notification manager on local context's file watcher
-  localContext.fileWatcher.setNotificationManager(notificationManager);
 
   // Wire file watcher events for local context
   wireFileWatcherEvents(localContext);

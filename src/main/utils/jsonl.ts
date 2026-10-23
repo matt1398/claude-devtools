@@ -171,6 +171,7 @@ function parseChatHistoryEntry(entry: ChatHistoryEntry): ParsedMessage | null {
     parentUuid,
     type,
     timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date(),
+    hasRawTimestamp: Boolean(entry.timestamp),
     role,
     content,
     usage,

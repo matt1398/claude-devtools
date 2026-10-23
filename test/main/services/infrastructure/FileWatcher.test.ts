@@ -568,4 +568,153 @@ describe('FileWatcher', () => {
       expect(watcherAny.pendingReprocess.size).toBe(0);
     });
   });
+
+  // ===========================================================================
+  // Active Session Seeding & Historical Error Suppression Tests
+  // ===========================================================================
+
+  describe('seedActiveSessionFiles and historical error suppression', () => {
+    it('baselines active session and subagent files so catch-up scan does not detect false growth', async () => {
+      vi.useRealTimers();
+      useRealExistsSync();
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filewatcher-seed-'));
+      const projectsDir = path.join(tempDir, 'projects');
+      const projectDir = path.join(projectsDir, 'test-project');
+      const sessionDir = path.join(projectDir, 'session-1');
+      const subagentsDir = path.join(sessionDir, 'subagents');
+      fs.mkdirSync(subagentsDir, { recursive: true });
+
+      const sessionFile = path.join(projectDir, 'session-1.jsonl');
+      const subagentFile = path.join(subagentsDir, 'agent-123.jsonl');
+
+      fs.writeFileSync(
+        sessionFile,
+        jsonlLine('u1', 'session msg 1') + jsonlLine('u2', 'session msg 2'),
+        'utf8'
+      );
+      fs.writeFileSync(subagentFile, jsonlLine('sub1', 'subagent msg 1'), 'utf8');
+
+      const dataCache = new DataCache(50, 10, false);
+      const notificationManager = createMockNotificationManager();
+      const watcher = new FileWatcher(dataCache, projectsDir, path.join(tempDir, 'todos'));
+      watcher.setNotificationManager(notificationManager);
+
+      const watcherAny = watcher as unknown as {
+        seedActiveSessionFiles: () => Promise<void>;
+        runCatchUpScan: () => Promise<void>;
+        lastProcessedSize: Map<string, number>;
+        lastProcessedLineCount: Map<string, number>;
+        activeSessionFiles: Map<string, { projectId: string; sessionId: string; subagentId?: string }>;
+      };
+
+      vi.mocked(errorDetector.detectErrors).mockClear();
+
+      // Seed active session files
+      await watcherAny.seedActiveSessionFiles();
+
+      // Both session and subagent files should be in activeSessionFiles
+      expect(watcherAny.activeSessionFiles.has(sessionFile)).toBe(true);
+      expect(watcherAny.activeSessionFiles.has(subagentFile)).toBe(true);
+
+      // Both should have their size and line counts initialized
+      expect(watcherAny.lastProcessedSize.get(sessionFile)).toBe(fs.statSync(sessionFile).size);
+      expect(watcherAny.lastProcessedLineCount.get(sessionFile)).toBe(2);
+
+      expect(watcherAny.lastProcessedSize.get(subagentFile)).toBe(fs.statSync(subagentFile).size);
+      expect(watcherAny.lastProcessedLineCount.get(subagentFile)).toBe(1);
+
+      // Run catch-up scan immediately after seeding
+      await watcherAny.runCatchUpScan();
+
+      // No false error detection should have been triggered
+      expect(errorDetector.detectErrors).not.toHaveBeenCalled();
+
+      watcher.stop();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('suppresses historical errors on first observation of unseeded files', async () => {
+      vi.useRealTimers();
+      useRealExistsSync();
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filewatcher-historical-'));
+      const projectsDir = path.join(tempDir, 'projects');
+      const projectDir = path.join(projectsDir, 'test-project');
+      fs.mkdirSync(projectDir, { recursive: true });
+
+      const sessionFile = path.join(projectDir, 'session-old.jsonl');
+
+      // Create a file with a message timestamp in the past (1 hour ago)
+      const pastTime = new Date(Date.now() - 3600 * 1000).toISOString();
+      const oldLine =
+        JSON.stringify({
+          type: 'assistant',
+          uuid: 'old-1',
+          timestamp: pastTime,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'historical message' }],
+          },
+        }) + '\n';
+      fs.writeFileSync(sessionFile, oldLine, 'utf8');
+
+      const dataCache = new DataCache(50, 10, false);
+      const notificationManager = createMockNotificationManager();
+      const watcher = new FileWatcher(dataCache, projectsDir, path.join(tempDir, 'todos'));
+      watcher.setNotificationManager(notificationManager);
+
+      // Watcher starts NOW
+      const watcherStartTime = Date.now();
+      watcher.setWatcherStartTime(watcherStartTime);
+
+      vi.mocked(errorDetector.detectErrors).mockClear();
+
+      const watcherAny = watcher as unknown as {
+        detectErrorsInSessionFile: (
+          projectId: string,
+          sessionId: string,
+          filePath: string
+        ) => Promise<void>;
+      };
+
+      // First observation of this unseeded file
+      await watcherAny.detectErrorsInSessionFile('test-project', 'session-old', sessionFile);
+
+      // detectErrors should be called with an empty list because the message was historical
+      expect(errorDetector.detectErrors).toHaveBeenCalledWith(
+        [],
+        'session-old',
+        'test-project',
+        sessionFile
+      );
+
+      // Now append a new message with current timestamp
+      const newLine =
+        JSON.stringify({
+          type: 'assistant',
+          uuid: 'new-1',
+          timestamp: new Date().toISOString(),
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'new message' }],
+          },
+        }) + '\n';
+      fs.appendFileSync(sessionFile, newLine, 'utf8');
+
+      vi.mocked(errorDetector.detectErrors).mockClear();
+
+      // Second observation (incremental append path)
+      await watcherAny.detectErrorsInSessionFile('test-project', 'session-old', sessionFile);
+
+      // detectErrors should now be called with only the new message
+      expect(errorDetector.detectErrors).toHaveBeenCalled();
+      const calls = vi.mocked(errorDetector.detectErrors).mock.calls;
+      expect(calls[0][0].length).toBe(1);
+      expect(calls[0][0][0].uuid).toBe('new-1');
+
+      watcher.stop();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+  });
 });
