@@ -45,6 +45,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     isContextPanelVisible,
     setContextPanelVisible,
     savedScrollTop,
+    savedAtBottom,
     saveScrollPosition,
     expandAIGroup,
     expandSubagentTrace,
@@ -339,6 +340,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
 
   // Track shouldDisableAutoScroll transitions for scroll restore coordination
   const prevShouldDisableRef = useRef(shouldDisableAutoScroll);
+  const skipNextRestoreRef = useRef(false);
 
   const { registerAIGroupRef } = useVisibleAIGroup({
     onVisibleChange: (aiGroupId) => {
@@ -353,12 +355,19 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
   // Scroll-to-bottom button visibility
   const [showScrollButton, setShowScrollButton] = useState(false);
 
+  // Track latest valid scroll position and bottom-status while container is visible
+  const lastScrollTopRef = useRef<number | undefined>(savedScrollTop);
+  const wasAtBottomRef = useRef<boolean>(savedAtBottom ?? true);
+
   const checkScrollButton = useCallback(() => {
     const container = scrollContainerRef.current;
-    if (!container) return;
+    if (!container || container.clientHeight === 0) return;
     const { scrollTop, scrollHeight, clientHeight } = container;
-    setShowScrollButton(!isNearBottom(scrollTop, scrollHeight, clientHeight, SCROLL_THRESHOLD));
-  }, []);
+    const atBottom = isNearBottom(scrollTop, scrollHeight, clientHeight, SCROLL_THRESHOLD);
+    setShowScrollButton(!atBottom);
+    lastScrollTopRef.current = scrollTop;
+    wasAtBottomRef.current = atBottom;
+  }, [scrollContainerRef]);
 
   // Auto-follow when conversation updates, but only if the user was already near bottom.
   // This preserves manual reading position when the user scrolls up.
@@ -663,8 +672,16 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
     wasActiveRef.current = isThisTabActive;
 
     // If this tab just became inactive, save its scroll position
-    if (wasActive && !isThisTabActive && scrollContainerRef.current) {
-      saveScrollPosition(scrollContainerRef.current.scrollTop);
+    if (wasActive && !isThisTabActive) {
+      skipNextRestoreRef.current = false;
+      const container = scrollContainerRef.current;
+      const hasValidLayout = container !== null && container.clientHeight > 0;
+      const scrollTop = hasValidLayout ? container.scrollTop : (lastScrollTopRef.current ?? 0);
+      const isBottom = hasValidLayout
+        ? isNearBottom(container.scrollTop, container.scrollHeight, container.clientHeight, SCROLL_THRESHOLD)
+        : wasAtBottomRef.current;
+
+      saveScrollPosition(scrollTop, isBottom);
     }
   }, [isThisTabActive, saveScrollPosition, scrollContainerRef]);
 
@@ -672,9 +689,12 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     return () => {
-      if (scrollContainer) {
-        saveScrollPosition(scrollContainer.scrollTop);
-      }
+      const hasValidLayout = scrollContainer !== null && scrollContainer.clientHeight > 0;
+      const scrollTop = hasValidLayout ? scrollContainer.scrollTop : (lastScrollTopRef.current ?? 0);
+      const isBottom = hasValidLayout
+        ? isNearBottom(scrollContainer.scrollTop, scrollContainer.scrollHeight, scrollContainer.clientHeight, SCROLL_THRESHOLD)
+        : wasAtBottomRef.current;
+      saveScrollPosition(scrollTop, isBottom);
     };
   }, [saveScrollPosition, scrollContainerRef]);
 
@@ -687,13 +707,28 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
 
     // Navigation just completed — save current scroll position, skip restore
     if (wasDisabled && !shouldDisableAutoScroll && scrollContainerRef.current) {
-      saveScrollPosition(scrollContainerRef.current.scrollTop);
+      const container = scrollContainerRef.current;
+      const hasValidLayout = container !== null && container.clientHeight > 0;
+      const scrollTop = hasValidLayout ? container.scrollTop : (lastScrollTopRef.current ?? 0);
+      const isBottom = hasValidLayout
+        ? isNearBottom(container.scrollTop, container.scrollHeight, container.clientHeight, SCROLL_THRESHOLD)
+        : wasAtBottomRef.current;
+      skipNextRestoreRef.current = true;
+      saveScrollPosition(scrollTop, isBottom);
+      return;
+    }
+
+    if (!isThisTabActive) {
+      skipNextRestoreRef.current = false;
+      return;
+    }
+
+    if (skipNextRestoreRef.current) {
+      skipNextRestoreRef.current = false;
       return;
     }
 
     if (
-      isThisTabActive &&
-      savedScrollTop !== undefined &&
       scrollContainerRef.current &&
       !conversationLoading &&
       !shouldDisableAutoScroll
@@ -703,8 +738,23 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
       // Use double RAF so layout + virtual rows settle before restore.
       frameA = requestAnimationFrame(() => {
         frameB = requestAnimationFrame(() => {
-          if (scrollContainerRef.current) {
-            scrollContainerRef.current.scrollTop = savedScrollTop;
+          const container = scrollContainerRef.current;
+          if (!container || container.clientHeight === 0) return;
+
+          // If the user was near the bottom (or initial view where savedScrollTop is undefined), scroll to bottom.
+          // Otherwise, restore to the user's manual reading position.
+          const shouldBeAtBottom =
+            savedAtBottom !== false &&
+            (savedAtBottom === true || savedScrollTop === undefined || wasAtBottomRef.current);
+
+          if (shouldBeAtBottom) {
+            container.scrollTop = container.scrollHeight - container.clientHeight;
+            lastScrollTopRef.current = container.scrollTop;
+            wasAtBottomRef.current = true;
+          } else if (savedScrollTop !== undefined) {
+            container.scrollTop = savedScrollTop;
+            lastScrollTopRef.current = savedScrollTop;
+            wasAtBottomRef.current = false;
           }
         });
       });
@@ -716,6 +766,7 @@ export const ChatHistory = ({ tabId }: ChatHistoryProps): JSX.Element => {
   }, [
     isThisTabActive,
     savedScrollTop,
+    savedAtBottom,
     conversationLoading,
     scrollContainerRef,
     shouldDisableAutoScroll,

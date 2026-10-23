@@ -42,6 +42,9 @@ export interface TabUIState {
 
   /** Saved scroll position for restoring when switching back to this tab */
   savedScrollTop?: number;
+
+  /** Whether the user was at or near the bottom when switching away */
+  savedAtBottom?: boolean;
 }
 
 /**
@@ -55,6 +58,7 @@ function createDefaultTabUIState(): TabUIState {
     showContextPanel: false,
     selectedContextPhase: null,
     savedScrollTop: undefined,
+    savedAtBottom: undefined,
   };
 }
 
@@ -108,9 +112,11 @@ export interface TabUISlice {
 
   // Scroll position (per-tab)
   /** Save scroll position for a specific tab */
-  saveScrollPositionForTab: (tabId: string, scrollTop: number) => void;
+  saveScrollPositionForTab: (tabId: string, scrollTop: number, isAtBottom?: boolean) => void;
   /** Get saved scroll position for a specific tab */
   getScrollPositionForTab: (tabId: string) => number | undefined;
+  /** Get whether tab was at bottom when saved */
+  getIsAtBottomForTab: (tabId: string) => boolean | undefined;
 }
 
 // =============================================================================
@@ -303,17 +309,22 @@ export const createTabUISlice: StateCreator<AppState, [], [], TabUISlice> = (set
   // Scroll Position
   // ==========================================================================
 
-  saveScrollPositionForTab: (tabId: string, scrollTop: number) => {
+  saveScrollPositionForTab: (tabId: string, scrollTop: number, isAtBottom?: boolean) => {
     const state = get();
     const newMap = new Map(state.tabUIStates);
     const tabState = newMap.get(tabId) ?? createDefaultTabUIState();
 
-    newMap.set(tabId, { ...tabState, savedScrollTop: scrollTop });
+    newMap.set(tabId, { ...tabState, savedScrollTop: scrollTop, savedAtBottom: isAtBottom });
     set({ tabUIStates: newMap });
   },
 
   getScrollPositionForTab: (tabId: string) => {
     const tabState = get().tabUIStates.get(tabId);
     return tabState?.savedScrollTop;
+  },
+
+  getIsAtBottomForTab: (tabId: string) => {
+    const tabState = get().tabUIStates.get(tabId);
+    return tabState?.savedAtBottom;
   },
 });
