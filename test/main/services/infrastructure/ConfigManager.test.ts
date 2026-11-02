@@ -53,4 +53,19 @@ describe('ConfigManager config path', () => {
 
     expect(resolveConfigPath()).toBe(DEFAULT_PATH);
   });
+
+  it('prefers the env override over a caller-provided default directory', () => {
+    const target = path.join(os.tmpdir(), 'devtools-state', 'custom.json');
+    process.env.CLAUDE_DEVTOOLS_CONFIG_PATH = target;
+
+    expect(resolveConfigPath('/data/.claude')).toBe(target);
+  });
+
+  it('uses the caller-provided default directory when there is no override', () => {
+    delete process.env.CLAUDE_DEVTOOLS_CONFIG_PATH;
+
+    expect(resolveConfigPath('/data/.claude')).toBe(
+      path.join('/data/.claude', 'claude-devtools-config.json')
+    );
+  });
 });

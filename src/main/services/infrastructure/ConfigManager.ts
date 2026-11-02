@@ -34,9 +34,13 @@ const CONFIG_FILENAME = 'claude-devtools-config.json';
  * `~/.claude` read-only, so with the default path every settings change failed
  * with `EROFS: read-only file system` and was lost on restart (#178).
  */
-export function resolveConfigPath(): string {
+export function resolveConfigPath(fallbackDir?: string | null): string {
   const override = process.env.CLAUDE_DEVTOOLS_CONFIG_PATH?.trim();
-  return override ? path.resolve(override) : path.join(CONFIG_DIR, CONFIG_FILENAME);
+  if (override) return path.resolve(override);
+  // Callers that know a better default directory (the standalone/Docker entry
+  // point derives one from CLAUDE_ROOT) still lose to the explicit override.
+  if (fallbackDir) return path.join(fallbackDir, CONFIG_FILENAME);
+  return path.join(CONFIG_DIR, CONFIG_FILENAME);
 }
 
 // ===========================================================================
@@ -986,3 +990,4 @@ export const configManagerPromise = ConfigManager.initializeInstance();
 
 /** Singleton instance for convenience (synchronous access, uses defaults until initialized) */
 export const configManager = ConfigManager.getInstance();
+

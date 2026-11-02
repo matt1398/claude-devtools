@@ -13,7 +13,6 @@
  */
 
 import { createLogger } from '@shared/utils/logger';
-import * as path from 'path';
 
 import { HttpServer } from './services/infrastructure/HttpServer';
 import {
@@ -25,6 +24,7 @@ import {
   ConfigManager,
   LocalFileSystemProvider,
   NotificationManager,
+  resolveConfigPath,
   ServiceContext,
 } from './services';
 
@@ -96,10 +96,10 @@ async function start(): Promise<void> {
   logger.info('Starting standalone server...');
 
   // Load config from disk before anything else uses it.
-  // When CLAUDE_ROOT is set (e.g. Docker), config lives there rather than ~/.claude.
-  const configPath = CLAUDE_ROOT
-    ? path.join(CLAUDE_ROOT, 'claude-devtools-config.json')
-    : undefined;
+  // CLAUDE_DEVTOOLS_CONFIG_PATH wins over the CLAUDE_ROOT-derived default: in
+  // the Docker image CLAUDE_ROOT is a read-only mount, so the config has to live
+  // on a writable path (#178).
+  const configPath = resolveConfigPath(CLAUDE_ROOT);
   await ConfigManager.initializeInstance(configPath);
 
   // Apply Claude root override if set
@@ -212,3 +212,5 @@ process.on('uncaughtException', (error) => {
 // =============================================================================
 
 void start();
+
+
