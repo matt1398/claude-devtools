@@ -630,8 +630,24 @@ export class FileWatcher extends EventEmitter {
 
     this.processingInProgress.add(filePath);
     try {
+      // First sight of a file is a baseline, not a notification source. Chokidar
+      // emits `add` for every existing session when a watcher starts, including
+      // the restart that enabling notifications causes, and replaying that
+      // history would notify about errors that predate the setting (#203).
+      const knownLineCount = this.lastProcessedLineCount.get(filePath);
+      if (knownLineCount === undefined) {
+        const messages = await parseJsonlFile(filePath);
+        const baselineStats = await this.fsProvider.stat(filePath);
+        this.lastProcessedLineCount.set(filePath, messages.length);
+        this.lastProcessedSize.set(filePath, baselineStats.size);
+        logger.info(
+          `FileWatcher: baselined ${filePath} at ${messages.length} lines without notifying`
+        );
+        return;
+      }
+
       // Get the last processed line count for this file
-      const lastLineCount = this.lastProcessedLineCount.get(filePath) ?? 0;
+      const lastLineCount = knownLineCount;
       const lastSize = this.lastProcessedSize.get(filePath) ?? 0;
       const fileStats = await this.fsProvider.stat(filePath);
       const currentSize = fileStats.size;

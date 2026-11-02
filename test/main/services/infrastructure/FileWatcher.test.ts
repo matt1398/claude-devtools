@@ -401,7 +401,7 @@ describe('FileWatcher', () => {
       fs.mkdirSync(projectDir, { recursive: true });
 
       const filePath = path.join(projectDir, 'session-1.jsonl');
-      fs.writeFileSync(filePath, jsonlLine('u1', 'hello'), 'utf8');
+      fs.writeFileSync(filePath, jsonlLine('u1', 'hello') + jsonlLine('u2', 'world'), 'utf8');
 
       const dataCache = new DataCache(50, 10, false);
       const notificationManager = createMockNotificationManager();
@@ -428,7 +428,14 @@ describe('FileWatcher', () => {
         ) => Promise<void>;
         processingInProgress: Set<string>;
         pendingReprocess: Set<string>;
+        lastProcessedLineCount: Map<string, number>;
+        lastProcessedSize: Map<string, number>;
       };
+
+      // Seed the position so this test exercises the concurrency guard rather than
+      // the first-sight baseline (#203).
+      watcherAny.lastProcessedLineCount.set(filePath, 1);
+      watcherAny.lastProcessedSize.set(filePath, Buffer.byteLength(jsonlLine('u1', 'hello')));
 
       // Start first call (will block on detectErrors)
       const first = watcherAny.detectErrorsInSessionFile('test-project', 'session-1', filePath);
@@ -567,5 +574,60 @@ describe('FileWatcher', () => {
       expect(watcherAny.processingInProgress.size).toBe(0);
       expect(watcherAny.pendingReprocess.size).toBe(0);
     });
+  });
+});
+
+describe('notification baseline', () => {
+  it('baselines an existing session on first sight instead of notifying about its history', async () => {
+    vi.useRealTimers();
+    useRealExistsSync();
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'filewatcher-baseline-'));
+    const projectsDir = path.join(tempDir, 'projects');
+    const projectDir = path.join(projectsDir, 'test-project');
+    fs.mkdirSync(projectDir, { recursive: true });
+    const filePath = path.join(projectDir, 'session-1.jsonl');
+    fs.writeFileSync(filePath, jsonlLine('u1', 'hello') + jsonlLine('u2', 'old error'), 'utf8');
+
+    vi.mocked(errorDetector.detectErrors).mockClear();
+    const addError = vi.fn().mockResolvedValue(null);
+    const notificationManager = {
+      addError,
+    } as unknown as Parameters<FileWatcher['setNotificationManager']>[0];
+
+    const watcher = new FileWatcher(
+      new DataCache(50, 10, false),
+      projectsDir,
+      path.join(tempDir, 'todos')
+    );
+    watcher.setNotificationManager(notificationManager);
+
+    const watcherAny = watcher as unknown as {
+      lastProcessedLineCount: Map<string, number>;
+      detectErrorsInSessionFile: (
+        projectId: string,
+        sessionId: string,
+        filePath: string
+      ) => Promise<void>;
+    };
+
+    // First sight of a pre-existing file: record the position, do not notify.
+    await watcherAny.detectErrorsInSessionFile('test-project', 'session-1', filePath);
+
+    expect(errorDetector.detectErrors).not.toHaveBeenCalled();
+    expect(addError).not.toHaveBeenCalled();
+    expect(watcherAny.lastProcessedLineCount.get(filePath)).toBe(2);
+
+    // A later append is new work and does notify.
+    fs.appendFileSync(filePath, jsonlLine('u3', 'new error'), 'utf8');
+    vi.mocked(errorDetector.detectErrors).mockResolvedValue([{ lineNumber: 1 } as never]);
+
+    await watcherAny.detectErrorsInSessionFile('test-project', 'session-1', filePath);
+
+    expect(errorDetector.detectErrors).toHaveBeenCalledTimes(1);
+    expect(addError).toHaveBeenCalledTimes(1);
+
+    watcher.stop();
+    fs.rmSync(tempDir, { recursive: true, force: true });
   });
 });
