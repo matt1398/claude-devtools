@@ -18,10 +18,14 @@ services:
     ports:
       - "${PORT:-3456}:3456"
     volumes:
+      # Claude data stays read-only; the app only reads session files.
       - ${CLAUDE_DIR:-~/.claude}:/data/.claude:ro
+      # Settings live on a writable mount so they survive a container restart.
+      - ${CLAUDE_DEVTOOLS_STATE_DIR:-./.claude-devtools-state}:/data/state
     environment:
       - NODE_ENV=production
       - CLAUDE_ROOT=/data/.claude
+      - CLAUDE_DEVTOOLS_CONFIG_PATH=/data/state/claude-devtools-config.json
       - HOST=0.0.0.0
       - PORT=3456
     restart: unless-stopped
