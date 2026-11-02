@@ -25,7 +25,23 @@ const logger = createLogger('Service:ConfigManager');
 
 const CONFIG_DIR = path.join(os.homedir(), '.claude');
 const CONFIG_FILENAME = 'claude-devtools-config.json';
-const DEFAULT_CONFIG_PATH = path.join(CONFIG_DIR, CONFIG_FILENAME);
+
+/**
+ * Resolve the persisted config file path.
+ *
+ * `CLAUDE_DEVTOOLS_CONFIG_PATH` lets a deployment keep the config on a
+ * writable mount while `~/.claude` stays read-only. The Docker image mounts
+ * `~/.claude` read-only, so with the default path every settings change failed
+ * with `EROFS: read-only file system` and was lost on restart (#178).
+ */
+export function resolveConfigPath(fallbackDir?: string | null): string {
+  const override = process.env.CLAUDE_DEVTOOLS_CONFIG_PATH?.trim();
+  if (override) return path.resolve(override);
+  // Callers that know a better default directory (the standalone/Docker entry
+  // point derives one from CLAUDE_ROOT) still lose to the explicit override.
+  if (fallbackDir) return path.join(fallbackDir, CONFIG_FILENAME);
+  return path.join(CONFIG_DIR, CONFIG_FILENAME);
+}
 
 // ===========================================================================
 // Types
@@ -319,7 +335,7 @@ export class ConfigManager {
   private triggerManager: TriggerManager;
 
   constructor(configPath?: string) {
-    this.configPath = configPath ?? DEFAULT_CONFIG_PATH;
+    this.configPath = configPath ?? resolveConfigPath();
     this.config = this.deepClone(DEFAULT_CONFIG);
     this.triggerManager = new TriggerManager(this.config.notifications.triggers, () =>
       this.saveConfig()
@@ -974,3 +990,4 @@ export const configManagerPromise = ConfigManager.initializeInstance();
 
 /** Singleton instance for convenience (synchronous access, uses defaults until initialized) */
 export const configManager = ConfigManager.getInstance();
+
