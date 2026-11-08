@@ -20,6 +20,15 @@ describe('modelParser', () => {
       expect(parseModelString('unsupported-model')).toBeNull();
     });
 
+    it('should parse MiniMax-M3.1-Flash', () => {
+      expect(parseModelString('MiniMax-M3.1-Flash')).toEqual({
+        name: 'MiniMax-M3.1-Flash',
+        family: 'minimax',
+        majorVersion: 3,
+        minorVersion: 1,
+      });
+    });
+
     it('should parse MiniMax-M3', () => {
       expect(parseModelString('MiniMax-M3')).toEqual({
         name: 'MiniMax-M3',

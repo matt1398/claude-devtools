@@ -23,6 +23,12 @@ export interface ModelInfo {
 const KNOWN_FAMILIES: KnownModelFamily[] = ['sonnet', 'opus', 'haiku'];
 
 const MINIMAX_MODELS: Record<string, ModelInfo> = {
+  'minimax-m3.1-flash': {
+    name: 'MiniMax-M3.1-Flash',
+    family: 'minimax',
+    majorVersion: 3,
+    minorVersion: 1,
+  },
   'minimax-m3': {
     name: 'MiniMax-M3',
     family: 'minimax',
@@ -42,7 +48,7 @@ const MINIMAX_MODELS: Record<string, ModelInfo> = {
  * Returns null if model string is invalid, synthetic, or empty.
  *
  * Supported formats:
- * - MiniMax format: MiniMax-M{major}[.{minor}]
+ * - MiniMax model IDs such as MiniMax-M3.1-Flash and MiniMax-M3
  * - New format: claude-{family}-{major}-{minor}-{date} (e.g., "claude-sonnet-4-5-20250929")
  * - Old format: claude-{major}-{family}-{date} (e.g., "claude-3-opus-20240229")
  * - Old format with minor: claude-{major}-{minor}-{family}-{date} (e.g., "claude-3-5-sonnet-20241022")
