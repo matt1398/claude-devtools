@@ -13,6 +13,7 @@ import {
 } from '@renderer/constants/cssVariables';
 
 import { ClaudeMdFilesSection } from './components/ClaudeMdFilesSection';
+import { CollapsibleSection } from './components/CollapsibleSection';
 import { FlatInjectionList } from './components/FlatInjectionList';
 import { MentionedFilesSection } from './components/MentionedFilesSection';
 import { RankedInjectionList } from './components/RankedInjectionList';
@@ -21,8 +22,10 @@ import { TaskCoordinationSection } from './components/TaskCoordinationSection';
 import { ThinkingTextSection } from './components/ThinkingTextSection';
 import { ToolOutputsSection } from './components/ToolOutputsSection';
 import { UserMessagesSection } from './components/UserMessagesSection';
+import { formatTokens } from './utils/formatting';
 import {
   SECTION_CLAUDE_MD,
+  SECTION_HOOK_CONTEXT,
   SECTION_MENTIONED_FILES,
   SECTION_TASK_COORDINATION,
   SECTION_THINKING_TEXT,
@@ -33,6 +36,7 @@ import {
 import type { ContextViewMode, SectionType, SessionContextPanelProps } from './types';
 import type {
   ClaudeMdContextInjection,
+  HookContextInjection,
   MentionedFileInjection,
   TaskCoordinationInjection,
   ThinkingTextInjection,
@@ -61,6 +65,7 @@ export const SessionContextPanel = ({
   const [expandedSections, setExpandedSections] = useState<Set<SectionType>>(
     new Set([
       SECTION_USER_MESSAGES,
+      SECTION_HOOK_CONTEXT,
       SECTION_CLAUDE_MD,
       SECTION_MENTIONED_FILES,
       SECTION_TOOL_OUTPUTS,
@@ -77,6 +82,7 @@ export const SessionContextPanel = ({
     thinkingTextInjections,
     taskCoordinationInjections,
     userMessageInjections,
+    hookContextInjections,
   } = useMemo(() => {
     const claudeMd: ClaudeMdContextInjection[] = [];
     const mentionedFiles: MentionedFileInjection[] = [];
@@ -84,6 +90,7 @@ export const SessionContextPanel = ({
     const thinkingText: ThinkingTextInjection[] = [];
     const taskCoordination: TaskCoordinationInjection[] = [];
     const userMessages: UserMessageInjection[] = [];
+    const hookContexts: HookContextInjection[] = [];
 
     for (const injection of injections) {
       switch (injection.category) {
@@ -105,6 +112,9 @@ export const SessionContextPanel = ({
         case 'user-message':
           userMessages.push(injection);
           break;
+        case 'hook-context':
+          hookContexts.push(injection);
+          break;
       }
     }
 
@@ -117,6 +127,7 @@ export const SessionContextPanel = ({
     thinkingText.sort((a, b) => a.turnIndex - b.turnIndex);
     // Sort user messages by turn index ascending
     userMessages.sort((a, b) => a.turnIndex - b.turnIndex);
+    hookContexts.sort((a, b) => a.turnIndex - b.turnIndex);
 
     return {
       claudeMdInjections: claudeMd,
@@ -125,6 +136,7 @@ export const SessionContextPanel = ({
       thinkingTextInjections: thinkingText,
       taskCoordinationInjections: taskCoordination,
       userMessageInjections: userMessages,
+      hookContextInjections: hookContexts,
     };
   }, [injections]);
 
@@ -163,6 +175,16 @@ export const SessionContextPanel = ({
   const userMessagesTokens = useMemo(
     () => userMessageInjections.reduce((sum, inj) => sum + inj.estimatedTokens, 0),
     [userMessageInjections]
+  );
+
+  const hookContextTokens = useMemo(
+    () => hookContextInjections.reduce((sum, inj) => sum + inj.estimatedTokens, 0),
+    [hookContextInjections]
+  );
+
+  const hookContextCount = useMemo(
+    () => hookContextInjections.reduce((sum, inj) => sum + inj.breakdown.length, 0),
+    [hookContextInjections]
   );
 
   // Toggle section expansion
@@ -216,6 +238,37 @@ export const SessionContextPanel = ({
               onToggle={() => toggleSection(SECTION_USER_MESSAGES)}
               onNavigateToTurn={onNavigateToTurn}
             />
+
+            {hookContextInjections.length > 0 && (
+              <CollapsibleSection
+                title="Hook Context"
+                count={hookContextCount}
+                tokenCount={hookContextTokens}
+                isExpanded={expandedSections.has(SECTION_HOOK_CONTEXT)}
+                onToggle={() => toggleSection(SECTION_HOOK_CONTEXT)}
+              >
+                {hookContextInjections.flatMap((injection) =>
+                  injection.breakdown.map((item, index) => (
+                    <div key={`${injection.id}-${index}`} className="rounded px-2 py-1.5">
+                      <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                        <span style={{ color: 'var(--color-text-secondary)' }}>
+                          {item.label} · Turn {injection.turnIndex + 1}
+                        </span>
+                        <span className="shrink-0" style={{ color: 'var(--color-text-muted)' }}>
+                          ~{formatTokens(item.tokenCount)} tokens
+                        </span>
+                      </div>
+                      <div
+                        className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-xs"
+                        style={{ color: 'var(--color-text-muted)' }}
+                      >
+                        {item.text}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CollapsibleSection>
+            )}
 
             <ClaudeMdFilesSection
               injections={claudeMdInjections}

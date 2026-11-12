@@ -25,6 +25,7 @@ import type {
   ClaudeMdContextInjection,
   ContextInjection,
   ContextStats,
+  HookContextInjection,
   MentionedFileInjection,
   TaskCoordinationInjection,
   ThinkingTextInjection,
@@ -77,6 +78,10 @@ function isTaskCoordinationInjection(inj: ContextInjection): inj is TaskCoordina
  */
 function isUserMessageInjection(inj: ContextInjection): inj is UserMessageInjection {
   return inj.category === 'user-message';
+}
+
+function isHookContextInjection(inj: ContextInjection): inj is HookContextInjection {
+  return inj.category === 'hook-context';
 }
 
 /**
@@ -148,7 +153,8 @@ export const ContextBadge = ({
       stats.newCounts.toolOutputs +
       stats.newCounts.thinkingText +
       stats.newCounts.taskCoordination +
-      stats.newCounts.userMessages,
+      stats.newCounts.userMessages +
+      stats.newCounts.hookContext,
     [stats.newCounts]
   );
 
@@ -180,6 +186,11 @@ export const ContextBadge = ({
 
   const newUserMessageInjections = useMemo(
     () => stats.newInjections.filter(isUserMessageInjection),
+    [stats.newInjections]
+  );
+
+  const newHookContextInjections = useMemo(
+    () => stats.newInjections.filter(isHookContextInjection),
     [stats.newInjections]
   );
 
@@ -229,6 +240,16 @@ export const ContextBadge = ({
   const userMessageTokens = useMemo(
     () => newUserMessageInjections.reduce((sum, inj) => sum + inj.estimatedTokens, 0),
     [newUserMessageInjections]
+  );
+
+  const hookContextTokens = useMemo(
+    () => newHookContextInjections.reduce((sum, inj) => sum + inj.estimatedTokens, 0),
+    [newHookContextInjections]
+  );
+
+  const hookContextCount = useMemo(
+    () => newHookContextInjections.reduce((sum, inj) => sum + inj.breakdown.length, 0),
+    [newHookContextInjections]
   );
 
   // Linear-style neutral badge — uses theme-aware CSS variables
@@ -427,6 +448,31 @@ export const ContextBadge = ({
                       )}
                     </div>
                   ))}
+                </PopoverSection>
+              )}
+
+              {newHookContextInjections.length > 0 && (
+                <PopoverSection
+                  title="Hook Context"
+                  count={hookContextCount}
+                  tokenCount={hookContextTokens}
+                >
+                  {newHookContextInjections.flatMap((injection) =>
+                    injection.breakdown.map((item, index) => (
+                      <div key={`${injection.id}-${index}`} className="min-w-0">
+                        <div className="text-xs" style={{ color: COLOR_TEXT_SECONDARY }}>
+                          {item.label} · Turn {injection.turnIndex + 1} · ~
+                          {formatTokens(item.tokenCount)} tokens
+                        </div>
+                        <div
+                          className="mt-0.5 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-xs"
+                          style={{ color: COLOR_TEXT_MUTED }}
+                        >
+                          {item.text}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </PopoverSection>
               )}
 
