@@ -23,6 +23,7 @@ import {
   generateInjectionId,
   getDisplayName,
 } from './claudeMdTracker';
+import { extractHookAdditionalContexts } from './hookAdditionalContext';
 
 import type { ClaudeMdInjection, ClaudeMdSource } from '../types/claudeMd';
 import type {
@@ -32,6 +33,7 @@ import type {
   ContextPhase,
   ContextPhaseInfo,
   ContextStats,
+  HookContextInjection,
   MentionedFileInfo,
   MentionedFileInjection,
   NewCountsByCategory,
@@ -116,6 +118,10 @@ function generateTaskCoordinationId(turnIndex: number): string {
  */
 function generateUserMessageId(turnIndex: number): string {
   return `user-msg-ai-${turnIndex}`;
+}
+
+function generateHookContextId(turnIndex: number): string {
+  return `hook-context-ai-${turnIndex}`;
 }
 
 // =============================================================================
@@ -359,6 +365,29 @@ function createUserMessageInjection(
     aiGroupId,
     estimatedTokens: tokens,
     textPreview,
+  };
+}
+
+function createHookContextInjection(
+  aiGroup: AIGroup,
+  userGroup: UserGroup | null
+): HookContextInjection | null {
+  const contexts = extractHookAdditionalContexts([userGroup?.message, ...aiGroup.responses]).map(
+    (item) => ({
+      ...item,
+      tokenCount: estimateTokens(item.text),
+    })
+  );
+  const breakdown = contexts.filter((item) => item.tokenCount > 0);
+  if (breakdown.length === 0) return null;
+
+  return {
+    id: generateHookContextId(aiGroup.turnIndex),
+    category: 'hook-context',
+    turnIndex: aiGroup.turnIndex,
+    aiGroupId: `ai-${aiGroup.turnIndex}`,
+    estimatedTokens: breakdown.reduce((sum, item) => sum + item.tokenCount, 0),
+    breakdown,
   };
 }
 
@@ -793,6 +822,12 @@ function computeContextStats(params: ComputeContextStatsParams): ComputeContextS
     }
   }
 
+  // d4) Hook additionalContext is stored inside system-reminder blocks.
+  const hookContextInjection = createHookContextInjection(aiGroup, userGroup);
+  if (hookContextInjection) {
+    newInjections.push(hookContextInjection);
+  }
+
   // e) Aggregate thinking and text output tokens
   if (displayItems) {
     const thinkingTextInjection = aggregateThinkingText(
@@ -819,6 +854,7 @@ function computeContextStats(params: ComputeContextStatsParams): ComputeContextS
     thinkingText: 0,
     taskCoordination: 0,
     userMessages: 0,
+    hookContext: 0,
   };
 
   const newCounts: NewCountsByCategory = {
@@ -828,6 +864,7 @@ function computeContextStats(params: ComputeContextStatsParams): ComputeContextS
     thinkingText: 0,
     taskCoordination: 0,
     userMessages: 0,
+    hookContext: 0,
   };
 
   // Count new injections by category
@@ -851,6 +888,9 @@ function computeContextStats(params: ComputeContextStatsParams): ComputeContextS
       case 'user-message':
         newCounts.userMessages++;
         break;
+      case 'hook-context':
+        newCounts.hookContext += injection.breakdown.length;
+        break;
     }
   }
 
@@ -862,6 +902,7 @@ function computeContextStats(params: ComputeContextStatsParams): ComputeContextS
     thinkingText: 0,
     taskCoordination: 0,
     userMessages: 0,
+    hookContext: 0,
   };
 
   for (const injection of accumulatedInjections) {
@@ -890,6 +931,10 @@ function computeContextStats(params: ComputeContextStatsParams): ComputeContextS
         tokensByCategory.userMessages += injection.estimatedTokens;
         accumulatedCounts.userMessages++;
         break;
+      case 'hook-context':
+        tokensByCategory.hookContext += injection.estimatedTokens;
+        accumulatedCounts.hookContext += injection.breakdown.length;
+        break;
     }
   }
 
@@ -899,7 +944,8 @@ function computeContextStats(params: ComputeContextStatsParams): ComputeContextS
     tokensByCategory.toolOutputs +
     tokensByCategory.thinkingText +
     tokensByCategory.taskCoordination +
-    tokensByCategory.userMessages;
+    tokensByCategory.userMessages +
+    tokensByCategory.hookContext;
 
   return {
     stats: {

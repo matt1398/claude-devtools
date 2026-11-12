@@ -25,6 +25,7 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string 
   'thinking-text': { bg: 'rgba(167, 139, 250, 0.15)', text: '#a78bfa', label: 'Thinking' },
   'task-coordination': { bg: 'rgba(251, 146, 60, 0.15)', text: '#fb923c', label: 'Team' },
   'user-message': { bg: 'rgba(96, 165, 250, 0.15)', text: '#60a5fa', label: 'User' },
+  'hook-context': { bg: 'rgba(244, 114, 182, 0.15)', text: '#f472b6', label: 'Hook' },
 };
 
 // =============================================================================
@@ -153,6 +154,20 @@ function flattenInjections(injections: ContextInjection[]): FlatRow[] {
           navigationType: 'user-group',
         });
         break;
+
+      case 'hook-context':
+        for (const item of inj.breakdown) {
+          rows.push({
+            key: `${inj.id}-${item.label}-${rows.length}`,
+            category: 'hook-context',
+            label: item.label,
+            description: `Turn ${inj.turnIndex + 1} · ${item.text}`,
+            tokens: item.tokenCount,
+            turnIndex: inj.turnIndex,
+            navigationType: 'turn',
+          });
+        }
+        break;
     }
   }
 
@@ -191,9 +206,7 @@ export const FlatInjectionList = ({
           }
         };
 
-        const displayText = row.description
-          ? `${row.label} \u2014 ${row.description}`
-          : row.label;
+        const displayText = row.description ? `${row.label} \u2014 ${row.description}` : row.label;
 
         return (
           <div key={row.key} className="flex items-center gap-0.5">

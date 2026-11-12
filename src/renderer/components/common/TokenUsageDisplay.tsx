@@ -83,6 +83,7 @@ const SessionContextSection = ({
   const toolOutputsCount = counts.toolOutputs;
   const taskCoordinationCount = counts.taskCoordination;
   const userMessagesCount = counts.userMessages;
+  const hookContextCount = counts.hookContext;
 
   // Calculate percentages for each category
   const claudeMdPercent =
@@ -106,6 +107,10 @@ const SessionContextSection = ({
   const userMessagesPercent =
     totalTokens > 0
       ? Math.min((tokensByCategory.userMessages / totalTokens) * 100, 100).toFixed(1)
+      : '0.0';
+  const hookContextPercent =
+    totalTokens > 0
+      ? Math.min((tokensByCategory.hookContext / totalTokens) * 100, 100).toFixed(1)
       : '0.0';
 
   return (
@@ -204,6 +209,19 @@ const SessionContextSection = ({
               <span className="tabular-nums" style={{ color: COLOR_TEXT_SECONDARY }}>
                 {formatTokens(tokensByCategory.userMessages)}{' '}
                 <span className="opacity-60">({userMessagesPercent}%)</span>
+              </span>
+            </div>
+          )}
+
+          {/* Hook Context */}
+          {tokensByCategory.hookContext > 0 && (
+            <div className="flex items-center justify-between text-[10px]">
+              <span style={{ color: COLOR_TEXT_MUTED }}>
+                Hook Context <span className="opacity-60">×{hookContextCount}</span>
+              </span>
+              <span className="tabular-nums" style={{ color: COLOR_TEXT_SECONDARY }}>
+                {formatTokens(tokensByCategory.hookContext)}{' '}
+                <span className="opacity-60">({hookContextPercent}%)</span>
               </span>
             </div>
           )}

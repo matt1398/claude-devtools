@@ -154,6 +154,26 @@ export interface UserMessageInjection {
   textPreview: string;
 }
 
+/** A hook-provided context block captured from a Claude Code system reminder. */
+export interface HookAdditionalContextItem {
+  /** Hook event and matcher, when present in the transcript reminder. */
+  label: string;
+  /** Context text injected by the hook. */
+  text: string;
+  /** Estimated tokens for this context block. */
+  tokenCount: number;
+}
+
+/** Hook additionalContext values injected during a single AI turn. */
+export interface HookContextInjection {
+  id: string;
+  category: 'hook-context';
+  turnIndex: number;
+  aiGroupId: string;
+  estimatedTokens: number;
+  breakdown: HookAdditionalContextItem[];
+}
+
 // =============================================================================
 // Task Coordination Types
 // =============================================================================
@@ -217,7 +237,8 @@ export type ContextInjection =
   | ToolOutputInjection
   | ThinkingTextInjection
   | TaskCoordinationInjection
-  | UserMessageInjection;
+  | UserMessageInjection
+  | HookContextInjection;
 
 // =============================================================================
 // Statistics Types
@@ -239,6 +260,8 @@ export interface TokensByCategory {
   taskCoordination: number;
   /** Tokens from user messages */
   userMessages: number;
+  /** Tokens from hook additionalContext values */
+  hookContext: number;
 }
 
 /**
@@ -257,6 +280,8 @@ export interface NewCountsByCategory {
   taskCoordination: number;
   /** Count of new user message injections */
   userMessages: number;
+  /** Count of hook additionalContext values */
+  hookContext: number;
 }
 
 /**
